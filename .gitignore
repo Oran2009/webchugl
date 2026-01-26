@@ -1,0 +1,41 @@
+# Build directories
+src/host-web/build/
+src/host-web/build-audio/
+src/host-web/build2/
+
+# CMake generated
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Emscripten SDK (don't track the SDK itself)
+emsdk*/
+
+# Editor/IDE
+.vscode/
+.idea/
+*.suo
+*.user
+*.swp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+nul
+
+# Corrupted/temp files
+src/host-web/build" && cp*
+
+# Large binary files
+*.wasm
+*.o
+*.a
+*.lib
+
+# Log files
+*.log
+chuck
+chugl
+webchuck
