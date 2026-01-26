@@ -1,22 +1,26 @@
 # WebChuGL Setup Script
-# Clones dependencies and applies patches for WebChuGL development
+# Clones dependencies, installs Emscripten SDK, and applies patches
 #
 # Usage: ./setup.ps1
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = $PSScriptRoot
 
-# Dependency versions (commits that patches apply to)
+# Dependency versions
 $CHUGL_REPO = "https://github.com/ccrma/chugl.git"
 $CHUGL_COMMIT = "9d6245a"
 
 $CHUCK_REPO = "https://github.com/ccrma/chuck.git"
 $CHUCK_COMMIT = "60caede9"
 
+$EMSDK_VERSION = "3.1.61"
+
 Write-Host "=== WebChuGL Setup ===" -ForegroundColor Cyan
 Write-Host ""
 
-# Clone or update chugl
+# ============================================================================
+# Clone chugl
+# ============================================================================
 $ChuglDir = Join-Path $ProjectRoot "chugl"
 if (Test-Path $ChuglDir) {
     Write-Host "[chugl] Directory exists, checking commit..." -ForegroundColor Yellow
@@ -38,13 +42,15 @@ if (Test-Path $ChuglDir) {
     Write-Host "[chugl] Cloned and checked out $CHUGL_COMMIT" -ForegroundColor Green
 }
 
-# Clone or update chuck
+# ============================================================================
+# Clone chuck
+# ============================================================================
 $ChuckDir = Join-Path $ProjectRoot "chuck"
 if (Test-Path $ChuckDir) {
     Write-Host "[chuck] Directory exists, checking commit..." -ForegroundColor Yellow
     Push-Location $ChuckDir
     $currentCommit = git rev-parse --short HEAD
-    if ($currentCommit -ne $CHUCK_COMMIT.Substring(0,7)) {
+    if ($currentCommit -ne $CHUCK_COMMIT.Substring(0,8)) {
         Write-Host "[chuck] Warning: Current commit ($currentCommit) differs from expected ($CHUCK_COMMIT)" -ForegroundColor Red
         Write-Host "[chuck] You may need to: git checkout $CHUCK_COMMIT" -ForegroundColor Red
     } else {
@@ -60,7 +66,56 @@ if (Test-Path $ChuckDir) {
     Write-Host "[chuck] Cloned and checked out $CHUCK_COMMIT" -ForegroundColor Green
 }
 
+# ============================================================================
+# Install Emscripten SDK
+# ============================================================================
+$EmsdkDir = Join-Path $ProjectRoot "emsdk-$EMSDK_VERSION"
+$EmsdkInstall = Join-Path $EmsdkDir "install\emscripten"
+
+if (Test-Path $EmsdkInstall) {
+    Write-Host "[emsdk] Emscripten $EMSDK_VERSION already installed" -ForegroundColor Green
+} else {
+    Write-Host ""
+    Write-Host "=== Installing Emscripten SDK $EMSDK_VERSION ===" -ForegroundColor Cyan
+
+    # Clone emsdk if needed
+    if (-not (Test-Path $EmsdkDir)) {
+        Write-Host "[emsdk] Cloning emsdk..." -ForegroundColor Yellow
+        git clone https://github.com/emscripten-core/emsdk.git $EmsdkDir
+    }
+
+    Push-Location $EmsdkDir
+
+    Write-Host "[emsdk] Installing version $EMSDK_VERSION..." -ForegroundColor Yellow
+    if ($IsWindows -or $env:OS -eq "Windows_NT") {
+        .\emsdk.bat install $EMSDK_VERSION
+    } else {
+        ./emsdk install $EMSDK_VERSION
+    }
+
+    Write-Host "[emsdk] Activating version $EMSDK_VERSION..." -ForegroundColor Yellow
+    if ($IsWindows -or $env:OS -eq "Windows_NT") {
+        .\emsdk.bat activate $EMSDK_VERSION
+    } else {
+        ./emsdk activate $EMSDK_VERSION
+    }
+
+    # Move to install subdirectory for cleaner structure
+    $UpstreamEmscripten = Join-Path $EmsdkDir "upstream\emscripten"
+    if (Test-Path $UpstreamEmscripten) {
+        $InstallDir = Join-Path $EmsdkDir "install"
+        New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+        Move-Item $UpstreamEmscripten $InstallDir -Force
+        Write-Host "[emsdk] Moved emscripten to install/" -ForegroundColor Gray
+    }
+
+    Pop-Location
+    Write-Host "[emsdk] Emscripten $EMSDK_VERSION installed successfully" -ForegroundColor Green
+}
+
+# ============================================================================
 # Apply patches
+# ============================================================================
 $PatchDir = Join-Path $ProjectRoot "patches"
 
 Write-Host ""
@@ -96,11 +151,14 @@ if (Test-Path $ChuckPatch) {
     Pop-Location
 }
 
+# ============================================================================
+# Done
+# ============================================================================
 Write-Host ""
 Write-Host "=== Setup Complete ===" -ForegroundColor Green
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
-Write-Host "  1. Install Emscripten SDK to emsdk-3.1.61/" -ForegroundColor Gray
-Write-Host "  2. cd src && ./build.ps1" -ForegroundColor Gray
-Write-Host "  3. python serve.py" -ForegroundColor Gray
+Write-Host "  cd src" -ForegroundColor Gray
+Write-Host "  ./build.ps1       # or ./build.sh on Unix" -ForegroundColor Gray
+Write-Host "  python serve.py" -ForegroundColor Gray
 Write-Host ""

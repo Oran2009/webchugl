@@ -1,6 +1,6 @@
 #!/bin/bash
 # WebChuGL Setup Script
-# Clones dependencies and applies patches for WebChuGL development
+# Clones dependencies, installs Emscripten SDK, and applies patches
 #
 # Usage: ./setup.sh
 
@@ -8,17 +8,21 @@ set -e
 
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-# Dependency versions (commits that patches apply to)
+# Dependency versions
 CHUGL_REPO="https://github.com/ccrma/chugl.git"
 CHUGL_COMMIT="9d6245a"
 
 CHUCK_REPO="https://github.com/ccrma/chuck.git"
 CHUCK_COMMIT="60caede9"
 
+EMSDK_VERSION="3.1.61"
+
 echo "=== WebChuGL Setup ==="
 echo ""
 
-# Clone or update chugl
+# ============================================================================
+# Clone chugl
+# ============================================================================
 CHUGL_DIR="$PROJECT_ROOT/chugl"
 if [ -d "$CHUGL_DIR" ]; then
     echo "[chugl] Directory exists, checking commit..."
@@ -40,7 +44,9 @@ else
     echo "[chugl] Cloned and checked out $CHUGL_COMMIT"
 fi
 
-# Clone or update chuck
+# ============================================================================
+# Clone chuck
+# ============================================================================
 CHUCK_DIR="$PROJECT_ROOT/chuck"
 if [ -d "$CHUCK_DIR" ]; then
     echo "[chuck] Directory exists, checking commit..."
@@ -62,7 +68,46 @@ else
     echo "[chuck] Cloned and checked out $CHUCK_COMMIT"
 fi
 
+# ============================================================================
+# Install Emscripten SDK
+# ============================================================================
+EMSDK_DIR="$PROJECT_ROOT/emsdk-$EMSDK_VERSION"
+EMSDK_INSTALL="$EMSDK_DIR/install/emscripten"
+
+if [ -d "$EMSDK_INSTALL" ]; then
+    echo "[emsdk] Emscripten $EMSDK_VERSION already installed"
+else
+    echo ""
+    echo "=== Installing Emscripten SDK $EMSDK_VERSION ==="
+
+    # Clone emsdk if needed
+    if [ ! -d "$EMSDK_DIR" ]; then
+        echo "[emsdk] Cloning emsdk..."
+        git clone https://github.com/emscripten-core/emsdk.git "$EMSDK_DIR"
+    fi
+
+    cd "$EMSDK_DIR"
+
+    echo "[emsdk] Installing version $EMSDK_VERSION..."
+    ./emsdk install $EMSDK_VERSION
+
+    echo "[emsdk] Activating version $EMSDK_VERSION..."
+    ./emsdk activate $EMSDK_VERSION
+
+    # Move to install subdirectory for cleaner structure
+    mkdir -p install
+    if [ -d "upstream/emscripten" ]; then
+        mv upstream/emscripten install/
+        echo "[emsdk] Moved emscripten to install/"
+    fi
+
+    cd "$PROJECT_ROOT"
+    echo "[emsdk] Emscripten $EMSDK_VERSION installed successfully"
+fi
+
+# ============================================================================
 # Apply patches
+# ============================================================================
 PATCH_DIR="$PROJECT_ROOT/patches"
 
 echo ""
@@ -96,11 +141,14 @@ if [ -f "$CHUCK_PATCH" ]; then
     cd "$PROJECT_ROOT"
 fi
 
+# ============================================================================
+# Done
+# ============================================================================
 echo ""
 echo "=== Setup Complete ==="
 echo ""
 echo "Next steps:"
-echo "  1. Install Emscripten SDK to emsdk-3.1.61/"
-echo "  2. cd src && ./build.ps1  (or use emcmake/emmake directly)"
-echo "  3. python serve.py"
+echo "  cd src"
+echo "  ./build.sh        # or ./build.ps1 on Windows"
+echo "  python serve.py"
 echo ""
