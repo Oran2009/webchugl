@@ -1,0 +1,1556 @@
+diff --git a/src/ChuGL.cpp b/src/ChuGL.cpp
+index 1c3c674..fd5ae90 100644
+--- a/src/ChuGL.cpp
++++ b/src/ChuGL.cpp
+@@ -32,12 +32,16 @@
+ 
+ // ulibs
+ #include "ulib_color.cpp"
++#ifndef WEBCHUGL_NO_BOX2D
+ #include "ulib_box2d.cpp"
++#endif
+ #include "ulib_component.cpp"
+ #include "ulib_camera.cpp"
+ #include "ulib_scene.cpp"
+ #include "ulib_geometry.cpp"
++#ifndef WEBCHUGL_NO_IMGUI
+ #include "ulib_imgui.cpp"
++#endif
+ #include "ulib_material.cpp"
+ #include "ulib_texture.cpp"
+ #include "ulib_text.cpp"
+@@ -46,7 +50,9 @@
+ #include "ulib_buffer.cpp"
+ #include "ulib_light.cpp"
+ 
++#ifndef WEBCHUGL_NO_VIDEO
+ #include "ulib_video.cpp"
++#endif
+ 
+ #ifndef CHUGL_FAST_COMPILE
+ #include "ulib_assloader.cpp"
+@@ -55,13 +61,18 @@
+ 
+ // vendor
+ #include <sokol/sokol_time.h>
++#ifndef __EMSCRIPTEN__
+ #include <tinyfiledialogs/tinyfiledialogs.h>
++#endif
++#ifndef __EMSCRIPTEN__
+ #include <tinycthread/tinycthread.h>
++#endif
+ 
+ // clang-format on
+ 
+ static f64 ckdt_sec      = 0;
+ static f64 system_dt_sec = 0;
++
+ static App chugl_app     = {};
+ 
+ t_CKBOOL chugl_main_loop_hook(void* bindle)
+@@ -333,7 +344,9 @@ static void chugl_GraphicsShredPerformNextFrameUpdate(Chuck_VM_Shred* SHRED)
+     // activate hook only on GG.nextFrame();
+     if (!hookActivated) {
+         hookActivated = true;
++#ifndef __EMSCRIPTEN__
+         hook->activate(hook);
++#endif
+     }
+ 
+     if (allShredsWaiting && first_of_last_shreds_waited) {
+@@ -704,6 +717,7 @@ void processAsyncFileDialogResults()
+     spinlock::unlock(&file_dialog_lock);
+ }
+ 
++#ifndef __EMSCRIPTEN__
+ /* This is the child thread function */
+ int OpenFileDialogThread(void* arg)
+ {
+@@ -724,6 +738,7 @@ int OpenFileDialogThread(void* arg)
+     /* returns NULL on cancel */
+     return 0;
+ }
++#endif // __EMSCRIPTEN__
+ 
+ // #define thrd_error    0 /**< The requested operation failed */
+ // #define thrd_success  1 /**< The requested operation succeeded */
+@@ -751,20 +766,23 @@ Chuck_Object* chugl_create_file_dialog_event(FileDialogType type, Chuck_VM_Shred
+ 
+ CK_DLL_SFUN(chugl_open_file_dialog_async)
+ {
++#ifdef __EMSCRIPTEN__
++    RETURN->v_object = NULL; // File dialogs not supported on web
++#else
+     Chuck_Object* event = chugl_create_file_dialog_event(FileDialog_Open, SHRED);
+     thrd_t t;
+     if (thrd_create(&t, OpenFileDialogThread, event) != thrd_success) {
+-        // TODO error msg
+-
+-        // char* file       = tinyfd_openFileDialog(NULL, NULL, 0, NULL, NULL, 0);
+-        // RETURN->v_object = (Chuck_Object*)chugin_createCkString(file, false);
+     }
+ 
+     RETURN->v_object = event;
++#endif
+ }
+ 
+ CK_DLL_SFUN(chugl_open_file_dialog)
+ {
++#ifdef __EMSCRIPTEN__
++    RETURN->v_object = NULL; // File dialogs not supported on web
++#else
+     Chuck_String* ck_str_default_path = GET_NEXT_STRING(ARGS);
+ 
+     const char* default_path
+@@ -776,21 +794,14 @@ CK_DLL_SFUN(chugl_open_file_dialog)
+     } else {
+         RETURN->v_object = NULL;
+     }
+-
+-    // char * tinyfd_openFileDialog(
+-    // 	char const * aTitle, /* NULL or "" */
+-    // 	char const * aDefaultPathAndOrFile, /* NULL or "" , ends with / to set only a
+-    // directory */ 	int aNumOfFilterPatterns , /* 0 (2 in the following example) */
+-    // char const * const * aFilterPatterns, /* NULL or char const *
+-    // lFilterPatterns[2]={"*.png","*.jpg"}; */ 	char const *
+-    // aSingleFilterDescription,
+-    // /* NULL or "image files" */ 	int aAllowMultipleSelects ) ; /* 0 or 1 */
+-    /* in case of multiple files, the separator is | */
+-    /* returns NULL on cancel */
++#endif
+ }
+ 
+ CK_DLL_SFUN(chugl_save_file_dialog_ex)
+ {
++#ifdef __EMSCRIPTEN__
++    RETURN->v_object = NULL; // File dialogs not supported on web
++#else
+     Chuck_String* ck_str_default_path = GET_NEXT_STRING(ARGS);
+ 
+     const char* default_path
+@@ -802,10 +813,14 @@ CK_DLL_SFUN(chugl_save_file_dialog_ex)
+     } else {
+         RETURN->v_object = NULL;
+     }
++#endif
+ }
+ 
+ CK_DLL_SFUN(chugl_select_folder_dialog)
+ {
++#ifdef __EMSCRIPTEN__
++    RETURN->v_object = NULL; // File dialogs not supported on web
++#else
+     Chuck_String* ck_str_default_path = GET_NEXT_STRING(ARGS);
+ 
+     const char* default_path
+@@ -817,6 +832,7 @@ CK_DLL_SFUN(chugl_select_folder_dialog)
+     } else {
+         RETURN->v_object = NULL;
+     }
++#endif
+ }
+ 
+ // ============================================================================
+@@ -846,6 +862,9 @@ CK_DLL_QUERY(ChuGL)
+     log_set_level(LOG_WARN); // only log errors and fatal in release mode
+ #endif
+ 
++    // initialize performance counters (sokol_time)
++    stm_setup();
++
+     // remember
+     g_chuglVM  = QUERY->ck_vm(QUERY);
+     g_chuglAPI = QUERY->ck_api(QUERY);
+@@ -867,9 +886,11 @@ CK_DLL_QUERY(ChuGL)
+     SG_Init(g_chuglAPI);
+     CQ_Init();
+ 
++#ifndef __EMSCRIPTEN__
+     // set up for main thread hook, for running ChuGL on the main thread
+     hook = QUERY->create_main_thread_hook(QUERY, chugl_main_loop_hook,
+                                           chugl_main_loop_quit, NULL);
++#endif
+ 
+     // initialize ChuGL API ========================================
+     { // chugl events
+@@ -943,14 +964,18 @@ CK_DLL_QUERY(ChuGL)
+     }
+ 
+     ulib_color_query(QUERY);
++#ifndef WEBCHUGL_NO_BOX2D
+     ulib_box2d_query(QUERY);
++#endif
+ 
+     ulib_window_query(QUERY);
+     ulib_component_query(QUERY);
+     ulib_texture_query(QUERY);
+     ulib_ggen_query(QUERY);
+     ulib_light_query(QUERY);
++#ifndef WEBCHUGL_NO_IMGUI
+     ulib_imgui_query(QUERY);
++#endif
+     ulib_camera_query(QUERY);
+     ulib_buffer_query(QUERY);
+     ulib_geometry_query(QUERY);
+@@ -960,7 +985,9 @@ CK_DLL_QUERY(ChuGL)
+     ulib_pass_query(QUERY);
+     ulib_text_query(QUERY);
+ 
++#ifndef WEBCHUGL_NO_VIDEO
+     ulib_video_query(QUERY);
++#endif
+ 
+ #ifndef CHUGL_FAST_COMPILE
+     ulib_assloader_query(QUERY);
+diff --git a/src/all.cpp b/src/all.cpp
+index 7269768..02dd579 100644
+--- a/src/all.cpp
++++ b/src/all.cpp
+@@ -31,11 +31,15 @@
+ // clang-format off
+ 
+ #include "chugl_defines.h"
+-#include "graphics.cpp"
++
++// Core components always included
+ #include "geometry.cpp"
+ #include "sync.cpp"
+ #include "sg_component.cpp" // chugl scenegraph API
+ #include "sg_command.cpp"
++
++// Rendering components
++#include "graphics.cpp"
+ #include "r_component.cpp" // chugl renderer API
+ #include "app.cpp"
+ 
+diff --git a/src/app.cpp b/src/app.cpp
+index f083176..924a2c9 100644
+--- a/src/app.cpp
++++ b/src/app.cpp
+@@ -30,19 +30,23 @@
+ #include <stdlib.h>
+ #include <time.h>
+ 
++#ifndef WEBCHUGL_NO_BOX2D
+ #include <box2d/box2d.h>
+ // necessary for copying from command
+ static_assert(sizeof(u32) == sizeof(b2WorldId), "b2WorldId != u32");
++#endif
+ 
+ #include <GLFW/glfw3.h>
+ #include <chuck/chugin.h>
+ #include <glfw3webgpu/glfw3webgpu.h>
+ #include <glm/gtx/string_cast.hpp>
+ 
++#ifndef WEBCHUGL_NO_IMGUI
+ #include <imgui/backends/imgui_impl_glfw.h>
+ #include <imgui/backends/imgui_impl_wgpu.h>
+ #include <imgui/imgui.h>
+ #include <imgui/imgui_internal.h> // ImPool<>, ImHashData
++#endif
+ 
+ #include <nanotime/nanotime.h>
+ #include <sokol/sokol_time.h>
+@@ -52,6 +56,16 @@ static_assert(sizeof(u32) == sizeof(b2WorldId), "b2WorldId != u32");
+ 
+ #ifdef __EMSCRIPTEN__
+ #include <emscripten/html5.h>
++
++// Pre-frame callback for web builds (used by webchugl_main.cpp to run the VM)
++static void (*g_webchugl_pre_frame_fn)(void*) = nullptr;
++static void* g_webchugl_pre_frame_data = nullptr;
++
++extern "C" void webchugl_set_pre_frame_callback(void (*fn)(void*), void* data)
++{
++    g_webchugl_pre_frame_fn = fn;
++    g_webchugl_pre_frame_data = data;
++}
+ #endif
+ 
+ // #include "camera.cpp"
+@@ -63,8 +77,11 @@ static_assert(sizeof(u32) == sizeof(b2WorldId), "b2WorldId != u32");
+ #include "core/hashmap.h"
+ #include "core/log.h"
+ 
++#ifndef WEBCHUGL_NO_IMGUI
+ #include "compressed_fonts.h"
++#endif
+ 
++#ifndef WEBCHUGL_NO_IMGUI
+ // Usage:
+ //  static ImDrawDataSnapshot snapshot; // Important: make persistent accross
+ //  frames to reuse buffers. snapshot.SnapUsingSwap(ImGui::GetDrawData(),
+@@ -172,6 +189,7 @@ static WGPUTextureView ImGui_ImplWGPU_GetTextureId(ImTextureID id, void* user)
+     desc = { tex->gpu_texture, WGPUTextureViewDimension_2D, 0, 1, 0, 1 };
+     return cache->textureView(desc);
+ }
++#endif // WEBCHUGL_NO_IMGUI
+ 
+ struct TickStats {
+     u64 fc    = 0;
+@@ -294,8 +312,10 @@ struct App {
+     // imgui
+     bool imgui_disabled = false;
+ 
++#ifndef WEBCHUGL_NO_BOX2D
+     // box2D physics
+     b2_SimulateDesc b2_sim_desc;
++#endif
+ 
+     // FreeType
+     FT_Library FTLibrary;
+@@ -328,16 +348,12 @@ struct App {
+         // init rendergraph
+         app->rendergraph.init();
+ 
++#ifndef WEBCHUGL_NO_BOX2D
+         // b2 sim defaults
+         ASSERT(app->b2_sim_desc.substeps == 4);
++#endif
+     }
+ 
+-    // static void emscriptenMainLoop(void* arg)
+-    // {
+-    //     App* app = (App*)arg;
+-    //     gameloop(app);
+-    // }
+-
+     static void start(App* app)
+     {
+         ASSERT(app->window == NULL);
+@@ -401,6 +417,7 @@ struct App {
+         // initialize R_Component manager
+         Component_Init(&app->gctx);
+ 
++#ifndef WEBCHUGL_NO_IMGUI
+         { // initialize imgui
+             // Setup Dear ImGui context
+             IMGUI_CHECKVERSION();
+@@ -416,20 +433,17 @@ struct App {
+ 
+             // load builtin fonts
+             io.Fonts->AddFontDefault();
+-            // io.Fonts->AddFontFromFileTTF(
+-            //   "/Users/Andrew/Google-Drive/Stanford/chugl/assets/fonts/DroidSans.ttf",
+-            //   16);
+             ImFontConfig font_cfg = ImFontConfig();
+             font_cfg.SizePixels   = 16.0f;
+             ImFormatString(font_cfg.Name, IM_ARRAYSIZE(font_cfg.Name),
+                            "CousineRegular.ttf, %dpx", (int)font_cfg.SizePixels);
+-            io.Fonts->AddFontFromMemoryCompressedBase85TTF( // works but no filename
++            io.Fonts->AddFontFromMemoryCompressedBase85TTF(
+               cousine_regular_compressed_data_base85, font_cfg.SizePixels, &font_cfg);
+ 
+             // Setup Dear ImGui style
+             ImGui::StyleColorsDark();
+-            // ImGui::StyleColorsLight();
+         }
++#endif
+ 
+         { // set window callbacks
+             glfwSetWindowUserPointer(app->window, app);
+@@ -450,6 +464,7 @@ struct App {
+                               //   https://github.com/glfw/glfw/issues/1968)
+         }
+ 
++#ifndef WEBCHUGL_NO_IMGUI
+         // Setup ImGui Platform/Renderer backends
+         {
+             ImGui_ImplGlfw_InitForOther(app->window, true);
+@@ -460,20 +475,22 @@ struct App {
+             init_info.Device             = app->gctx.device;
+             init_info.NumFramesInFlight  = 3;
+             init_info.RenderTargetFormat = app->gctx.surface_format;
+-            // init_info.DepthStencilFormat = app->gctx.depthTextureDesc.format;
+             ImGui_ImplWGPU_Init(&init_info);
+         }
++#endif
+ 
+         // trigger window resize callback to set up imgui
+         int width, height;
+         glfwGetFramebufferSize(app->window, &width, &height);
+         _onFramebufferResize(app->window, width, height);
+ 
++#ifndef WEBCHUGL_NO_IMGUI
+         // initialize imgui frame (should be threadsafe as long as graphics
+         // shreds start with GG.nextFrame() => now)
+         ImGui_ImplWGPU_NewFrame();
+         ImGui_ImplGlfw_NewFrame();
+         ImGui::NewFrame();
++#endif
+ 
+         // main loop
+         log_trace("entering  main loop");
+@@ -483,12 +500,23 @@ struct App {
+         // instead pass a callback to emscripten_set_main_loop_arg
+         emscripten_set_main_loop_arg(
+           [](void* runner) {
+-              App::emscriptenMainLoop(runner);
+-              //   gameloop(app);
+-              // if (glfwWindowShouldClose(app->window)) {
+-              //     if (app->callbacks.onExit) app->callbacks.onExit();
+-              //     emscripten_cancel_main_loop(); // unregister the main loop
+-              // }
++              App* app = (App*)runner;
++
++              // Run pre-frame callback (VM advancement on web)
++              if (g_webchugl_pre_frame_fn) {
++                  g_webchugl_pre_frame_fn(g_webchugl_pre_frame_data);
++              }
++
++              // Frame metrics
++              _calculateFPS(app->window, app->show_fps_title);
++              ++app->fc;
++              f64 currentTime = glfwGetTime();
++              if (app->lastTime == 0) app->lastTime = currentTime;
++              app->dt       = currentTime - app->lastTime;
++              app->lastTime = currentTime;
++
++              _mainLoop(app);
++              Arena::clear(&app->frameArena);
+           },
+           app, // user data (void *)
+           -1,  // FPS (negative means use browser's requestAnimationFrame)
+@@ -592,12 +620,17 @@ struct App {
+             - exposes a gameloop to chuck, gauranteed to be executed once per
+         frame deadlock shouldn't happen because both locks are never held at the
+         same time */
++#ifndef WEBCHUGL_NO_IMGUI
+         bool do_ui = !app->imgui_disabled;
++#else
++        bool do_ui = false;
++#endif
+ 
+         {
+             CQ_SwapQueues(); // ~ .0001ms
+ 
+             // u64 critical_start = stm_now();
++#ifndef WEBCHUGL_NO_IMGUI
+             // Rendering
+             if (do_ui) {
+                 ImGui::Render();
+@@ -605,6 +638,7 @@ struct App {
+                 // copy imgui draw data for rendering later
+                 snapshot.SnapUsingSwap(ImGui::GetDrawData(), ImGui::GetTime());
+             }
++#endif
+ 
+             // imgui and window callbacks
+             CHUGL_Zero_MouseDeltasAndClickState();
+@@ -620,6 +654,7 @@ struct App {
+                 glfwPollEvents();
+             }
+ 
++#ifndef __EMSCRIPTEN__
+             { // gamepad
+                 for (int gamepad_idx = 0; gamepad_idx <= GLFW_JOYSTICK_LAST;
+                      gamepad_idx++) {
+@@ -663,7 +698,9 @@ struct App {
+                     }
+                 }
+             }
++#endif // __EMSCRIPTEN__ (gamepad)
+ 
++#ifndef WEBCHUGL_NO_IMGUI
+             if (do_ui) {
+                 // reset imgui
+                 ImGui_ImplWGPU_NewFrame();
+@@ -674,9 +711,11 @@ struct App {
+                 ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(),
+                                              ImGuiDockNodeFlags_PassthruCentralNode);
+             }
++#endif
+             // ~2.15ms (15%) In DEBUG mode!
+             // critical_section_stats.update(stm_since(critical_start));
+ 
++#ifndef WEBCHUGL_NO_BOX2D
+             // physics
+             // we intentionally are NOT having a fixed timestep for the sake of
+             // simplicity.
+@@ -693,6 +732,7 @@ struct App {
+                 // log_trace("drawing debug");
+                 // b2World_Draw(app->b2_world_id, &debug_draw);
+             }
++#endif
+         }
+ 
+         // done swapping the double buffer, let chuck know it's good to continue
+@@ -700,7 +740,9 @@ struct App {
+         // GG.nextFrame()
+ 
+         // grabs waitingShredsLock
+-        Event_Broadcast(CHUGL_EventType::NEXT_FRAME, app->ckapi, app->ckvm);
++        if (app->ckapi && app->ckvm) {
++            Event_Broadcast(CHUGL_EventType::NEXT_FRAME, app->ckapi, app->ckvm);
++        }
+ 
+         // ====================
+         // end critical section
+@@ -750,6 +792,7 @@ struct App {
+             return;
+         }
+ 
++#ifndef WEBCHUGL_NO_VIDEO
+         { // update webcam textures
+             size_t webcam_idx = 0;
+             R_Webcam* webcam  = NULL;
+@@ -769,6 +812,7 @@ struct App {
+                 }
+             }
+         }
++#endif
+ 
+         // get fresh window info
+         f32 aspect = (app->window_fb_width > 0 && app->window_fb_height > 0) ?
+@@ -1219,6 +1263,7 @@ struct App {
+         // and with imgui pass
+         app->rendergraph.executeAndReset(app->gctx.device, app->gctx.commandEncoder);
+ 
++#ifndef WEBCHUGL_NO_IMGUI
+         // imgui render pass
+         if (do_ui && !resized_this_frame) {
+             WGPURenderPassColorAttachment imgui_color_attachment = {};
+@@ -1244,6 +1289,7 @@ struct App {
+             wgpuRenderPassEncoderEnd(render_pass);
+             wgpuRenderPassEncoderRelease(render_pass);
+         }
++#endif
+ 
+         GraphicsContext::presentFrame(&app->gctx);
+     }
+@@ -1279,7 +1325,9 @@ struct App {
+ 
+         // ChuGL
+         // broadcast WindowCloseEvent
+-        Event_Broadcast(CHUGL_EventType::WINDOW_CLOSE, app->ckapi, app->ckvm);
++        if (app->ckapi && app->ckvm) {
++            Event_Broadcast(CHUGL_EventType::WINDOW_CLOSE, app->ckapi, app->ckvm);
++        }
+         // block closeable
+         if (!CHUGL_Window_Closeable()) glfwSetWindowShouldClose(window, GLFW_FALSE);
+     }
+@@ -1291,7 +1339,9 @@ struct App {
+         // broadcast to chuck
+         CHUGL_Window_ContentScale(xscale, yscale);
+         // update content scale
+-        Event_Broadcast(CHUGL_EventType::CONTENT_SCALE, app->ckapi, app->ckvm);
++        if (app->ckapi && app->ckvm) {
++            Event_Broadcast(CHUGL_EventType::CONTENT_SCALE, app->ckapi, app->ckvm);
++        }
+     }
+ 
+     static void _keyCallback(GLFWwindow* window, int key, int scancode, int action,
+@@ -1339,7 +1389,9 @@ struct App {
+         glfwGetWindowSize(window, &app->window_width, &app->window_height);
+         CHUGL_Window_Size(app->window_width, app->window_height, width, height);
+         // broadcast to chuck
+-        Event_Broadcast(CHUGL_EventType::WINDOW_RESIZE, app->ckapi, app->ckvm);
++        if (app->ckapi && app->ckvm) {
++            Event_Broadcast(CHUGL_EventType::WINDOW_RESIZE, app->ckapi, app->ckvm);
++        }
+     }
+ 
+     static void _mouseButtonCallback(GLFWwindow* window, int button, int action,
+@@ -1347,8 +1399,10 @@ struct App {
+     {
+         // log_debug("mouse button callback");
+ 
++#ifndef WEBCHUGL_NO_IMGUI
+         ImGuiIO& io = ImGui::GetIO();
+         if (io.WantCaptureMouse) return;
++#endif
+ 
+         App* app = (App*)glfwGetWindowUserPointer(window);
+         UNUSED_VAR(app);
+@@ -1368,8 +1422,10 @@ struct App {
+ 
+     static void _scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
+     {
++#ifndef WEBCHUGL_NO_IMGUI
+         ImGuiIO& io = ImGui::GetIO();
+         if (io.WantCaptureMouse) return;
++#endif
+ 
+         App* app = (App*)glfwGetWindowUserPointer(window);
+         UNUSED_VAR(app);
+@@ -1379,8 +1435,10 @@ struct App {
+ 
+     static void _cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
+     {
++#ifndef WEBCHUGL_NO_IMGUI
+         ImGuiIO& io = ImGui::GetIO();
+         if (io.WantCaptureMouse) return;
++#endif
+ 
+         App* app = (App*)glfwGetWindowUserPointer(window);
+         UNUSED_VAR(app);
+@@ -1929,11 +1987,13 @@ static void _R_HandleCommand(App* app, SG_Command* command)
+             app->imgui_disabled         = cmd->disabled;
+             break;
+         }
++#ifndef WEBCHUGL_NO_BOX2D
+         // b2 ----------------------
+         case SG_COMMAND_b2_WORLD_SET: {
+             SG_Command_b2World_Set* cmd = (SG_Command_b2World_Set*)command;
+             app->b2_sim_desc            = cmd->desc;
+         } break;
++#endif
+         // component --------------
+         case SG_COMMAND_COMPONENT_UPDATE_NAME: {
+             SG_Command_ComponentUpdateName* cmd
+@@ -2391,6 +2451,7 @@ static void _R_HandleCommand(App* app, SG_Command* command)
+                 R_Scene::markPrimitiveStale(Component_GetScene(mesh->scene_id), mesh);
+             }
+         } break;
++#ifndef WEBCHUGL_NO_VIDEO
+         case SG_COMMAND_VIDEO_UPDATE: {
+             SG_Command_VideoUpdate* cmd = (SG_Command_VideoUpdate*)command;
+             R_Video* video              = Component_GetVideo(cmd->video_id);
+@@ -2424,6 +2485,7 @@ static void _R_HandleCommand(App* app, SG_Command* command)
+             SG_Command_WebcamUpdate* cmd = (SG_Command_WebcamUpdate*)command;
+             R_Webcam::update(cmd);
+         } break;
++#endif
+         default: {
+             log_error("unhandled command type: %d", command->type);
+             ASSERT(false);
+diff --git a/src/geometry.cpp b/src/geometry.cpp
+index 93ee476..55e0ea4 100644
+--- a/src/geometry.cpp
++++ b/src/geometry.cpp
+@@ -33,6 +33,7 @@
+ #include <float.h>
+ #include <vector> // ew
+ 
++#include <glm/glm.hpp>
+ #include <glm/gtc/epsilon.hpp>
+ 
+ #include <earcut/earcut.hpp>
+diff --git a/src/geometry.h b/src/geometry.h
+index 5a767e0..2b29fba 100644
+--- a/src/geometry.h
++++ b/src/geometry.h
+@@ -27,6 +27,8 @@
+ -----------------------------------------------------------------------------*/
+ #pragma once
+ 
++#include "core/macros.h"  // f32, u32, PI, etc.
++
+ struct Vertex {
+     f32 x, y, z;    // position
+     f32 nx, ny, nz; // normal
+diff --git a/src/graphics.cpp b/src/graphics.cpp
+index 09f59d8..20d8bdb 100644
+--- a/src/graphics.cpp
++++ b/src/graphics.cpp
+@@ -109,8 +109,9 @@ static WGPUAdapter request_adapter(WGPUInstance instance,
+                                onAdapterRequestEnded, (void*)&userData);
+ #ifdef __EMSCRIPTEN__
+     // In the Emscripten environment, the WebGPU adapter request is asynchronous
+-    // while (!userData.requestEnded) emscripten_sleep(10);
++    // ASYNCIFY allows yielding to the browser event loop
+     while (!userData.requestEnded) {
++        emscripten_sleep(1);
+     }
+ #endif
+     // In theory we should wait until onAdapterReady has been called, which
+@@ -153,8 +154,8 @@ static WGPUDevice request_device(WGPUAdapter adapter,
+                              (void*)&userData);
+ 
+ #ifdef __EMSCRIPTEN__
+-    // while (!userData.requestEnded) emscripten_sleep(10);
+     while (!userData.requestEnded) {
++        emscripten_sleep(1);
+     }
+ #endif
+ 
+@@ -295,6 +296,16 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+     log_trace("adapter created");
+ 
+     { // log adapter info
++#ifdef __EMSCRIPTEN__
++        WGPUAdapterProperties adapter_info = {};
++        wgpuAdapterGetProperties(adapter, &adapter_info);
++        log_info("Adapter vendor ID: %d", adapter_info.vendorID);
++        log_info("Adapter device ID: %d", adapter_info.deviceID);
++        log_info("Adapter backend type: %s",
++                 GraphicsContext_BackendTypeToString(adapter_info.backendType));
++        log_info("Adapter type: %s",
++                 GraphicsContext_AdapterTypeToString(adapter_info.adapterType));
++#else
+         WGPUAdapterInfo adapter_info;
+         wgpuAdapterGetInfo(adapter, &adapter_info);
+         log_info("Adapter vendor: %s", adapter_info.vendor);
+@@ -307,11 +318,12 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+                  GraphicsContext_AdapterTypeToString(adapter_info.adapterType));
+         log_info("Adapter vendor ID: %d", adapter_info.vendorID);
+         log_info("Adapter device ID: %d", adapter_info.deviceID);
++#endif
+     }
+ 
+     // set required limits to max supported
+-    WGPURequiredLimits requiredLimits = {};
+ #ifdef WEBGPU_BACKEND_WGPU
++    WGPURequiredLimits requiredLimits = {};
+     WGPUSupportedLimits supportedLimits = {};
+     bool success = wgpuAdapterGetLimits(adapter, &supportedLimits);
+     UNUSED_VAR(success);
+@@ -334,6 +346,16 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+     const u32 requiredFeaturesCount = ARRAY_LENGTH(requiredFeatures);
+     log_trace("required features: %d", ARRAY_LENGTH(requiredFeatures));
+ #else
++    // On Emscripten, don't call wgpuAdapterGetLimits — the Emscripten SDK's
++    // WGPUSupportedLimits struct contains deprecated fields (e.g.
++    // maxInterStageShaderComponents) that Chrome no longer provides, causing
++    // the JS shim to write undefined into the integer heap.
++    // Set only the limits we actually use to safe WebGPU spec minimums.
++    context->limits                                = {};
++    context->limits.maxTextureArrayLayers          = 256;
++    context->limits.minUniformBufferOffsetAlignment = 256;
++    context->limits.minStorageBufferOffsetAlignment = 256;
++
+     const u32 requiredFeaturesCount   = 0;
+     WGPUFeatureName* requiredFeatures = NULL;
+ #endif
+@@ -343,7 +365,9 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+     deviceDescriptor.label                = "ChuGL Device";
+     deviceDescriptor.requiredFeatureCount = requiredFeaturesCount;
+     deviceDescriptor.requiredFeatures     = requiredFeatures;
++#ifdef WEBGPU_BACKEND_WGPU
+     deviceDescriptor.requiredLimits       = &requiredLimits;
++#endif
+     deviceDescriptor.defaultQueue         = { NULL, "ChuGL queue" };
+     deviceDescriptor.deviceLostCallback
+       = [](WGPUDeviceLostReason reason, char const* message, void* /* pUserData */) {
+@@ -351,14 +375,20 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+             if (message) log_error(" (%s)", message);
+         };
+     deviceDescriptor.deviceLostUserdata          = NULL;
++#ifndef __EMSCRIPTEN__
+     deviceDescriptor.uncapturedErrorCallbackInfo = {
+         NULL, on_device_error, NULL /* pUserData */
+     };
++#endif
+ 
+     context->device = request_device(adapter, &deviceDescriptor);
+     if (!context->device) return false;
+     log_trace("device created");
+ 
++#ifdef __EMSCRIPTEN__
++    wgpuDeviceSetUncapturedErrorCallback(context->device, on_device_error, NULL);
++#endif
++
+     { // set debug callbacks
+       // #if defined(WEBGPU_BACKEND_WGPU)
+       //         wgpuSetLogLevel(WGPULogLevel_Warn);
+@@ -378,7 +408,7 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+     // determine swapchain format
+     // note: we try to always pick an 8unorm format
+     {
+-        WGPUSurfaceCapabilities surface_capabilities;
++        WGPUSurfaceCapabilities surface_capabilities = {};
+         wgpuSurfaceGetCapabilities(context->surface, adapter, &surface_capabilities);
+         context->surface_format = WGPUTextureFormat_Undefined;
+         for (int i = 0; i < surface_capabilities.formatCount; i++) {
+diff --git a/src/graphics.h b/src/graphics.h
+index 5f55b96..6be50f6 100644
+--- a/src/graphics.h
++++ b/src/graphics.h
+@@ -27,9 +27,12 @@
+ -----------------------------------------------------------------------------*/
+ #pragma once
+ 
++#include "chugl_defines.h"  // CHUGL_MATERIAL_MAX_BINDINGS
+ #include "core/macros.h"
+ #include "core/memory.h"
+ 
++#include <cstring>  // memcpy
++
+ #include <glfw3webgpu/glfw3webgpu.h>
+ #include <webgpu/webgpu.h>
+ 
+diff --git a/src/implementations.cpp b/src/implementations.cpp
+index bfa6f6f..b118c9f 100644
+--- a/src/implementations.cpp
++++ b/src/implementations.cpp
+@@ -36,12 +36,18 @@
+ #define SOKOL_TIME_IMPL
+ #include <sokol/sokol_time.h>
+ 
++#ifndef WEBCHUGL_NO_VIDEO
+ #define PL_MPEG_IMPLEMENTATION
+ #include <pl/pl_mpeg.h>
++#endif
+ 
+ #define NANOTIME_IMPLEMENTATION
+ #include <nanotime/nanotime.h>
+ 
++#ifndef __EMSCRIPTEN__
+ #include <tinyfiledialogs/tinyfiledialogs.c>
++#endif
+ 
++#ifndef __EMSCRIPTEN__
+ #include <tinycthread/tinycthread.c>
++#endif
+diff --git a/src/r_component.cpp b/src/r_component.cpp
+index b876b40..897d599 100644
+--- a/src/r_component.cpp
++++ b/src/r_component.cpp
+@@ -41,7 +41,9 @@
+ 
+ #include <glm/gtx/matrix_decompose.hpp>
+ 
++#ifndef WEBCHUGL_NO_VIDEO
+ #include <sr_webcam/include/sr_webcam.h>
++#endif
+ 
+ #include <sokol/sokol_time.h>
+ 
+@@ -1430,6 +1432,11 @@ void R_Scene::rebuildLightInfoBuffer(GraphicsContext* gctx, R_Scene* scene,
+         // just does simple alpha test
+         light_frame_uniforms.num_lights = 0;
+ 
++        // Skip if light doesn't have a valid uniform buffer
++        if (!light->frame_uniform_buffer) {
++            log_warn("Light %d has no frame_uniform_buffer, skipping", light->id);
++            continue;
++        }
+         wgpuQueueWriteBuffer(gctx->queue, light->frame_uniform_buffer, 0,
+                              &light_frame_uniforms, sizeof(light_frame_uniforms));
+ 
+@@ -1698,8 +1705,10 @@ static Arena bufferArena;
+ static Arena cameraArena;
+ static Arena textArena;
+ static Arena lightArena;
++#ifndef WEBCHUGL_NO_VIDEO
+ static Arena videoArena;
+ static Arena webcamArena;
++#endif
+ 
+ // maps from id --> offset
+ static hashmap* r_locator = NULL;
+@@ -1709,6 +1718,7 @@ static hashmap* r_locator = NULL;
+ static R_Font component_fonts[128];
+ static int component_font_count = 0;
+ 
++#ifndef WEBCHUGL_NO_VIDEO
+ // webcam
+ /*
+ set user data to be the device id
+@@ -1732,6 +1742,7 @@ struct R_WebcamData {
+ 
+ // stores webcam pixel data, device id is the key
+ static R_WebcamData _r_webcam_data[8] = {}; // supports up to 8 webcams
++#endif
+ 
+ struct R_Location {
+     SG_ID id;     // key
+@@ -1769,8 +1780,10 @@ void Component_Init(GraphicsContext* gctx)
+     Arena::init(&passArena, sizeof(R_Pass) * 16);
+     Arena::init(&bufferArena, sizeof(R_Buffer) * 64);
+     Arena::init(&lightArena, sizeof(R_Light) * 16);
++#ifndef WEBCHUGL_NO_VIDEO
+     Arena::init(&videoArena, sizeof(R_Video) * 16);
+     Arena::init(&webcamArena, sizeof(R_Webcam) * 8);
++#endif
+ 
+     // init locator
+     int seed = time(NULL);
+@@ -1799,6 +1812,7 @@ void Component_Free()
+     hashmap_free(r_locator);
+     r_locator = NULL;
+ 
++#ifndef WEBCHUGL_NO_VIDEO
+     // free webcam (doesn't crash)
+     for (int i = 0; i < ARRAY_LENGTH(_r_webcam_data); i++) {
+         if (_r_webcam_data[i].webcam) {
+@@ -1807,6 +1821,7 @@ void Component_Free()
+             _r_webcam_data[i].webcam = NULL;
+         }
+     }
++#endif
+ }
+ 
+ // analgous to audio thread's `_SG_ComponentManagerFree`
+@@ -2226,6 +2241,7 @@ R_Light* Component_CreateLight(SG_ID id, SG_LightDesc* desc, WGPUDevice device,
+     return light;
+ }
+ 
++#ifndef WEBCHUGL_NO_VIDEO
+ static void R_Video_OnVideo(plm_t* player, plm_frame_t* frame, void* video_id)
+ {
+     R_Video* video = Component_GetVideo((intptr_t)video_id);
+@@ -2443,6 +2459,7 @@ R_Webcam* Component_CreateWebcam(SG_Command_WebcamCreate* cmd)
+ 
+     return webcam;
+ }
++#endif // WEBCHUGL_NO_VIDEO
+ 
+ // linear search by font path, lazily creates if not found
+ R_Font* Component_GetFont(GraphicsContext* gctx, FT_Library library,
+@@ -2572,6 +2589,7 @@ R_Light* Component_GetLight(SG_ID id)
+     return (R_Light*)comp;
+ }
+ 
++#ifndef WEBCHUGL_NO_VIDEO
+ R_Video* Component_GetVideo(SG_ID id)
+ {
+     R_Component* comp = Component_GetComponent(id);
+@@ -2585,6 +2603,7 @@ R_Webcam* Component_GetWebcam(SG_ID id)
+     ASSERT(comp == NULL || comp->type == SG_COMPONENT_WEBCAM);
+     return (R_Webcam*)comp;
+ }
++#endif
+ 
+ bool Component_MaterialIter(size_t* i, R_Material** material)
+ {
+@@ -2598,6 +2617,7 @@ bool Component_MaterialIter(size_t* i, R_Material** material)
+     return true;
+ }
+ 
++#ifndef WEBCHUGL_NO_VIDEO
+ bool Component_VideoIter(size_t* i, R_Video** video)
+ {
+     if (*i >= ARENA_LENGTH(&videoArena, R_Video)) {
+@@ -2621,6 +2641,7 @@ bool Component_WebcamIter(size_t* i, R_Webcam** webcam)
+     ++(*i);
+     return true;
+ }
++#endif
+ 
+ // =============================================================================
+ // R_Shader
+@@ -3008,9 +3029,123 @@ static void R_Font_uploadBuffers(GraphicsContext* gctx, R_Font* font)
+                       sizeof(BufferCurve) * font->bufferCurves.size());
+ }
+ 
++#ifndef WEBCHUGL_NO_IMGUI
+ // impl in imgui_draw.cpp
+ unsigned char* imgui_decompressBase85TTF(const char* compressed_ttf_data_base85,
+                                          int* out_size);
++#else
++// Standalone Base85+STB decompression (extracted from imgui_draw.cpp, public domain)
++static unsigned int Decode85Byte_(char c) { return c >= '\\' ? c - 36 : c - 35; }
++static void Decode85_(const unsigned char* src, unsigned char* dst)
++{
++    while (*src) {
++        unsigned int tmp = Decode85Byte_(src[0]) + 85 * (Decode85Byte_(src[1]) + 85 * (Decode85Byte_(src[2]) + 85 * (Decode85Byte_(src[3]) + 85 * Decode85Byte_(src[4]))));
++        dst[0] = ((tmp >> 0) & 0xFF); dst[1] = ((tmp >> 8) & 0xFF); dst[2] = ((tmp >> 16) & 0xFF); dst[3] = ((tmp >> 24) & 0xFF);
++        src += 5;
++        dst += 4;
++    }
++}
++static unsigned int stb_decompress_length_(const unsigned char* input)
++{
++    return (input[8] << 24) + (input[9] << 16) + (input[10] << 8) + input[11];
++}
++static unsigned char *stb__barrier_out_e_, *stb__barrier_out_b_;
++static const unsigned char *stb__barrier_in_b_;
++static unsigned char *stb__dout_;
++static void stb__match_(const unsigned char* data, unsigned int length)
++{
++    if (stb__dout_ + length > stb__barrier_out_e_) { stb__dout_ += length; return; }
++    if (data < stb__barrier_out_b_) { stb__dout_ = stb__barrier_out_e_ + 1; return; }
++    while (length--) *stb__dout_++ = *data++;
++}
++static void stb__lit_(const unsigned char* data, unsigned int length)
++{
++    if (stb__dout_ + length > stb__barrier_out_e_) { stb__dout_ += length; return; }
++    if (data < stb__barrier_in_b_) { stb__dout_ = stb__barrier_out_e_ + 1; return; }
++    memcpy(stb__dout_, data, length);
++    stb__dout_ += length;
++}
++#define stb__in2_(x)   ((i[x] << 8) + i[(x)+1])
++#define stb__in3_(x)   ((i[x] << 16) + stb__in2_((x)+1))
++#define stb__in4_(x)   ((i[x] << 24) + stb__in3_((x)+1))
++static const unsigned char* stb_decompress_token_(const unsigned char* i)
++{
++    if (*i >= 0x20) {
++        if (*i >= 0x80)       stb__match_(stb__dout_-i[1]-1, i[0] - 0x80 + 1), i += 2;
++        else if (*i >= 0x40)  stb__match_(stb__dout_-(stb__in2_(0) - 0x4000 + 1), i[2]+1), i += 3;
++        else                  stb__lit_(i+1, i[0] - 0x20 + 1), i += 1 + (i[0] - 0x20 + 1);
++    } else {
++        if (*i >= 0x18)       stb__match_(stb__dout_-(stb__in3_(0) - 0x180000 + 1), i[3]+1), i += 4;
++        else if (*i >= 0x10)  stb__match_(stb__dout_-(stb__in3_(0) - 0x100000 + 1), stb__in2_(3)+1), i += 5;
++        else if (*i >= 0x08)  stb__lit_(i+2, stb__in2_(0) - 0x0800 + 1), i += 2 + (stb__in2_(0) - 0x0800 + 1);
++        else if (*i == 0x07)  stb__lit_(i+3, stb__in2_(1) + 1), i += 3 + (stb__in2_(1) + 1);
++        else if (*i == 0x06)  stb__match_(stb__dout_-(stb__in3_(1)+1), i[4]+1), i += 5;
++        else if (*i == 0x04)  stb__match_(stb__dout_-(stb__in3_(1)+1), stb__in2_(4)+1), i += 6;
++    }
++    return i;
++}
++static unsigned int stb_adler32_(unsigned int adler32, unsigned char* buffer, unsigned int buflen)
++{
++    const unsigned long ADLER_MOD = 65521;
++    unsigned long s1 = adler32 & 0xffff, s2 = adler32 >> 16;
++    unsigned long blocklen = buflen % 5552;
++    unsigned long j;
++    while (buflen) {
++        for (j = 0; j + 7 < blocklen; j += 8) {
++            s1 += buffer[0]; s2 += s1; s1 += buffer[1]; s2 += s1;
++            s1 += buffer[2]; s2 += s1; s1 += buffer[3]; s2 += s1;
++            s1 += buffer[4]; s2 += s1; s1 += buffer[5]; s2 += s1;
++            s1 += buffer[6]; s2 += s1; s1 += buffer[7]; s2 += s1;
++            buffer += 8;
++        }
++        for (; j < blocklen; ++j) s1 += *buffer++, s2 += s1;
++        s1 %= ADLER_MOD; s2 %= ADLER_MOD;
++        buflen -= (unsigned int)blocklen;
++        blocklen = 5552;
++    }
++    return (unsigned int)(s2 << 16) + (unsigned int)s1;
++}
++static unsigned int stb_decompress_(unsigned char* output, const unsigned char* i, unsigned int /*length*/)
++{
++    if (stb__in4_(0) != 0x57bC0000) return 0;
++    if (stb__in4_(4) != 0) return 0;
++    const unsigned int olen = stb_decompress_length_(i);
++    stb__barrier_in_b_ = i;
++    stb__barrier_out_e_ = output + olen;
++    stb__barrier_out_b_ = output;
++    i += 16;
++    stb__dout_ = output;
++    for (;;) {
++        const unsigned char* old_i = i;
++        i = stb_decompress_token_(i);
++        if (i == old_i) {
++            if (*i == 0x05 && i[1] == 0xfa) {
++                if (stb__dout_ != output + olen) return 0;
++                if (stb_adler32_(1, output, olen) != (unsigned int)stb__in4_(2)) return 0;
++                return olen;
++            } else {
++                return 0;
++            }
++        }
++        if (stb__dout_ > stb__barrier_out_e_) return 0;
++    }
++}
++#undef stb__in2_
++#undef stb__in3_
++#undef stb__in4_
++static unsigned char* imgui_decompressBase85TTF(const char* compressed_ttf_data_base85, int* out_size)
++{
++    int compressed_ttf_size = (((int)strlen(compressed_ttf_data_base85) + 4) / 5) * 4;
++    void* compressed_ttf = malloc((size_t)compressed_ttf_size);
++    Decode85_((const unsigned char*)compressed_ttf_data_base85, (unsigned char*)compressed_ttf);
++    const unsigned int buf_decompressed_size = stb_decompress_length_((const unsigned char*)compressed_ttf);
++    unsigned char* buf_decompressed_data = (unsigned char*)malloc(buf_decompressed_size);
++    stb_decompress_(buf_decompressed_data, (const unsigned char*)compressed_ttf, (unsigned int)compressed_ttf_size);
++    *out_size = (int)buf_decompressed_size;
++    free(compressed_ttf);
++    return buf_decompressed_data;
++}
++#endif
+ 
+ bool R_Font::init(GraphicsContext* gctx, FT_Library library, R_Font* font,
+                   const char* font_path)
+diff --git a/src/r_component.h b/src/r_component.h
+index c2d2a60..cedaf91 100644
+--- a/src/r_component.h
++++ b/src/r_component.h
+@@ -45,7 +45,9 @@
+ #include <ft2build.h>
+ #include FT_FREETYPE_H
+ 
++#ifndef WEBCHUGL_NO_VIDEO
+ #include <pl/pl_mpeg.h>
++#endif
+ 
+ // =============================================================================
+ // scenegraph data structures
+@@ -845,6 +847,7 @@ struct R_Font {
+                                      const char* text);
+ };
+ 
++#ifndef WEBCHUGL_NO_VIDEO
+ // =============================================================================
+ // R_Video
+ // =============================================================================
+@@ -872,6 +875,7 @@ struct R_Webcam : public R_Component {
+     static void updateTexture(GraphicsContext* gctx, R_Webcam* webcam);
+     static void update(SG_Command_WebcamUpdate* cmd);
+ };
++#endif // WEBCHUGL_NO_VIDEO
+ 
+ // =============================================================================
+ // Component Manager API
+@@ -905,9 +909,11 @@ R_Pass* Component_CreatePass(SG_ID pass_id, WGPUDevice device);
+ R_Buffer* Component_CreateBuffer(SG_ID id);
+ R_Light* Component_CreateLight(SG_ID id, SG_LightDesc* desc, WGPUDevice device,
+                                WGPULimits* limits);
++#ifndef WEBCHUGL_NO_VIDEO
+ R_Video* Component_CreateVideo(GraphicsContext* gctx, SG_ID id, const char* filename,
+                                SG_ID rgba_texture_id);
+ R_Webcam* Component_CreateWebcam(SG_Command_WebcamCreate* cmd);
++#endif
+ 
+ R_Component* Component_GetComponent(SG_ID id);
+ WGPUSampler Component_GetSampler(GraphicsContext* gctx, SG_Sampler sampler);
+@@ -925,14 +931,18 @@ R_Font* Component_GetFont(GraphicsContext* gctx, FT_Library library,
+ R_Pass* Component_GetPass(SG_ID id);
+ R_Buffer* Component_GetBuffer(SG_ID id);
+ R_Light* Component_GetLight(SG_ID id);
++#ifndef WEBCHUGL_NO_VIDEO
+ R_Video* Component_GetVideo(SG_ID id);
+ R_Webcam* Component_GetWebcam(SG_ID id);
++#endif
+ 
+ // be careful to not delete components while iterating
+ // returns false upon reachign end of material arena
+ bool Component_MaterialIter(size_t* i, R_Material** material);
++#ifndef WEBCHUGL_NO_VIDEO
+ bool Component_VideoIter(size_t* i, R_Video** video);
+ bool Component_WebcamIter(size_t* i, R_Webcam** webcam);
++#endif
+ 
+ // component manager initialization
+ void Component_Init(GraphicsContext* gctx);
+@@ -2445,11 +2455,12 @@ struct G_Graph {
+                         // here
+                         ds.depthReadOnly = false;
+ 
+-                        // Stencil setup, mandatory but unused
++                        // Stencil setup: Depth32Float has no stencil, so use Undefined ops
++                        // Chrome WebGPU rejects Clear/Store on depth-only formats
+                         ds.stencilClearValue = 0;
+-                        ds.stencilLoadOp     = WGPULoadOp_Clear;
+-                        ds.stencilStoreOp    = WGPUStoreOp_Store;
+-                        ds.stencilReadOnly   = false;
++                        ds.stencilLoadOp     = WGPULoadOp_Undefined;
++                        ds.stencilStoreOp    = WGPUStoreOp_Undefined;
++                        ds.stencilReadOnly   = true;
+ 
+                         render_pass_desc.depthStencilAttachment = &ds;
+                     }
+diff --git a/src/sg_command.cpp b/src/sg_command.cpp
+index fe765f4..e9bffbd 100644
+--- a/src/sg_command.cpp
++++ b/src/sg_command.cpp
+@@ -972,12 +972,14 @@ void CQ_PushCommand_PassDisconnect(SG_Pass* pass, SG_Pass* next_pass)
+     END_COMMAND();
+ }
+ 
++#ifndef WEBCHUGL_NO_BOX2D
+ void CQ_PushCommand_b2World_Set(b2_SimulateDesc desc)
+ {
+     BEGIN_COMMAND(SG_Command_b2World_Set, SG_COMMAND_b2_WORLD_SET);
+     command->desc = desc;
+     END_COMMAND();
+ }
++#endif
+ 
+ void CQ_PushCommand_BufferUpdate(SG_Buffer* buffer)
+ {
+@@ -1056,6 +1058,7 @@ void CQ_PushCommand_MeshSetShadowed(SG_Transform* xform, bool shadowed)
+     END_COMMAND();
+ }
+ 
++#ifndef WEBCHUGL_NO_VIDEO
+ void CQ_PushCommand_VideoUpdate(SG_Video* video)
+ {
+     const char* path = video->path_OWNED ? video->path_OWNED : "";
+@@ -1104,6 +1107,7 @@ void CQ_PushCommand_WebcamUpdate(SG_Webcam* webcam)
+     command->capture   = webcam->capture;
+     END_COMMAND();
+ }
++#endif // WEBCHUGL_NO_VIDEO
+ 
+ #undef cq
+ 
+diff --git a/src/sg_command.h b/src/sg_command.h
+index d30ac57..c2d9960 100644
+--- a/src/sg_command.h
++++ b/src/sg_command.h
+@@ -96,8 +96,10 @@ enum SG_CommandType : u32 {
+     // UI
+     SG_COMMAND_UI_DISABLED,
+ 
++#ifndef WEBCHUGL_NO_BOX2D
+     // b2 physics
+     SG_COMMAND_b2_WORLD_SET,
++#endif
+ 
+     // components
+     SG_COMMAND_COMPONENT_UPDATE_NAME,
+@@ -535,6 +537,7 @@ struct SG_Command_PassConnect : public SG_Command {
+     SG_ID next_pass_id;
+ };
+ 
++#ifndef WEBCHUGL_NO_BOX2D
+ // b2 physics commands -----------------------------------------------------
+ 
+ struct b2_SimulateDesc {
+@@ -546,6 +549,7 @@ struct b2_SimulateDesc {
+ struct SG_Command_b2World_Set : public SG_Command {
+     b2_SimulateDesc desc;
+ };
++#endif
+ 
+ // buffer commands -----------------------------------------------------
+ 
+@@ -582,6 +586,7 @@ struct SG_Command_MeshSetShadowed : public SG_Command {
+     b32 shadowed;
+ };
+ 
++#ifndef WEBCHUGL_NO_VIDEO
+ // video commands -----------------------------------------------------
+ struct SG_Command_VideoUpdate : public SG_Command {
+     SG_ID video_id;
+@@ -616,6 +621,7 @@ struct SG_Command_WebcamUpdate : public SG_Command {
+     bool freeze;
+     bool capture;
+ };
++#endif // WEBCHUGL_NO_VIDEO
+ 
+ // ============================================================================
+ // Graphics to Audio Commands
+@@ -672,6 +678,15 @@ void CQ_ReadCommandQueueClear(bool which);
+ // caused by Arena resizing)
+ void* CQ_ReadCommandGetOffset(u64 byte_offset, bool which);
+ 
++// Write queue accessors (for WebChuGL Audio Worklet to send commands to main thread)
++void* CQ_GetWriteQueueBase(bool which);
++size_t CQ_GetWriteQueueSize(bool which);
++
++// Read queue injection (for WebChuGL main thread to receive commands from audio worklet)
++void CQ_InjectCommandBytes(void* data, size_t size, bool which);
++void* CQ_GetReadQueueBuffer(bool which);
++void CQ_SetReadQueueSize(size_t size, bool which);
++
+ // ============================================================================
+ // Commands
+ // ============================================================================
+@@ -780,8 +795,10 @@ void CQ_PushCommand_PassUpdate(SG_Pass* pass);
+ void CQ_PushCommand_PassConnect(SG_Pass* pass, SG_Pass* next_pass);
+ void CQ_PushCommand_PassDisconnect(SG_Pass* pass, SG_Pass* next_pass);
+ 
++#ifndef WEBCHUGL_NO_BOX2D
+ // b2
+ void CQ_PushCommand_b2World_Set(b2_SimulateDesc desc);
++#endif
+ 
+ // buffer
+ void CQ_PushCommand_BufferUpdate(SG_Buffer* buffer);
+@@ -796,6 +813,7 @@ void CQ_PushCommand_ShadowAddMesh(SG_Light* light, SG_Transform* xform,
+                                   bool add_children, bool add);
+ void CQ_PushCommand_MeshSetShadowed(SG_Transform* xform, bool shadowed);
+ 
++#ifndef WEBCHUGL_NO_VIDEO
+ // video
+ void CQ_PushCommand_VideoUpdate(SG_Video* video);
+ void CQ_PushCommand_VideoSeek(SG_ID video_id, double time);
+@@ -804,6 +822,7 @@ void CQ_PushCommand_VideoRate(SG_ID video_id, double rate, bool loop);
+ // webcam
+ void CQ_PushCommand_WebcamCreate(SG_Webcam* webcam, sr_webcam_device* device);
+ void CQ_PushCommand_WebcamUpdate(SG_Webcam* webcam);
++#endif
+ 
+ // ============================================================================
+ // Commands from Graphics Thread --> Audio Thread
+diff --git a/src/sg_component.cpp b/src/sg_component.cpp
+index 54ee0f7..3fe36af 100644
+--- a/src/sg_component.cpp
++++ b/src/sg_component.cpp
+@@ -34,7 +34,9 @@
+ #include "ulib_helper.h"
+ 
+ #include <glm/gtx/quaternion.hpp>
++#ifndef WEBCHUGL_NO_VIDEO
+ #include <sr_webcam/include/sr_webcam.h>
++#endif
+ 
+ // ============================================================================
+ // SG_Transform definitions
+@@ -752,8 +754,10 @@ static Arena SG_TextArena;
+ static Arena SG_PassArena;
+ static Arena SG_BufferArena;
+ static Arena SG_LightArena;
++#ifndef WEBCHUGL_NO_VIDEO
+ static Arena SG_VideoArena;
+ static Arena SG_WebcamArena;
++#endif
+ 
+ // locators (TODO switch to table)
+ static hashmap* locator = NULL;
+@@ -837,8 +841,10 @@ void SG_Init(const Chuck_DL_Api* api)
+     Arena::init(&SG_PassArena, sizeof(SG_Pass) * 32);
+     Arena::init(&SG_BufferArena, sizeof(SG_Pass) * 64);
+     Arena::init(&SG_LightArena, sizeof(SG_Light) * 32);
++#ifndef WEBCHUGL_NO_VIDEO
+     Arena::init(&SG_VideoArena, sizeof(SG_Video) * 16);
+     Arena::init(&SG_WebcamArena, sizeof(SG_Webcam) * 8);
++#endif
+ 
+     // init gc state
+     Arena::init(&_gc_queue_a, sizeof(SG_ID) * 64);
+@@ -1204,6 +1210,7 @@ SG_Light* SG_CreateLight(Chuck_Object* ckobj)
+     return light;
+ }
+ 
++#ifndef WEBCHUGL_NO_VIDEO
+ SG_Video* SG_CreateVideo(Chuck_Object* ckobj, t_CKUINT id_offset)
+ {
+     CK_DL_API API = g_chuglAPI;
+@@ -1309,6 +1316,7 @@ SG_Webcam* SG_CreateWebcam(Chuck_Object* ckobj, Chuck_VM_Shred* shred, int devic
+ 
+     return webcam;
+ }
++#endif // WEBCHUGL_NO_VIDEO
+ 
+ SG_Component* SG_GetComponent(SG_ID id)
+ {
+@@ -1412,6 +1420,7 @@ SG_Light* SG_GetLight(SG_ID id)
+     return (SG_Light*)component;
+ }
+ 
++#ifndef WEBCHUGL_NO_VIDEO
+ SG_Video* SG_GetVideo(SG_ID id)
+ {
+     SG_Component* component = SG_GetComponent(id);
+@@ -1425,6 +1434,7 @@ SG_Webcam* SG_GetWebcam(SG_ID id)
+     ASSERT(component == NULL || component->type == SG_COMPONENT_WEBCAM);
+     return (SG_Webcam*)component;
+ }
++#endif
+ 
+ // ============================================================================
+ // SG Garbage Collector
+diff --git a/src/sg_component.h b/src/sg_component.h
+index 4ff08e2..9f5089a 100644
+--- a/src/sg_component.h
++++ b/src/sg_component.h
+@@ -28,9 +28,11 @@
+ #pragma once
+ 
+ #include "graphics.h"
++#include "geometry.h"  // PlaneParams, BoxParams, etc.
+ 
+ #include "core/macros.h"
+ #include "core/memory.h"
++#include "core/log.h"   // log_warn, log_error, etc.
+ 
+ #include <chuck/chugin.h>
+ #include <glm/glm.hpp>
+@@ -38,7 +40,9 @@
+ 
+ #include <iostream> // std::string
+ 
++#ifndef WEBCHUGL_NO_VIDEO
+ #include <pl/pl_mpeg.h>
++#endif
+ 
+ // forward decls
+ struct SG_Light;
+@@ -151,7 +155,7 @@ static SG_Sampler SG_SAMPLER_DEFAULT // make this a #define instead?
+ // SG_Texture
+ // ============================================================================
+ 
+-WGPUTextureUsageFlags WGPUTextureUsage_All
++inline WGPUTextureUsageFlags WGPUTextureUsage_All
+   = WGPUTextureUsage_CopyDst | WGPUTextureUsage_CopySrc
+     | WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_TextureBinding
+     | WGPUTextureUsage_StorageBinding;
+@@ -949,6 +953,7 @@ struct SG_Light : public SG_Transform {
+ };
+ 
+ // ============================================================================
++#ifndef WEBCHUGL_NO_VIDEO
+ // SG Video
+ // ============================================================================
+ 
+@@ -986,6 +991,7 @@ struct SG_Webcam : public SG_Component {
+     bool capture = true;
+     char device_name[64];
+ };
++#endif // WEBCHUGL_NO_VIDEO
+ 
+ // ============================================================================
+ // SG Component Manager
+@@ -1015,9 +1021,11 @@ SG_Shader* SG_CreateShader(Chuck_Object* ckobj, const char* vertex_string,
+ SG_Material* SG_CreateMaterial(Chuck_Object* ckobj, SG_MaterialType material_type);
+ SG_Mesh* SG_CreateMesh(Chuck_Object* ckobj, SG_Geometry* sg_geo, SG_Material* sg_mat);
+ SG_Light* SG_CreateLight(Chuck_Object* ckobj);
++#ifndef WEBCHUGL_NO_VIDEO
+ SG_Video* SG_CreateVideo(Chuck_Object* ckobj, t_CKUINT id_offset);
+ SG_Webcam* SG_CreateWebcam(Chuck_Object* ckobj, Chuck_VM_Shred* shred, int device_id,
+                            int width, int height, int fps);
++#endif
+ 
+ SG_Component* SG_GetComponent(SG_ID id);
+ SG_Transform* SG_GetTransform(SG_ID id);
+@@ -1032,8 +1040,10 @@ SG_Text* SG_GetText(SG_ID id);
+ SG_Pass* SG_GetPass(SG_ID id);
+ SG_Buffer* SG_GetBuffer(SG_ID id);
+ SG_Light* SG_GetLight(SG_ID id);
++#ifndef WEBCHUGL_NO_VIDEO
+ SG_Video* SG_GetVideo(SG_ID id);
+ SG_Webcam* SG_GetWebcam(SG_ID id);
++#endif
+ 
+ // ============================================================================
+ // SG Garbage Collection
+diff --git a/src/shaders.h b/src/shaders.h
+index cba8b2e..c3476fa 100644
+--- a/src/shaders.h
++++ b/src/shaders.h
+@@ -311,44 +311,41 @@ static std::unordered_map<std::string, std::string> shader_table = {
+         "NORMAL_MAPPING_FUNCTIONS",
+         R"glsl(
+         // http://www.thetenthplanet.de/archives/1180
+-        fn cotangentFrame( N : vec3f, p : vec3f, duv1: vec2f, duv2: vec2f ) -> mat3x3f { 
+-            // get edge vectors of the pixel triangle 
+-            let dp1 = dpdx( p ); 
+-            let dp2 = dpdy( p ); 
+-            // solve the linear system 
+-            let dp2perp = cross( dp2, N ); 
+-            let dp1perp = cross( N, dp1 ); 
++        // Note: dp1, dp2 passed in to avoid dpdx/dpdy in non-uniform control flow
++        fn cotangentFrame( N : vec3f, dp1: vec3f, dp2: vec3f, duv1: vec2f, duv2: vec2f ) -> mat3x3f {
++            // solve the linear system
++            let dp2perp = cross( dp2, N );
++            let dp1perp = cross( N, dp1 );
+             let T = dp2perp * duv1.x + dp1perp * duv2.x;
+             let B = dp2perp * duv1.y + dp1perp * duv2.y;
+-            // construct a scale-invariant frame 
+-            let invmax = inverseSqrt( max( dot(T,T), dot(B,B) ) ); 
+-            return mat3x3f( T * invmax, B * invmax, N ); 
++            // construct a scale-invariant frame
++            let invmax = inverseSqrt( max( dot(T,T), dot(B,B) ) );
++            return mat3x3f( T * invmax, B * invmax, N );
+         }
+ 
+-        fn perturbNormal( v_normal : vec3f, V : vec3f, uv : vec2f, scale : f32, is_front : bool) -> vec3f { 
++        fn perturbNormal( v_normal : vec3f, V : vec3f, uv : vec2f, scale : f32, is_front : bool) -> vec3f {
+             let N = normalize(v_normal);
+-            var flip = 1.0;
+-            if (!is_front) {
+-                flip = -1.0;
+-            }
+-            let duv1 = dpdx( uv ); 
+-            let duv2 = dpdy( uv );   
+-
+-            // handle case where UVs are not provided (all zero)
+-            // then TBN frame will be zeroes, so return normalized v_normal instead
+-            if (dot(duv1, duv1) == 0 && dot(duv2, duv2) == 0) {
+-                return flip * N;
+-            }
+-
+-            // assume N, the interpolated vertex normal and 
+-            // V, the view vector (vertex to eye) 
+-            var map = textureSample(u_normal_map, texture_sampler, uv).xyz * 2.0 - 1.0;
++            // Compute all derivatives FIRST (before any non-uniform control flow)
++            let duv1 = dpdx( uv );
++            let duv2 = dpdy( uv );
++            let dp1 = dpdx( -V );
++            let dp2 = dpdy( -V );
++            // Use select() instead of if-branch to maintain uniform control flow
++            let flip = select(-1.0, 1.0, is_front);
++
++            // Sample normal map (textureSampleLevel is safe in non-uniform flow)
++            var map = textureSampleLevel(u_normal_map, texture_sampler, uv, 0.0).xyz * 2.0 - 1.0;
+             map.x *= scale;
+-            map.y *= -scale; // flip y too to be consistent with previuos normal map version
++            map.y *= -scale; // flip y too to be consistent with previous normal map version
++
++            let TBN = cotangentFrame( N, dp1, dp2, duv1, duv2 );
++            var normal = TBN * map;
++            let perturbed = flip * normalize(normal);
+ 
+-            let TBN = cotangentFrame( N, -V, duv1, duv2 ); 
+-            var normal = TBN * map; 
+-            return flip * normalize(normal);
++            // handle case where UVs are not provided (all zero)
++            // use select() instead of early return to maintain uniform control flow
++            let useFlat = (dot(duv1, duv1) == 0.0) && (dot(duv2, duv2) == 0.0);
++            return select(perturbed, flip * N, useFlat);
+         }
+         )glsl"
+     }
+@@ -611,11 +608,11 @@ static const char* phong_shader_string = R"glsl(
+             for (var x = -1; x <= 1; x++) {
+                 let offset = vec2<f32>(vec2(x, y)) * oneOverShadowDepthTextureSize;
+ 
+-                visibility += textureSampleCompare(
++                visibility += textureSampleCompareLevel(
+                     spot_shadow_map_array, shadow_sampler,
+                     p.xy + offset, // coords
+                     layer, // array layer
+-                    p.z - bias // shadowBias
++                    p.z - bias // depth reference
+                 );
+             }
+         }
+@@ -641,11 +638,11 @@ static const char* phong_shader_string = R"glsl(
+             for (var x = -1; x <= 1; x++) {
+                 let offset = vec2<f32>(vec2(x, y)) * oneOverShadowDepthTextureSize;
+ 
+-                visibility += textureSampleCompare(
++                visibility += textureSampleCompareLevel(
+                     dir_shadow_map_array, shadow_sampler,
+                     p.xy + offset, // coords
+                     layer, // array layer
+-                    p.z - bias // shadowBias
++                    p.z - bias // depth reference
+                 );
+             }
+         }
+diff --git a/src/sync.cpp b/src/sync.cpp
+index c04603c..71c2966 100644
+--- a/src/sync.cpp
++++ b/src/sync.cpp
+@@ -29,13 +29,19 @@
+ 
+ #include <chuck/chugin.h>
+ 
++#ifndef __EMSCRIPTEN__
+ #include <condition_variable>
++#endif
+ #include <unordered_map>
+ 
+ #include "core/memory.h"
+ #include "core/spinlock.h"
+ 
++#ifdef __EMSCRIPTEN__
++#include <GLFW/glfw3.h>
++#else
+ #include <glfw/include/GLFW/glfw3.h>
++#endif
+ 
+ #include "ulib_helper.h"
+ 
+@@ -45,9 +51,11 @@ static spinlock waitingShredsLock;
+ static u64 waitingShreds              = 0; // guarded by waitingShredsLock
+ static i64 waiting_shreds_frame_count = 0; // guarded by waitingShredsLock
+ 
++#ifndef __EMSCRIPTEN__
+ static std::mutex gameLoopLock; // lock for condition variable
+ static std::condition_variable gameLoopConditionVar;
+ static bool shouldRender = false;
++#endif
+ 
+ // ============================================================================
+ // Shared Audio/Graphics Thread State
+@@ -614,15 +622,23 @@ int Sync_NumShredsRegistered()
+ 
+ void Sync_WaitOnUpdateDone()
+ {
++#ifdef __EMSCRIPTEN__
++    return; // Main loop drives rendering directly, no blocking
++#else
+     std::unique_lock<std::mutex> lock(gameLoopLock);
+     gameLoopConditionVar.wait(lock, []() { return shouldRender; });
+     shouldRender = false;
++#endif
+ }
+ 
+ void Sync_SignalUpdateDone()
+ {
++#ifdef __EMSCRIPTEN__
++    return; // No graphics thread to signal
++#else
+     std::unique_lock<std::mutex> lock(gameLoopLock);
+     shouldRender = true;
+     lock.unlock();
+     gameLoopConditionVar.notify_all();
++#endif
+ }

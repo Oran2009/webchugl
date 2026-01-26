@@ -24,8 +24,6 @@ emsdk*/
 Thumbs.db
 nul
 
-# Temp files
-
 # Large binary files
 *.wasm
 *.o
@@ -34,6 +32,8 @@ nul
 
 # Log files
 *.log
-chuck
-chugl
-webchuck
+
+# Dependencies (cloned by setup script, patches stored in patches/)
+chuck/
+chugl/
+webchuck/

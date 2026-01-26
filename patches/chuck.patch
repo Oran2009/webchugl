@@ -1,0 +1,52 @@
+diff --git a/src/core/chuck_compile.cpp b/src/core/chuck_compile.cpp
+index f4d385a7..227704b0 100644
+--- a/src/core/chuck_compile.cpp
++++ b/src/core/chuck_compile.cpp
+@@ -1198,6 +1198,9 @@ t_CKBOOL Chuck_Compiler::bind( f_ck_query query_func, const string & name,
+     // commit what is in the type checker at this point
+     env->global()->commit();
+ 
++    // preserve operator overloads registered by this module | 1.5.1.5
++    env->op_registry.preserve();
++
+     // pop indent level
+     EM_poplog();
+ 
+diff --git a/src/core/util_thread.cpp b/src/core/util_thread.cpp
+index b03b2b4e..8cf658e8 100644
+--- a/src/core/util_thread.cpp
++++ b/src/core/util_thread.cpp
+@@ -37,6 +37,11 @@
+ #include "util_platforms.h"
+ #include "chuck_errmsg.h"
+ 
++// Emscripten uses POSIX APIs (pthread), map to Linux path
++#if defined(__PLATFORM_EMSCRIPTEN__) && !defined(__PLATFORM_LINUX__)
++#define __PLATFORM_LINUX__
++#endif
++
+ 
+ 
+ 
+diff --git a/src/core/util_thread.h b/src/core/util_thread.h
+index 000a77e6..8cc48b10 100644
+--- a/src/core/util_thread.h
++++ b/src/core/util_thread.h
+@@ -44,7 +44,7 @@ class FastCircularBuffer;
+ template<typename T> class CircularBuffer;
+ 
+ 
+-#if ( defined(__PLATFORM_APPLE__) || defined(__PLATFORM_LINUX__) || defined(__WINDOWS_PTHREAD__) )
++#if ( defined(__PLATFORM_APPLE__) || defined(__PLATFORM_LINUX__) || defined(__WINDOWS_PTHREAD__) || defined(__PLATFORM_EMSCRIPTEN__) )
+   #include <pthread.h>
+   #define THREAD_TYPE
+   typedef pthread_t THREAD_HANDLE;
+@@ -188,7 +188,7 @@ private:
+     void flush_data_buffer();
+ 
+     // callback
+-#if ( defined(__PLATFORM_APPLE__) || defined(__PLATFORM_LINUX__) || defined(__WINDOWS_PTHREAD__) )
++#if ( defined(__PLATFORM_APPLE__) || defined(__PLATFORM_LINUX__) || defined(__WINDOWS_PTHREAD__) || defined(__PLATFORM_EMSCRIPTEN__) )
+     static void * write_cb( void * _thiss );
+ #elif defined(__PLATFORM_WINDOWS__)
+     static unsigned THREAD_TYPE write_cb( void * _thiss );
