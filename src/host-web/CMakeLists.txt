@@ -87,7 +87,6 @@ set(CHUGL_SOURCES
 # ===========================================================================
 set(HOST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/webchugl_main.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/webchugl_command_receiver.cpp
 )
 
 # ===========================================================================
@@ -129,7 +128,6 @@ target_compile_definitions(webchugl PRIVATE
     __PLATFORM_EMSCRIPTEN__
 
     # ChuGL options
-    # WEBCHUGL_NO_IMGUI  # Enabled for web
     WEBCHUGL_NO_VIDEO
     WEBCHUGL_NO_BOX2D
     CHUGL_FAST_COMPILE
@@ -187,7 +185,7 @@ target_link_options(webchugl PRIVATE
     "-sASYNCIFY_REMOVE=['ImGui*','ImDraw*','ImFont*','ImPool*','ImVector*','ImGui_Impl*','chuck_*','Chuck_*','uana_*','ugen_*','ulib_*','FT_*','ft_*','stb_*','par_*','glm::*']"
     -sFORCE_FILESYSTEM
     -sDISABLE_EXCEPTION_CATCHING=0
-    -sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_webchugl_getCommandBuffer','_webchugl_setCommandBufferSize','_webchugl_injectCommands','_webchugl_clearCommands','_webchugl_set_renderer_only','_webchugl_start_renderer']
+    -sEXPORTED_FUNCTIONS=['_main','_malloc','_free']
     -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']
     -sENVIRONMENT=web
     -sASSERTIONS=1

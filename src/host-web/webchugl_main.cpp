@@ -2,16 +2,13 @@
   WebChuGL: ChuGL compiled to WebAssembly via Emscripten
   Entry point for the web build.
 
-  Supports two modes:
-  1. Standard mode: Initializes ChucK VM, loads ChuGL, compiles program.ck
-  2. Renderer-only mode: Just runs the renderer, receives commands from JavaScript
-     (for Audio Worklet architecture where ChucK runs in worklet thread)
+  Initializes ChucK VM, loads ChuGL module, compiles program.ck, and starts
+  the graphics loop. The VM is advanced each frame before rendering.
 -----------------------------------------------------------------------------*/
 #include "chuck.h"
 
 #include <emscripten.h>
 #include <stdio.h>
-#include <string.h>
 
 // ChuGL query function (defined via CK_DLL_QUERY macro in ChuGL.cpp)
 extern "C" t_CKBOOL ck_query(Chuck_DL_Query* QUERY);
@@ -25,26 +22,15 @@ extern t_CKBOOL chugl_main_loop_hook(void* bindle);
 // Called each frame before rendering to advance the ChucK VM.
 extern "C" void webchugl_set_pre_frame_callback(void (*fn)(void*), void* data);
 
-// Command queue initialization (from sg_command.cpp)
-extern void CQ_Init();
-
-// Sokol time initialization (from sokol_time.h via implementations.cpp)
-extern "C" void stm_setup();
-
-// The ChucK instance (null in renderer-only mode)
+// The ChucK instance
 static ChucK* the_chuck = nullptr;
 
 // Samples per frame: 48000 Hz / 60 FPS = 800 samples
 static const int SAMPLES_PER_FRAME = 800;
 
-// Mode flag (non-static for external access from app.cpp)
-bool renderer_only_mode = false;
-
-// Pre-frame callback: advances the ChucK VM each frame (standard mode only)
+// Pre-frame callback: advances the ChucK VM each frame
 static void run_vm_frame(void* data)
 {
-    if (renderer_only_mode) return;
-
     ChucK* ck = (ChucK*)data;
     if (ck) {
         static SAMPLE outBuffer[SAMPLES_PER_FRAME * 2]; // stereo
@@ -52,83 +38,9 @@ static void run_vm_frame(void* data)
     }
 }
 
-// Check for renderer-only mode flag
-static bool check_renderer_only_mode()
-{
-    // Check for URL parameter or environment variable
-    // For now, check if program.ck exists
-    FILE* f = fopen("/program.ck", "r");
-    if (f) {
-        fclose(f);
-        return false; // program.ck exists, run in standard mode
-    }
-    return true; // No program.ck, run in renderer-only mode
-}
-
-extern "C" {
-
-// Export to allow JavaScript to set renderer-only mode
-EMSCRIPTEN_KEEPALIVE
-void webchugl_set_renderer_only(int enabled)
-{
-    renderer_only_mode = enabled != 0;
-    printf("[WebChuGL] Renderer-only mode: %s\n", renderer_only_mode ? "enabled" : "disabled");
-}
-
-// Export to start the renderer (for renderer-only mode)
-EMSCRIPTEN_KEEPALIVE
-void webchugl_start_renderer()
-{
-    printf("[WebChuGL] Starting renderer...\n");
-
-    // Initialize command queue
-    CQ_Init();
-
-    // Start the ChuGL graphics loop (renderer only)
-    chugl_main_loop_hook(nullptr);
-}
-
-} // extern "C"
-
 int main(int argc, char** argv)
 {
     printf("[WebChuGL] Initializing...\n");
-
-    // Check if we should run in renderer-only mode
-    renderer_only_mode = check_renderer_only_mode();
-
-    if (renderer_only_mode) {
-        printf("[WebChuGL] Renderer-only mode (no program.ck found)\n");
-
-        // In renderer-only mode, we DON'T load ChucK or ChuGL module.
-        // This avoids creating default scene graph objects that would conflict
-        // with objects created by the audio worklet's ChucK instance.
-        //
-        // We just need to:
-        // 1. Initialize the command queue (for receiving commands from audio worklet)
-        // 2. Start the render loop (which initializes R components via Component_Init)
-        //
-        // Note: We DON'T call SG_Init() because:
-        // - SG components live in the audio worklet's ChucK instance
-        // - The main thread only has R components (created from commands)
-
-        // Initialize sokol_time (needed for frame timing)
-        stm_setup();
-
-        // Initialize command queue
-        CQ_Init();
-
-        printf("[WebChuGL] Command queue initialized for renderer-only mode\n");
-
-        // Start the graphics loop
-        // Commands will be injected by JavaScript from the audio worklet
-        chugl_main_loop_hook(nullptr);
-
-        return 0;
-    }
-
-    // Standard mode: Initialize ChucK and run program.ck
-    printf("[WebChuGL] Standard mode (program.ck found)\n");
 
     // Create ChucK instance
     the_chuck = new ChucK();
