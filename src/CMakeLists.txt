@@ -5,8 +5,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Paths
-set(CHUCK_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../chuck/src/core")
-set(CHUGL_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../chugl/src")
+set(CHUCK_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../chuck/src/core")
+set(CHUGL_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../chugl/src")
 
 # ===========================================================================
 # ChucK core sources

@@ -8,9 +8,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$HostWebDir = $PSScriptRoot
-$BuildDir = Join-Path $HostWebDir "build"
-$EmsdkDir = Join-Path (Split-Path -Parent (Split-Path -Parent $HostWebDir)) "emsdk-3.1.61\install\emscripten"
+$SrcDir = $PSScriptRoot
+$BuildDir = Join-Path $SrcDir "build"
+$EmsdkDir = Join-Path (Split-Path -Parent $SrcDir) "emsdk-3.1.61\install\emscripten"
 $EmCMake = Join-Path $EmsdkDir "emcmake.py"
 $EmMake = Join-Path $EmsdkDir "emmake.py"
 
@@ -56,7 +56,7 @@ Write-Host "`n=== Build Complete ===" -ForegroundColor Green
 Write-Host "Output: $BuildDir/index.html" -ForegroundColor Gray
 
 # Copy program.ck to build directory if it exists
-$ProgramCk = Join-Path $HostWebDir "program.ck"
+$ProgramCk = Join-Path $SrcDir "program.ck"
 if (Test-Path $ProgramCk) {
     Copy-Item $ProgramCk (Join-Path $BuildDir "program.ck") -Force
     Write-Host "Copied program.ck to build directory" -ForegroundColor Gray

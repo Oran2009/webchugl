@@ -37,6 +37,13 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
     def send_head(self):
         """Common code for GET and HEAD commands."""
         path = self.translate_path(self.path)
+
+        # Serve program.ck from source directory for hot-reload
+        if self.path.endswith('program.ck'):
+            source_ck = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'program.ck')
+            if os.path.exists(source_ck):
+                path = source_ck
+
         f = None
         if os.path.isdir(path):
             parts = self.path.split('?')
@@ -72,6 +79,11 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-Length", str(fs[6]))
             self.send_header("Last-Modified",
                 self.date_time_string(fs.st_mtime))
+            # Disable caching for .ck files to enable hot-reload
+            if path.endswith('.ck'):
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.send_header("Pragma", "no-cache")
+                self.send_header("Expires", "0")
             self.end_headers()
             return f
         except:
