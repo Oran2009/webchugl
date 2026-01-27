@@ -7,6 +7,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Paths
 set(CHUCK_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../chuck/src/core")
 set(CHUGL_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../chugl/src")
+set(HOST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/host")
+set(CODE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/code")
 
 # ===========================================================================
 # ChucK core sources
@@ -87,7 +89,7 @@ set(CHUGL_SOURCES
 # Host entry point
 # ===========================================================================
 set(HOST_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/webchugl_main.cpp
+    ${HOST_DIR}/webchugl_main.cpp
 )
 
 # ===========================================================================
@@ -99,6 +101,7 @@ add_executable(webchugl ${HOST_SOURCES} ${CHUCK_CORE_SOURCES} ${CHUGL_SOURCES})
 # Include directories
 # ===========================================================================
 target_include_directories(webchugl PRIVATE
+    ${HOST_DIR}
     ${CHUCK_CORE_DIR}
     ${CHUGL_SRC_DIR}
     ${CHUGL_SRC_DIR}/vendor
@@ -142,8 +145,6 @@ target_compile_definitions(webchugl PRIVATE
 # Compile options
 # ===========================================================================
 target_compile_options(webchugl PRIVATE
-    -sUSE_WEBGPU
-    -sUSE_GLFW=3
     -pthread
     -O2
     -Wno-unused-parameter

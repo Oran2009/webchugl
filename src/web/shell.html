@@ -96,24 +96,24 @@
                 statusEl.style.display = 'none';
                 document.getElementById('canvas').focus();
             },
-            // Fetch program.ck from server before main() runs
-            // This allows editing program.ck without rebuilding
+            // Fetch main.ck from server before main() runs
+            // This allows editing main.ck without rebuilding
             preRun: [function() {
-                // Add a callback to fetch program.ck before main() executes
-                Module.addRunDependency('program.ck');
-                fetch('program.ck')
+                // Add a callback to fetch main.ck before main() executes
+                Module.addRunDependency('main.ck');
+                fetch('main.ck')
                     .then(function(response) {
-                        if (!response.ok) throw new Error('Failed to fetch program.ck: ' + response.status);
+                        if (!response.ok) throw new Error('Failed to fetch main.ck: ' + response.status);
                         return response.text();
                     })
                     .then(function(code) {
-                        FS.writeFile('/program.ck', code);
-                        console.log('[WebChuGL] Loaded program.ck (' + code.length + ' bytes)');
-                        Module.removeRunDependency('program.ck');
+                        FS.writeFile('/main.ck', code);
+                        console.log('[WebChuGL] Loaded main.ck (' + code.length + ' bytes)');
+                        Module.removeRunDependency('main.ck');
                     })
                     .catch(function(err) {
                         console.error('[WebChuGL] ' + err.message);
-                        statusEl.textContent = 'Failed to load program.ck';
+                        statusEl.textContent = 'Failed to load main.ck';
                         statusEl.style.color = '#f44';
                     });
             }]

@@ -28,6 +28,13 @@ if (-not (Test-Path $BuildDir)) {
     New-Item -ItemType Directory -Path $BuildDir | Out-Null
 }
 
+# Copy all files from code directory to build directory (before build so they're available)
+$CodeDir = Join-Path $SrcDir "code"
+if (Test-Path $CodeDir) {
+    Copy-Item "$CodeDir\*" $BuildDir -Recurse -Force
+    Write-Host "Copied code/ to build directory" -ForegroundColor Gray
+}
+
 # Configure
 $CMakeCacheFile = Join-Path $BuildDir "CMakeCache.txt"
 if (-not (Test-Path $CMakeCacheFile)) {
@@ -55,12 +62,4 @@ try {
 
 Write-Host "`n=== Build Complete ===" -ForegroundColor Green
 Write-Host "Output: $BuildDir/index.html" -ForegroundColor Gray
-
-# Copy program.ck to build directory if it exists
-$ProgramCk = Join-Path $SrcDir "program.ck"
-if (Test-Path $ProgramCk) {
-    Copy-Item $ProgramCk (Join-Path $BuildDir "program.ck") -Force
-    Write-Host "Copied program.ck to build directory" -ForegroundColor Gray
-}
-
 Write-Host "`nTo test: python scripts/serve.py" -ForegroundColor Cyan

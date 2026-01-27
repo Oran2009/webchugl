@@ -61,21 +61,19 @@ if [ ! -f "$BUILD_DIR/CMakeCache.txt" ]; then
     cd "$SRC_DIR"
 fi
 
+# Copy all files from code directory to build directory (before build so they're available)
+CODE_DIR="$SRC_DIR/code"
+if [ -d "$CODE_DIR" ]; then
+    cp -r "$CODE_DIR"/* "$BUILD_DIR/"
+    echo "Copied code/ to build directory"
+fi
+
 # Build
 echo "Building WASM..."
 cd "$BUILD_DIR"
 "$EMMAKE" make -j "$JOBS"
-cd "$SRC_DIR"
 
 echo ""
 echo "=== Build Complete ==="
 echo "Output: $BUILD_DIR/index.html"
-
-# Copy program.ck to build directory
-if [ -f "$SRC_DIR/program.ck" ]; then
-    cp "$SRC_DIR/program.ck" "$BUILD_DIR/program.ck"
-    echo "Copied program.ck to build directory"
-fi
-
-echo ""
 echo "To test: python scripts/serve.py"

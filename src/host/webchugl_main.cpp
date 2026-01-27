@@ -2,11 +2,12 @@
   WebChuGL: ChuGL compiled to WebAssembly via Emscripten
   Entry point for the web build.
 
-  Initializes ChucK VM, loads ChuGL module, compiles program.ck, and starts
+  Initializes ChucK VM, loads ChuGL module, compiles code/main.ck, and starts
   the graphics loop. Audio samples are passed to Audio Worklet via ring buffer.
 -----------------------------------------------------------------------------*/
 #include "chuck.h"
 #include "audio_ring_buffer.h"
+#include "core/log.h"
 
 #include <emscripten.h>
 #include <emscripten/webaudio.h>
@@ -177,6 +178,9 @@ static void run_vm_frame(void* data)
 
 int main(int argc, char** argv)
 {
+    // Suppress ChuGL debug/trace messages, only show warnings and errors
+    log_set_level(LOG_WARN);
+
     printf("[WebChuGL] Initializing...\n");
 
     the_chuck = new ChucK();
@@ -197,8 +201,8 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    if (!the_chuck->compileFile("/program.ck", "", 1, TRUE)) {
-        printf("[WebChuGL] ERROR: Failed to compile /program.ck\n");
+    if (!the_chuck->compileFile("/main.ck", "", 1, TRUE)) {
+        printf("[WebChuGL] ERROR: Failed to compile /main.ck\n");
         return 1;
     }
 
