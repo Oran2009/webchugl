@@ -69,6 +69,7 @@ set(CHUGL_SOURCES
     ${CHUGL_SRC_DIR}/core/hashmap.c
     ${CHUGL_SRC_DIR}/core/memory.cpp
     ${CHUGL_SRC_DIR}/implementations.cpp
+    # Note: ulib_box2d.cpp is included via ChuGL.cpp unity build
     # GLFW3WebGPU bridge (compiled directly, not as subdirectory)
     ${CHUGL_SRC_DIR}/vendor/glfw3webgpu/glfw3webgpu.c
     # Dear ImGui + cimgui C wrapper
@@ -143,6 +144,7 @@ target_compile_definitions(webchugl PRIVATE
 target_compile_options(webchugl PRIVATE
     -sUSE_WEBGPU
     -sUSE_GLFW=3
+    -pthread
     -O2
     -Wno-unused-parameter
     -Wno-sign-compare
@@ -152,12 +154,17 @@ target_compile_options(webchugl PRIVATE
     -Wno-missing-field-initializers
     -Wno-unused-but-set-variable
     -Wno-unused-value
+    -Wno-psabi  # Box2D SIMD ABI warning
 )
 
 # ===========================================================================
 # Dependencies (FetchContent)
 # ===========================================================================
 include(FetchContent)
+
+# Set global flags for subdirectories (needed for pthread with Audio Worklet)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pthread")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 
 # FreeType font rendering
 set(FT_DISABLE_BROTLI   ON  CACHE BOOL "" FORCE)
@@ -176,6 +183,7 @@ target_link_libraries(webchugl PRIVATE freetype)
 target_link_options(webchugl PRIVATE
     -sUSE_WEBGPU
     -sUSE_GLFW=3
+    -pthread
     -sALLOW_MEMORY_GROWTH
     -sALLOW_TABLE_GROWTH
     -sSTACK_SIZE=1048576
@@ -187,11 +195,14 @@ target_link_options(webchugl PRIVATE
     -sDISABLE_EXCEPTION_CATCHING=0
     -sEXPORTED_FUNCTIONS=['_main','_malloc','_free']
     -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']
-    -sENVIRONMENT=web
+    -sENVIRONMENT=web,worker
     -sASSERTIONS=1
     -O2
     -sMINIFY_HTML=0
     --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
+    # Audio Worklet support
+    -sAUDIO_WORKLET=1
+    -sWASM_WORKERS=1
 )
 
 set_target_properties(webchugl PROPERTIES
