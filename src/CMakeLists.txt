@@ -191,7 +191,7 @@ target_link_options(webchugl PRIVATE
     -sASSERTIONS=1
     -O2
     -sMINIFY_HTML=0
-    --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/shell.html
+    --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
 )
 
 set_target_properties(webchugl PROPERTIES

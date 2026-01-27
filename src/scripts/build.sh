@@ -4,7 +4,8 @@
 
 set -e
 
-SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SRC_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$SRC_DIR/build"
 PROJECT_ROOT="$(dirname "$SRC_DIR")"
 EMSDK_DIR="$PROJECT_ROOT/emsdk-3.1.61/install/emscripten"
@@ -77,4 +78,4 @@ if [ -f "$SRC_DIR/program.ck" ]; then
 fi
 
 echo ""
-echo "To test: python serve.py"
+echo "To test: python scripts/serve.py"

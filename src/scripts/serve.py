@@ -40,7 +40,8 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
 
         # Serve program.ck from source directory for hot-reload
         if self.path.endswith('program.ck'):
-            source_ck = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'program.ck')
+            src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            source_ck = os.path.join(src_dir, 'program.ck')
             if os.path.exists(source_ck):
                 path = source_ck
 
@@ -101,7 +102,8 @@ class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
 
 if __name__ == '__main__':
     # Change to build directory
-    build_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'build')
+    src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    build_dir = os.path.join(src_dir, 'build')
     if os.path.exists(build_dir):
         os.chdir(build_dir)
         print(f"Serving from: {build_dir}")

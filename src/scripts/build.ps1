@@ -8,7 +8,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$SrcDir = $PSScriptRoot
+$ScriptDir = $PSScriptRoot
+$SrcDir = Split-Path -Parent $ScriptDir
 $BuildDir = Join-Path $SrcDir "build"
 $EmsdkDir = Join-Path (Split-Path -Parent $SrcDir) "emsdk-3.1.61\install\emscripten"
 $EmCMake = Join-Path $EmsdkDir "emcmake.py"
@@ -62,4 +63,4 @@ if (Test-Path $ProgramCk) {
     Write-Host "Copied program.ck to build directory" -ForegroundColor Gray
 }
 
-Write-Host "`nTo test: python serve.py" -ForegroundColor Cyan
+Write-Host "`nTo test: python scripts/serve.py" -ForegroundColor Cyan
