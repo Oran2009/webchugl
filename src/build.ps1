@@ -34,7 +34,7 @@ if (-not (Test-Path $CMakeCacheFile)) {
     Push-Location $BuildDir
     try {
         $env:EMSDK_PYTHON = ""
-        py $EmCMake cmake ..
+        py $EmCMake cmake .. -DCMAKE_POLICY_VERSION_MINIMUM="3.5"
         if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }
     } finally {
         Pop-Location
