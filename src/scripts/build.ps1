@@ -33,6 +33,14 @@ $CodeDir = Join-Path $SrcDir "code"
 if (Test-Path $CodeDir) {
     Copy-Item "$CodeDir\*" $BuildDir -Recurse -Force
     Write-Host "Copied code/ to build directory" -ForegroundColor Gray
+
+    # Generate manifest.json listing all files from code/
+    $codeFiles = Get-ChildItem -Path $CodeDir -File -Recurse | ForEach-Object {
+        $_.FullName.Substring($CodeDir.Length + 1).Replace('\', '/')
+    }
+    $manifest = @{ files = @($codeFiles) } | ConvertTo-Json
+    $manifest | Out-File -FilePath (Join-Path $BuildDir "manifest.json") -Encoding utf8
+    Write-Host "Generated manifest.json with $($codeFiles.Count) file(s)" -ForegroundColor Gray
 }
 
 # Configure

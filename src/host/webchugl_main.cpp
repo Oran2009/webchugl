@@ -190,6 +190,7 @@ int main(int argc, char** argv)
     the_chuck->setParam(CHUCK_PARAM_OUTPUT_CHANNELS, (t_CKINT)1);
     the_chuck->setParam(CHUCK_PARAM_VM_HALT, (t_CKINT)0);
     the_chuck->setParam(CHUCK_PARAM_CHUGIN_ENABLE, (t_CKINT)0);
+    the_chuck->setParam(CHUCK_PARAM_WORKING_DIRECTORY, "/");
 
     if (!the_chuck->init()) {
         printf("[WebChuGL] ERROR: Failed to initialize ChucK\n");

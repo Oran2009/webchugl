@@ -66,6 +66,24 @@ CODE_DIR="$SRC_DIR/code"
 if [ -d "$CODE_DIR" ]; then
     cp -r "$CODE_DIR"/* "$BUILD_DIR/"
     echo "Copied code/ to build directory"
+
+    # Generate manifest.json listing all files from code/
+    cd "$CODE_DIR"
+    FILES=$(find . -type f | sed 's|^\./||' | sort)
+    cd "$BUILD_DIR"
+    echo "{\"files\":[" > manifest.json
+    first=true
+    for f in $FILES; do
+        if [ "$first" = true ]; then
+            first=false
+        else
+            echo "," >> manifest.json
+        fi
+        echo -n "\"$f\"" >> manifest.json
+    done
+    echo "]}" >> manifest.json
+    echo "Generated manifest.json"
+    cd "$SRC_DIR"
 fi
 
 # Build

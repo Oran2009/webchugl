@@ -96,24 +96,61 @@
                 statusEl.style.display = 'none';
                 document.getElementById('canvas').focus();
             },
-            // Fetch main.ck from server before main() runs
-            // This allows editing main.ck without rebuilding
+            // Fetch all files from manifest before main() runs
+            // This allows editing code without rebuilding
             preRun: [function() {
-                // Add a callback to fetch main.ck before main() executes
-                Module.addRunDependency('main.ck');
-                fetch('main.ck')
+                Module.addRunDependency('ck-files');
+
+                // Helper to create parent directories
+                function ensureDir(path) {
+                    var parts = path.split('/').slice(0, -1);
+                    var current = '';
+                    for (var i = 0; i < parts.length; i++) {
+                        current += '/' + parts[i];
+                        try { FS.mkdir(current); } catch(e) {}
+                    }
+                }
+
+                // Check if file is binary
+                function isBinary(filename) {
+                    var ext = filename.split('.').pop().toLowerCase();
+                    return ['png', 'jpg', 'jpeg', 'gif', 'wav', 'mp3', 'ogg', 'ttf', 'otf', 'woff', 'woff2', 'bin', 'dat'].indexOf(ext) >= 0;
+                }
+
+                // Fetch manifest listing all files
+                fetch('manifest.json')
                     .then(function(response) {
-                        if (!response.ok) throw new Error('Failed to fetch main.ck: ' + response.status);
-                        return response.text();
+                        if (!response.ok) throw new Error('Failed to fetch manifest.json');
+                        return response.json();
                     })
-                    .then(function(code) {
-                        FS.writeFile('/main.ck', code);
-                        console.log('[WebChuGL] Loaded main.ck (' + code.length + ' bytes)');
-                        Module.removeRunDependency('main.ck');
+                    .then(function(manifest) {
+                        var files = manifest.files || [];
+                        console.log('[WebChuGL] Loading ' + files.length + ' file(s)...');
+
+                        return Promise.all(files.map(function(file) {
+                            return fetch(file)
+                                .then(function(response) {
+                                    if (!response.ok) throw new Error('Failed to fetch ' + file);
+                                    return isBinary(file) ? response.arrayBuffer() : response.text();
+                                })
+                                .then(function(content) {
+                                    ensureDir(file);
+                                    if (content instanceof ArrayBuffer) {
+                                        FS.writeFile('/' + file, new Uint8Array(content));
+                                    } else {
+                                        FS.writeFile('/' + file, content);
+                                    }
+                                    var size = content.byteLength || content.length;
+                                    console.log('[WebChuGL] Loaded ' + file + ' (' + size + ' bytes)');
+                                });
+                        }));
+                    })
+                    .then(function() {
+                        Module.removeRunDependency('ck-files');
                     })
                     .catch(function(err) {
                         console.error('[WebChuGL] ' + err.message);
-                        statusEl.textContent = 'Failed to load main.ck';
+                        statusEl.textContent = 'Failed to load files';
                         statusEl.style.color = '#f44';
                     });
             }]
