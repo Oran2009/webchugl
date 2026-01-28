@@ -210,3 +210,10 @@ set_target_properties(webchugl PROPERTIES
     SUFFIX ".html"
     OUTPUT_NAME "index"
 )
+
+# Copy web assets to build directory
+add_custom_command(TARGET webchugl POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_CURRENT_SOURCE_DIR}/web/webchugl.js
+        ${CMAKE_CURRENT_BINARY_DIR}/webchugl.js
+)
