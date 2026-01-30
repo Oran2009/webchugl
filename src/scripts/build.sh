@@ -61,13 +61,15 @@ if [ ! -f "$BUILD_DIR/CMakeCache.txt" ]; then
     cd "$SRC_DIR"
 fi
 
-# Copy all files from code directory to build directory (before build so they're available)
+# Copy code directory to build/code/ (preserving structure for /code/main.ck path)
 CODE_DIR="$SRC_DIR/code"
+BUILD_CODE_DIR="$BUILD_DIR/code"
 if [ -d "$CODE_DIR" ]; then
-    cp -r "$CODE_DIR"/* "$BUILD_DIR/"
-    echo "Copied code/ to build directory"
+    rm -rf "$BUILD_CODE_DIR"
+    cp -r "$CODE_DIR" "$BUILD_CODE_DIR"
+    echo "Copied code/ to build/code/"
 
-    # Generate manifest.json listing all files from code/
+    # Generate manifest.json listing all files with code/ prefix
     cd "$CODE_DIR"
     FILES=$(find . -type f | sed 's|^\./||' | sort)
     cd "$BUILD_DIR"
@@ -79,7 +81,7 @@ if [ -d "$CODE_DIR" ]; then
         else
             echo "," >> manifest.json
         fi
-        echo -n "\"$f\"" >> manifest.json
+        echo -n "\"code/$f\"" >> manifest.json
     done
     echo "]}" >> manifest.json
     echo "Generated manifest.json"

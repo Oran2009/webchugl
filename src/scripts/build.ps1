@@ -28,15 +28,19 @@ if (-not (Test-Path $BuildDir)) {
     New-Item -ItemType Directory -Path $BuildDir | Out-Null
 }
 
-# Copy all files from code directory to build directory (before build so they're available)
+# Copy code directory to build/code/ (preserving structure for /code/main.ck path)
 $CodeDir = Join-Path $SrcDir "code"
+$BuildCodeDir = Join-Path $BuildDir "code"
 if (Test-Path $CodeDir) {
-    Copy-Item "$CodeDir\*" $BuildDir -Recurse -Force
-    Write-Host "Copied code/ to build directory" -ForegroundColor Gray
+    if (Test-Path $BuildCodeDir) {
+        Remove-Item -Recurse -Force $BuildCodeDir
+    }
+    Copy-Item $CodeDir $BuildCodeDir -Recurse -Force
+    Write-Host "Copied code/ to build/code/" -ForegroundColor Gray
 
-    # Generate manifest.json listing all files from code/
+    # Generate manifest.json listing all files with code/ prefix
     $codeFiles = Get-ChildItem -Path $CodeDir -File -Recurse | ForEach-Object {
-        $_.FullName.Substring($CodeDir.Length + 1).Replace('\', '/')
+        "code/" + $_.FullName.Substring($CodeDir.Length + 1).Replace('\', '/')
     }
     $manifest = @{ files = @($codeFiles) } | ConvertTo-Json
     $manifest | Out-File -FilePath (Join-Path $BuildDir "manifest.json") -Encoding utf8

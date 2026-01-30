@@ -33,7 +33,10 @@ static ChucK* the_chuck = nullptr;
 // Audio configuration
 static const int NUM_CHANNELS = 2;  // Stereo
 static const double SAMPLE_RATE = 48000.0;
-static const int MAX_SAMPLES_PER_CALL = 4800; // 100ms max to prevent spikes
+static const int MAX_SAMPLES_PER_CALL = 2048;
+
+// Run ChucK at reduced rate to improve FPS (audio will have gaps but graphics will be smooth)
+static const double AUDIO_RATE_FACTOR = 0.5;  // Generate 50% of needed samples
 
 // Audio timing
 static std::chrono::high_resolution_clock::time_point g_lastAudioTime;
@@ -97,39 +100,37 @@ static void run_vm_frame(void* data)
 
     auto now = std::chrono::high_resolution_clock::now();
     double elapsedSeconds = std::chrono::duration<double>(now - g_lastAudioTime).count();
-    int samplesToGenerate = (int)(elapsedSeconds * SAMPLE_RATE + 0.5);
     g_lastAudioTime = now;
 
+    int samplesToGenerate = (int)(elapsedSeconds * SAMPLE_RATE * AUDIO_RATE_FACTOR + 0.5);
+
+    // Cap to prevent death spiral - better to have audio gaps than frozen graphics
     if (samplesToGenerate > MAX_SAMPLES_PER_CALL) {
         samplesToGenerate = MAX_SAMPLES_PER_CALL;
     }
 
-    if (samplesToGenerate >= 1) {
-        uint32_t available = ringAvailableToWrite();
-        if (available >= (uint32_t)samplesToGenerate) {
-            // Planar buffers: [L0..Ln, R0..Rn]
-            static SAMPLE inBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
-            static SAMPLE outBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
-            static float floatBuffer[MAX_SAMPLES_PER_CALL * 2];
-            static float floatInBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
+    if (samplesToGenerate < 1) return;
 
-            // Read mic input from input ring buffer (planar format)
-            int inputSamples = inputRingRead(floatInBuffer, samplesToGenerate);
-            // Convert float to SAMPLE and zero-fill if not enough
-            for (int i = 0; i < samplesToGenerate * NUM_CHANNELS; i++) {
-                inBuffer[i] = (i < inputSamples) ? (SAMPLE)floatInBuffer[i] : 0;
-            }
+    // Planar buffers: [L0..Ln, R0..Rn]
+    static SAMPLE inBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
+    static SAMPLE outBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
+    static float floatBuffer[MAX_SAMPLES_PER_CALL * 2];
 
-            // Run ChucK VM with input and output
-            ck->run(inBuffer, outBuffer, samplesToGenerate);
+    // Zero input buffer
+    memset(inBuffer, 0, sizeof(inBuffer));
 
-            // Convert from planar SAMPLE to interleaved float for ring buffer
-            for (int i = 0; i < samplesToGenerate; i++) {
-                floatBuffer[i * 2] = (float)outBuffer[i];                      // Left
-                floatBuffer[i * 2 + 1] = (float)outBuffer[samplesToGenerate + i]; // Right
-            }
-            ringWrite(floatBuffer, samplesToGenerate);
+    // Run ChucK VM - this advances both audio AND graphics logic
+    ck->run(inBuffer, outBuffer, samplesToGenerate);
+
+    // Write to ring buffer if there's space (for audio output)
+    uint32_t available = ringAvailableToWrite();
+    if (available >= (uint32_t)samplesToGenerate) {
+        // Convert from planar SAMPLE to interleaved float for ring buffer
+        for (int i = 0; i < samplesToGenerate; i++) {
+            floatBuffer[i * 2] = (float)outBuffer[i];                      // Left
+            floatBuffer[i * 2 + 1] = (float)outBuffer[samplesToGenerate + i]; // Right
         }
+        ringWrite(floatBuffer, samplesToGenerate);
     }
 }
 
