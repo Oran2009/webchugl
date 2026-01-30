@@ -1,5 +1,5 @@
 // WebChuGL Module Configuration
-// Sets up the Emscripten Module, handles file loading, and initializes audio
+// Sets up the Emscripten Module and handles file loading from manifest
 
 var Module = {
     canvas: (function() {
@@ -34,9 +34,6 @@ var Module = {
     onRuntimeInitialized: function() {
         document.getElementById('status').style.display = 'none';
         document.getElementById('canvas').focus();
-
-        // Initialize audio after WASM is ready
-        WebChuGLAudio.init();
     },
 
     // Fetch all files from manifest before main() runs
@@ -56,7 +53,7 @@ var Module = {
         // Check if file is binary
         function isBinary(filename) {
             var ext = filename.split('.').pop().toLowerCase();
-            var binaryExts = ['png', 'jpg', 'jpeg', 'gif', 'wav', 'mp3', 'ogg', 'ttf', 'otf', 'woff', 'woff2', 'bin', 'dat'];
+            var binaryExts = ['png', 'jpg', 'jpeg', 'gif', 'wav', 'mp3', 'ogg', 'ttf', 'otf', 'woff', 'woff2', 'bin', 'dat', 'wasm'];
             return binaryExts.indexOf(ext) >= 0;
         }
 
@@ -89,6 +86,11 @@ var Module = {
                 }));
             })
             .then(function() {
+                // Scan for ChuGins in the code directory only (recursive)
+                ChuginLoader.scanForChugins('/code');
+                if (ChuginLoader.pendingChugins.length > 0) {
+                    console.log('[WebChuGL] Found ' + ChuginLoader.pendingChugins.length + ' ChuGin(s)');
+                }
                 Module.removeRunDependency('ck-files');
             })
             .catch(function(err) {
@@ -101,131 +103,225 @@ var Module = {
 };
 
 // ============================================================================
-// WebChuGL Audio System
-// JavaScript-based Audio Worklet using SharedArrayBuffer for WASM communication
+// ChuGin Loader
+// Loads .chug.wasm files (SIDE_MODULEs) and registers them with ChucK
+//
+// ChuGins must be compiled as Emscripten SIDE_MODULEs:
+//   emcc chugin.cpp -sSIDE_MODULE=2 -sEXPORTED_FUNCTIONS=['_ck_query'] -o MyChugin.chug.wasm
 // ============================================================================
 
-var WebChuGLAudio = {
-    audioContext: null,
-    workletNode: null,
-    initialized: false,
+var ChuginLoader = {
+    loadedChugins: [],
+    pendingChugins: [],
 
-    init: function() {
-        if (this.initialized) return;
-
-        // Check if SharedArrayBuffer is available (requires COOP/COEP headers)
-        if (typeof SharedArrayBuffer === 'undefined') {
-            console.warn('[WebChuGL] SharedArrayBuffer not available. Audio disabled.');
-            console.warn('[WebChuGL] Ensure server sends COOP/COEP headers.');
-            return;
-        }
-
-        // Check if WASM memory is a SharedArrayBuffer
-        if (!(Module.HEAPU8.buffer instanceof SharedArrayBuffer)) {
-            console.warn('[WebChuGL] WASM memory is not SharedArrayBuffer. Audio disabled.');
-            return;
-        }
-
-        // Set up audio on user interaction (required by browsers)
-        var self = this;
-        var startAudio = function() {
-            if (!self.audioContext) {
-                self.createAudioContext();
-            } else if (self.audioContext.state === 'suspended') {
-                self.audioContext.resume();
-            }
-        };
-
-        document.addEventListener('click', startAudio);
-        document.addEventListener('keydown', startAudio);
-
-        this.initialized = true;
-        console.log('[WebChuGL] Audio system ready (click or press key to start)');
-    },
-
-    createAudioContext: function() {
-        var self = this;
-
-        // Create AudioContext at 48kHz to match ChucK
-        this.audioContext = new AudioContext({ sampleRate: 48000 });
-
-        // Get ring buffer pointers from WASM
-        var ringCapacity = Module._getRingCapacity();
-        var outputBufferPtr = Module._getOutputRingBuffer();
-        var outputWritePosPtr = Module._getOutputRingWritePos();
-        var outputReadPosPtr = Module._getOutputRingReadPos();
-        var inputBufferPtr = Module._getInputRingBuffer();
-        var inputWritePosPtr = Module._getInputRingWritePos();
-        var inputReadPosPtr = Module._getInputRingReadPos();
-
-        console.log('[WebChuGL] Ring buffer capacity:', ringCapacity);
-        console.log('[WebChuGL] Output buffer ptr:', outputBufferPtr);
-
-        // Load the audio worklet processor
-        // We inline the processor code as a Blob to avoid cross-origin issues
-        fetch('chugl-audio-processor.js')
-            .then(function(response) { return response.text(); })
-            .then(function(processorCode) {
-                var blob = new Blob([processorCode], { type: 'application/javascript' });
-                var url = URL.createObjectURL(blob);
-                return self.audioContext.audioWorklet.addModule(url);
-            })
-            .then(function() {
-                // Create the worklet node with WASM memory access
-                self.workletNode = new AudioWorkletNode(
-                    self.audioContext,
-                    'chugl-audio-processor',
-                    {
-                        numberOfInputs: 1,
-                        numberOfOutputs: 1,
-                        outputChannelCount: [2],
-                        processorOptions: {
-                            wasmMemory: Module.HEAPU8.buffer,
-                            ringCapacity: ringCapacity,
-                            outputBufferPtr: outputBufferPtr,
-                            outputWritePosPtr: outputWritePosPtr,
-                            outputReadPosPtr: outputReadPosPtr,
-                            inputBufferPtr: inputBufferPtr,
-                            inputWritePosPtr: inputWritePosPtr,
-                            inputReadPosPtr: inputReadPosPtr
-                        }
+    // Recursively scan directory for .chug.wasm files
+    scanForChugins: function(dirPath) {
+        try {
+            var files = FS.readdir(dirPath);
+            for (var i = 0; i < files.length; i++) {
+                var file = files[i];
+                if (file === '.' || file === '..') continue;
+                var fullPath = dirPath + '/' + file;
+                try {
+                    var stat = FS.stat(fullPath);
+                    if (FS.isDir(stat.mode)) {
+                        this.scanForChugins(fullPath);
+                    } else if (file.endsWith('.chug.wasm')) {
+                        this.pendingChugins.push(fullPath);
+                        console.log('[ChuginLoader] Found: ' + fullPath);
                     }
-                );
-
-                // Connect worklet to audio output
-                self.workletNode.connect(self.audioContext.destination);
-                console.log('[WebChuGL] Audio worklet connected');
-
-                // Try to connect microphone input
-                self.connectMicrophone();
-
-                // Hide audio hint
-                var audioHint = document.getElementById('audio-hint');
-                if (audioHint) {
-                    audioHint.classList.add('hidden');
-                }
-            })
-            .catch(function(err) {
-                console.error('[WebChuGL] Failed to create audio worklet:', err);
-            });
+                } catch (e) { }
+            }
+        } catch (e) { }
     },
 
-    connectMicrophone: function() {
-        var self = this;
+    // Load a .chug.wasm SIDE_MODULE and return function table index for ck_query
+    loadChugin: function(fsPath) {
+        console.log('[ChuginLoader] Loading: ' + fsPath);
 
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            console.log('[WebChuGL] getUserMedia not available');
-            return;
-        }
+        try {
+            var wasmBytes = FS.readFile(fsPath);
 
-        navigator.mediaDevices.getUserMedia({ audio: true })
-            .then(function(stream) {
-                var source = self.audioContext.createMediaStreamSource(stream);
-                source.connect(self.workletNode);
-                console.log('[WebChuGL] Microphone connected');
-            })
-            .catch(function(err) {
-                console.log('[WebChuGL] Microphone not available:', err.message);
+            // Allocate memory region for this ChuGin's static data
+            var memoryBase = Module._malloc(65536);
+            if (!memoryBase) {
+                console.error('[ChuginLoader] Failed to allocate memory');
+                return -1;
+            }
+
+            // Allocate table slots for ChuGin's functions
+            var tableBase = Module.wasmTable.length;
+            Module.wasmTable.grow(100);
+
+            // GOT (Global Offset Table) - allocate real memory for each entry
+            var gotBase = Module._malloc(256);
+            var gotOffset = 0;
+            var GOT = {};
+            var createGOTProxy = function() {
+                return new Proxy({}, {
+                    get: function(obj, name) {
+                        if (!GOT[name]) {
+                            GOT[name] = new WebAssembly.Global(
+                                {value: 'i32', mutable: true},
+                                gotBase + (gotOffset++ * 4)
+                            );
+                        }
+                        return GOT[name];
+                    }
+                });
+            };
+
+            // Get stack pointer from main module
+            var stackPointer;
+            try {
+                stackPointer = (typeof wasmExports !== 'undefined' && wasmExports.__stack_pointer)
+                    ? wasmExports.__stack_pointer
+                    : new WebAssembly.Global({value: 'i32', mutable: true}, memoryBase + 65536 - 256);
+            } catch (e) {
+                stackPointer = new WebAssembly.Global({value: 'i32', mutable: true}, memoryBase + 65536 - 256);
+            }
+
+            // Create env imports using a Proxy to auto-forward to main module exports
+            var envBase = {
+                'memory': Module.wasmMemory,
+                '__indirect_function_table': Module.wasmTable,
+                '__stack_pointer': stackPointer,
+                '__memory_base': new WebAssembly.Global({value: 'i32', mutable: false}, memoryBase),
+                '__table_base': new WebAssembly.Global({value: 'i32', mutable: false}, tableBase)
+            };
+
+            // Common fallbacks for functions not exported by main module
+            var fallbacks = {
+                // C++ new/delete -> malloc/free
+                '_Znwm': function(size) { return Module._malloc(size); },
+                '_Znwj': function(size) { return Module._malloc(size); },
+                '_ZdlPv': function(ptr) { Module._free(ptr); },
+                '_ZdlPvm': function(ptr) { Module._free(ptr); },
+                // Exception handling
+                '__cxa_find_matching_catch_2': function() { return 0; },
+                '__cxa_find_matching_catch_3': function() { return 0; },
+                'getTempRet0': function() { return 0; },
+                'setTempRet0': function() { },
+                '__resumeException': function(ptr) { throw ptr; },
+                // Threading
+                'pthread_self': function() { return 0; },
+                'emscripten_builtin_memalign': function(align, size) { return Module._malloc(size); },
+                // Math functions
+                'pow': Math.pow, 'powf': Math.pow,
+                'sin': Math.sin, 'sinf': Math.sin,
+                'cos': Math.cos, 'cosf': Math.cos,
+                'tan': Math.tan, 'tanf': Math.tan,
+                'sqrt': Math.sqrt, 'sqrtf': Math.sqrt,
+                'exp': Math.exp, 'expf': Math.exp,
+                'log': Math.log, 'logf': Math.log,
+                'log2': Math.log2, 'log2f': Math.log2,
+                'log10': Math.log10, 'log10f': Math.log10,
+                'fabs': Math.abs, 'fabsf': Math.abs,
+                'floor': Math.floor, 'floorf': Math.floor,
+                'ceil': Math.ceil, 'ceilf': Math.ceil,
+                'round': Math.round, 'roundf': Math.round,
+                'trunc': Math.trunc, 'truncf': Math.trunc,
+                'atan': Math.atan, 'atanf': Math.atan,
+                'atan2': Math.atan2, 'atan2f': Math.atan2,
+                'asin': Math.asin, 'asinf': Math.asin,
+                'acos': Math.acos, 'acosf': Math.acos,
+                'sinh': Math.sinh, 'sinhf': Math.sinh,
+                'cosh': Math.cosh, 'coshf': Math.cosh,
+                'tanh': Math.tanh, 'tanhf': Math.tanh,
+                'fmin': Math.min, 'fminf': Math.min,
+                'fmax': Math.max, 'fmaxf': Math.max,
+                'fmod': function(x, y) { return x % y; },
+                'fmodf': function(x, y) { return x % y; },
+                'exp2': function(x) { return Math.pow(2, x); },
+                'exp2f': function(x) { return Math.pow(2, x); },
+                'ldexp': function(x, e) { return x * Math.pow(2, e); },
+                'ldexpf': function(x, e) { return x * Math.pow(2, e); },
+                'copysign': function(x, y) { return Math.sign(y) * Math.abs(x); },
+                'copysignf': function(x, y) { return Math.sign(y) * Math.abs(x); },
+                // Runtime
+                'abort': function() { throw new Error('abort'); }
+            };
+
+            var envProxy = new Proxy(envBase, {
+                get: function(target, name) {
+                    if (name in target) return target[name];
+
+                    // Try main module's exports
+                    if (typeof wasmExports !== 'undefined' && wasmExports[name]) {
+                        return wasmExports[name];
+                    }
+                    if (Module['_' + name]) return Module['_' + name];
+
+                    // Check fallbacks
+                    if (name in fallbacks) return fallbacks[name];
+
+                    // Generate invoke_* wrappers for exception handling
+                    if (name.startsWith('invoke_')) {
+                        return function(index) {
+                            var args = Array.prototype.slice.call(arguments, 1);
+                            try { return Module.wasmTable.get(index).apply(null, args); }
+                            catch (e) { return 0; }
+                        };
+                    }
+
+                    console.warn('[ChuginLoader] Missing import: env.' + name);
+                    return function() { return 0; };
+                },
+                has: function() { return true; }
             });
+
+            // Instantiate the SIDE_MODULE
+            var module = new WebAssembly.Module(wasmBytes);
+            var instance = new WebAssembly.Instance(module, {
+                'env': envProxy,
+                'GOT.mem': createGOTProxy(),
+                'GOT.func': createGOTProxy()
+            });
+
+            // Run WASM initializers
+            if (instance.exports.__wasm_apply_data_relocs) {
+                instance.exports.__wasm_apply_data_relocs();
+            }
+            if (instance.exports.__wasm_call_ctors) {
+                instance.exports.__wasm_call_ctors();
+            }
+
+            // Get ck_query and add to function table
+            var ckQuery = instance.exports.ck_query || instance.exports._ck_query;
+            if (!ckQuery) {
+                console.error('[ChuginLoader] No ck_query export in ' + fsPath);
+                return -1;
+            }
+
+            var funcIndex = Module.addFunction(ckQuery, 'ii');
+            var name = fsPath.split('/').pop().replace('.chug.wasm', '');
+            this.loadedChugins.push({ name: name, funcIndex: funcIndex, path: fsPath });
+
+            console.log('[ChuginLoader] Loaded ' + name + ' at index ' + funcIndex);
+            return funcIndex;
+
+        } catch (e) {
+            console.error('[ChuginLoader] Failed: ' + fsPath + ' - ' + e.message);
+            return -1;
+        }
+    },
+
+    loadAllPending: function() {
+        var results = [];
+        for (var i = 0; i < this.pendingChugins.length; i++) {
+            var funcIndex = this.loadChugin(this.pendingChugins[i]);
+            if (funcIndex >= 0) {
+                var name = this.pendingChugins[i].split('/').pop().replace('.chug.wasm', '');
+                results.push({ name: name, funcIndex: funcIndex });
+            }
+        }
+        this.pendingChugins = [];
+        return results;
+    },
+
+    getPendingCount: function() {
+        return this.pendingChugins.length;
     }
 };
+
+window.ChuginLoader = ChuginLoader;

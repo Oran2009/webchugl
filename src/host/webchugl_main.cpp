@@ -3,8 +3,7 @@
   Entry point for the web build.
 
   Initializes ChucK VM, loads ChuGL module, compiles code/main.ck, and starts
-  the graphics loop. Audio samples are passed to JS Audio Worklet via ring buffer
-  backed by SharedArrayBuffer.
+  the graphics loop. Audio samples are passed to Audio Worklet via ring buffer.
 
   Audio buffer format: PLANAR (left channel first, then right channel)
   - Output: [L0, L1, ..., Ln, R0, R1, ..., Rn]
@@ -15,6 +14,7 @@
 #include "core/log.h"
 
 #include <emscripten.h>
+#include <emscripten/webaudio.h>
 #include <stdio.h>
 #include <chrono>
 
@@ -33,64 +33,126 @@ static ChucK* the_chuck = nullptr;
 // Audio configuration
 static const int NUM_CHANNELS = 2;  // Stereo
 static const double SAMPLE_RATE = 48000.0;
-static const int MAX_SAMPLES_PER_CALL = 2048;
-
-// Run ChucK at reduced rate to improve FPS (audio will have gaps but graphics will be smooth)
-static const double AUDIO_RATE_FACTOR = 0.5;  // Generate 50% of needed samples
+static const int MAX_SAMPLES_PER_CALL = 4800; // 100ms max to prevent spikes
 
 // Audio timing
 static std::chrono::high_resolution_clock::time_point g_lastAudioTime;
 
-// ============================================================================
-// Exported functions for JavaScript audio worklet
-// These allow JS to access the ring buffer via SharedArrayBuffer
-// ============================================================================
+// Audio worklet state
+static EMSCRIPTEN_WEBAUDIO_T g_audioContext = 0;
+static uint8_t g_wasmAudioWorkletStack[4096];
 
-extern "C" {
+// Flag to track if microphone is needed (adc is used in the ChucK code)
+static bool g_needsMicrophone = false;
 
-// Get pointer to output ring buffer (main thread writes, audio worklet reads)
-EMSCRIPTEN_KEEPALIVE
-float* getOutputRingBuffer() {
-    return g_audioRingBuffer;
+// Audio worklet callback - runs on audio thread
+// Reads 128 samples from ring buffer and writes to output
+EM_BOOL ProcessAudio(int numInputs, const AudioSampleFrame* inputs,
+                     int numOutputs, AudioSampleFrame* outputs,
+                     int numParams, const AudioParamFrame* params, void* userData)
+{
+    // Write mic input to input ring buffer (if available)
+    if (numInputs > 0 && inputs[0].numberOfChannels >= 2) {
+        // Input is planar: first 128 samples are left, next 128 are right
+        inputRingWrite(inputs[0].data, 128);
+    }
+
+    // Read output from ring buffer
+    for (int i = 0; i < 128; i++) {
+        float left, right;
+        if (ringRead(&left, &right)) {
+            outputs[0].data[i] = left;
+            outputs[0].data[128 + i] = right;
+        } else {
+            outputs[0].data[i] = 0.0f;
+            outputs[0].data[128 + i] = 0.0f;
+        }
+    }
+    return EM_TRUE;
 }
 
-// Get pointer to output ring write position
-EMSCRIPTEN_KEEPALIVE
-uint32_t* getOutputRingWritePos() {
-    return reinterpret_cast<uint32_t*>(&g_ringWritePos);
+// Callback when AudioWorkletProcessor is created
+void AudioWorkletProcessorCreated(EMSCRIPTEN_WEBAUDIO_T ctx, EM_BOOL success, void* userData)
+{
+    if (!success) {
+        printf("[WebChuGL] ERROR: Failed to create AudioWorkletProcessor\n");
+        return;
+    }
+
+    int outputChannelCounts[1] = { NUM_CHANNELS };
+    EmscriptenAudioWorkletNodeCreateOptions opts = {
+        .numberOfInputs = 1,  // Enable mic input
+        .numberOfOutputs = 1,
+        .outputChannelCounts = outputChannelCounts
+    };
+
+    EMSCRIPTEN_AUDIO_WORKLET_NODE_T node =
+        emscripten_create_wasm_audio_worklet_node(ctx, "chugl-audio", &opts, &ProcessAudio, nullptr);
+
+    // Connect node to destination and optionally set up mic input
+    EM_ASM({
+        let ctx = emscriptenGetAudioObject($0);
+        let node = emscriptenGetAudioObject($1);
+        let needsMic = $2;
+        node.connect(ctx.destination);
+
+        // Only request microphone if adc is used in the ChucK code
+        if (needsMic) {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(function(stream) {
+                    let source = ctx.createMediaStreamSource(stream);
+                    source.connect(node);
+                    console.log('[WebChuGL] Microphone connected');
+                })
+                .catch(function(err) {
+                    console.log('[WebChuGL] Microphone not available: ' + err.message);
+                });
+        }
+
+        let startAudio = function() {
+            if (ctx.state !== 'running') {
+                ctx.resume();
+            }
+        };
+        document.addEventListener('click', startAudio, { once: true });
+        document.addEventListener('keydown', startAudio, { once: true });
+    }, ctx, node, g_needsMicrophone ? 1 : 0);
 }
 
-// Get pointer to output ring read position
-EMSCRIPTEN_KEEPALIVE
-uint32_t* getOutputRingReadPos() {
-    return reinterpret_cast<uint32_t*>(&g_ringReadPos);
+// Callback when Audio Worklet thread is initialized
+void WebAudioWorkletThreadInitialized(EMSCRIPTEN_WEBAUDIO_T ctx, EM_BOOL success, void* userData)
+{
+    if (!success) {
+        printf("[WebChuGL] ERROR: Failed to initialize Audio Worklet thread\n");
+        return;
+    }
+
+    WebAudioWorkletProcessorCreateOptions opts = { .name = "chugl-audio" };
+    emscripten_create_wasm_audio_worklet_processor_async(ctx, &opts, AudioWorkletProcessorCreated, nullptr);
 }
 
-// Get pointer to input ring buffer (audio worklet writes, main thread reads)
-EMSCRIPTEN_KEEPALIVE
-float* getInputRingBuffer() {
-    return g_inputRingBuffer;
-}
+// Initialize the audio system
+void initAudio()
+{
+    EmscriptenWebAudioCreateAttributes attrs = {
+        .latencyHint = "interactive",
+        .sampleRate = 48000
+    };
+    g_audioContext = emscripten_create_audio_context(&attrs);
 
-// Get pointer to input ring write position
-EMSCRIPTEN_KEEPALIVE
-uint32_t* getInputRingWritePos() {
-    return reinterpret_cast<uint32_t*>(&g_inputRingWritePos);
-}
+    if (g_audioContext == 0) {
+        printf("[WebChuGL] ERROR: Failed to create audio context\n");
+        return;
+    }
 
-// Get pointer to input ring read position
-EMSCRIPTEN_KEEPALIVE
-uint32_t* getInputRingReadPos() {
-    return reinterpret_cast<uint32_t*>(&g_inputRingReadPos);
+    emscripten_start_wasm_audio_worklet_thread_async(
+        g_audioContext,
+        g_wasmAudioWorkletStack,
+        sizeof(g_wasmAudioWorkletStack),
+        WebAudioWorkletThreadInitialized,
+        nullptr
+    );
 }
-
-// Get ring buffer capacity
-EMSCRIPTEN_KEEPALIVE
-uint32_t getRingCapacity() {
-    return RING_CAPACITY;
-}
-
-}  // extern "C"
 
 // Pre-frame callback: advances the ChucK VM based on elapsed time
 static void run_vm_frame(void* data)
@@ -100,37 +162,39 @@ static void run_vm_frame(void* data)
 
     auto now = std::chrono::high_resolution_clock::now();
     double elapsedSeconds = std::chrono::duration<double>(now - g_lastAudioTime).count();
+    int samplesToGenerate = (int)(elapsedSeconds * SAMPLE_RATE + 0.5);
     g_lastAudioTime = now;
 
-    int samplesToGenerate = (int)(elapsedSeconds * SAMPLE_RATE * AUDIO_RATE_FACTOR + 0.5);
-
-    // Cap to prevent death spiral - better to have audio gaps than frozen graphics
     if (samplesToGenerate > MAX_SAMPLES_PER_CALL) {
         samplesToGenerate = MAX_SAMPLES_PER_CALL;
     }
 
-    if (samplesToGenerate < 1) return;
+    if (samplesToGenerate >= 1) {
+        uint32_t available = ringAvailableToWrite();
+        if (available >= (uint32_t)samplesToGenerate) {
+            // Planar buffers: [L0..Ln, R0..Rn]
+            static SAMPLE inBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
+            static SAMPLE outBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
+            static float floatBuffer[MAX_SAMPLES_PER_CALL * 2];
+            static float floatInBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
 
-    // Planar buffers: [L0..Ln, R0..Rn]
-    static SAMPLE inBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
-    static SAMPLE outBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
-    static float floatBuffer[MAX_SAMPLES_PER_CALL * 2];
+            // Read mic input from input ring buffer (planar format)
+            int inputSamples = inputRingRead(floatInBuffer, samplesToGenerate);
+            // Convert float to SAMPLE and zero-fill if not enough
+            for (int i = 0; i < samplesToGenerate * NUM_CHANNELS; i++) {
+                inBuffer[i] = (i < inputSamples) ? (SAMPLE)floatInBuffer[i] : 0;
+            }
 
-    // Zero input buffer
-    memset(inBuffer, 0, sizeof(inBuffer));
+            // Run ChucK VM with input and output
+            ck->run(inBuffer, outBuffer, samplesToGenerate);
 
-    // Run ChucK VM - this advances both audio AND graphics logic
-    ck->run(inBuffer, outBuffer, samplesToGenerate);
-
-    // Write to ring buffer if there's space (for audio output)
-    uint32_t available = ringAvailableToWrite();
-    if (available >= (uint32_t)samplesToGenerate) {
-        // Convert from planar SAMPLE to interleaved float for ring buffer
-        for (int i = 0; i < samplesToGenerate; i++) {
-            floatBuffer[i * 2] = (float)outBuffer[i];                      // Left
-            floatBuffer[i * 2 + 1] = (float)outBuffer[samplesToGenerate + i]; // Right
+            // Convert from planar SAMPLE to interleaved float for ring buffer
+            for (int i = 0; i < samplesToGenerate; i++) {
+                floatBuffer[i * 2] = (float)outBuffer[i];                      // Left
+                floatBuffer[i * 2 + 1] = (float)outBuffer[samplesToGenerate + i]; // Right
+            }
+            ringWrite(floatBuffer, samplesToGenerate);
         }
-        ringWrite(floatBuffer, samplesToGenerate);
     }
 }
 
@@ -147,8 +211,8 @@ int main(int argc, char** argv)
     the_chuck->setParam(CHUCK_PARAM_INPUT_CHANNELS, (t_CKINT)NUM_CHANNELS);
     the_chuck->setParam(CHUCK_PARAM_OUTPUT_CHANNELS, (t_CKINT)NUM_CHANNELS);
     the_chuck->setParam(CHUCK_PARAM_VM_HALT, (t_CKINT)0);
-    the_chuck->setParam(CHUCK_PARAM_CHUGIN_ENABLE, (t_CKINT)0);
-    the_chuck->setParam(CHUCK_PARAM_WORKING_DIRECTORY, "/");
+    the_chuck->setParam(CHUCK_PARAM_CHUGIN_ENABLE, (t_CKINT)1);
+    the_chuck->setParam(CHUCK_PARAM_WORKING_DIRECTORY, "/code");
 
     if (!the_chuck->init()) {
         printf("[WebChuGL] ERROR: Failed to initialize ChucK\n");
@@ -160,12 +224,71 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    // Load ChuGins from JavaScript (scanned from filesystem during preRun)
+    {
+        // Get the number of pending ChuGins
+        int chuginCount = EM_ASM_INT({
+            return window.ChuginLoader ? window.ChuginLoader.getPendingCount() : 0;
+        });
+
+        if (chuginCount > 0) {
+            printf("[WebChuGL] Loading %d ChuGin(s)...\n", chuginCount);
+
+            // Load all ChuGins and get their function table indices
+            // This calls ChuginLoader.loadAllPending() which instantiates the SIDE_MODULEs
+            EM_ASM({
+                var chugins = window.ChuginLoader.loadAllPending();
+                // Store results in a global array for C++ to access
+                window._loadedChugins = chugins;
+            });
+
+            // Now register each ChuGin with ChucK
+            int loadedCount = EM_ASM_INT({
+                return window._loadedChugins ? window._loadedChugins.length : 0;
+            });
+
+            for (int i = 0; i < loadedCount; i++) {
+                // Get name and function index for this ChuGin
+                char* name = (char*)EM_ASM_PTR({
+                    var chugin = window._loadedChugins[$0];
+                    var name = chugin.name;
+                    var len = lengthBytesUTF8(name) + 1;
+                    var ptr = _malloc(len);
+                    stringToUTF8(name, ptr, len);
+                    return ptr;
+                }, i);
+
+                int funcIndex = EM_ASM_INT({
+                    return window._loadedChugins[$0].funcIndex;
+                }, i);
+
+                // Convert function table index to function pointer
+                // In Emscripten, indirect function calls go through the table
+                f_ck_query queryFunc = (f_ck_query)funcIndex;
+
+                // Register with ChucK compiler
+                if (the_chuck->compiler()->bind(queryFunc, name, "global")) {
+                    printf("[WebChuGL] Loaded ChuGin: %s\n", name);
+                } else {
+                    printf("[WebChuGL] ERROR: Failed to load ChuGin: %s\n", name);
+                }
+
+                free(name);
+            }
+
+            // Clean up
+            EM_ASM({ window._loadedChugins = null; });
+        }
+    }
+
+    // IMPORTANT: start() must be called BEFORE compileFile() so that
+    // static initialization shreds can execute properly (they check m_is_running)
+    the_chuck->start();
+
     if (!the_chuck->compileFile("/code/main.ck", "", 1, TRUE)) {
         printf("[WebChuGL] ERROR: Failed to compile /code/main.ck\n");
         return 1;
     }
-
-    the_chuck->start();
 
     // Run VM briefly to execute initial setup code before GG.nextFrame()
     {
@@ -173,10 +296,16 @@ int main(int argc, char** argv)
         the_chuck->run(nullptr, initBuffer, 256);
     }
 
-    g_lastAudioTime = std::chrono::high_resolution_clock::now();
+    // Check if adc is used (has downstream connections)
+    // Only request microphone permission if the ChucK code actually uses adc
+    Chuck_UGen* adc = the_chuck->vm()->m_adc;
+    if (adc && adc->m_num_dest > 0) {
+        g_needsMicrophone = true;
+        printf("[WebChuGL] ADC in use - microphone will be requested\n");
+    }
 
-    // Audio is initialized from JavaScript via webchugl.js
-    // JS will call the exported ring buffer functions to set up SharedArrayBuffer access
+    g_lastAudioTime = std::chrono::high_resolution_clock::now();
+    initAudio();
 
     webchugl_set_pre_frame_callback(run_vm_frame, the_chuck);
 
