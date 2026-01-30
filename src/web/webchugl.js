@@ -1,5 +1,5 @@
 // WebChuGL Module Configuration
-// Sets up the Emscripten Module and handles file loading from manifest
+// Sets up the Emscripten Module, handles file loading, and initializes audio
 
 var Module = {
     canvas: (function() {
@@ -34,6 +34,9 @@ var Module = {
     onRuntimeInitialized: function() {
         document.getElementById('status').style.display = 'none';
         document.getElementById('canvas').focus();
+
+        // Initialize audio after WASM is ready
+        WebChuGLAudio.init();
     },
 
     // Fetch all files from manifest before main() runs
@@ -95,4 +98,134 @@ var Module = {
                 statusEl.style.color = '#f44';
             });
     }]
+};
+
+// ============================================================================
+// WebChuGL Audio System
+// JavaScript-based Audio Worklet using SharedArrayBuffer for WASM communication
+// ============================================================================
+
+var WebChuGLAudio = {
+    audioContext: null,
+    workletNode: null,
+    initialized: false,
+
+    init: function() {
+        if (this.initialized) return;
+
+        // Check if SharedArrayBuffer is available (requires COOP/COEP headers)
+        if (typeof SharedArrayBuffer === 'undefined') {
+            console.warn('[WebChuGL] SharedArrayBuffer not available. Audio disabled.');
+            console.warn('[WebChuGL] Ensure server sends COOP/COEP headers.');
+            return;
+        }
+
+        // Check if WASM memory is a SharedArrayBuffer
+        if (!(Module.HEAPU8.buffer instanceof SharedArrayBuffer)) {
+            console.warn('[WebChuGL] WASM memory is not SharedArrayBuffer. Audio disabled.');
+            return;
+        }
+
+        // Set up audio on user interaction (required by browsers)
+        var self = this;
+        var startAudio = function() {
+            if (!self.audioContext) {
+                self.createAudioContext();
+            } else if (self.audioContext.state === 'suspended') {
+                self.audioContext.resume();
+            }
+        };
+
+        document.addEventListener('click', startAudio);
+        document.addEventListener('keydown', startAudio);
+
+        this.initialized = true;
+        console.log('[WebChuGL] Audio system ready (click or press key to start)');
+    },
+
+    createAudioContext: function() {
+        var self = this;
+
+        // Create AudioContext at 48kHz to match ChucK
+        this.audioContext = new AudioContext({ sampleRate: 48000 });
+
+        // Get ring buffer pointers from WASM
+        var ringCapacity = Module._getRingCapacity();
+        var outputBufferPtr = Module._getOutputRingBuffer();
+        var outputWritePosPtr = Module._getOutputRingWritePos();
+        var outputReadPosPtr = Module._getOutputRingReadPos();
+        var inputBufferPtr = Module._getInputRingBuffer();
+        var inputWritePosPtr = Module._getInputRingWritePos();
+        var inputReadPosPtr = Module._getInputRingReadPos();
+
+        console.log('[WebChuGL] Ring buffer capacity:', ringCapacity);
+        console.log('[WebChuGL] Output buffer ptr:', outputBufferPtr);
+
+        // Load the audio worklet processor
+        // We inline the processor code as a Blob to avoid cross-origin issues
+        fetch('chugl-audio-processor.js')
+            .then(function(response) { return response.text(); })
+            .then(function(processorCode) {
+                var blob = new Blob([processorCode], { type: 'application/javascript' });
+                var url = URL.createObjectURL(blob);
+                return self.audioContext.audioWorklet.addModule(url);
+            })
+            .then(function() {
+                // Create the worklet node with WASM memory access
+                self.workletNode = new AudioWorkletNode(
+                    self.audioContext,
+                    'chugl-audio-processor',
+                    {
+                        numberOfInputs: 1,
+                        numberOfOutputs: 1,
+                        outputChannelCount: [2],
+                        processorOptions: {
+                            wasmMemory: Module.HEAPU8.buffer,
+                            ringCapacity: ringCapacity,
+                            outputBufferPtr: outputBufferPtr,
+                            outputWritePosPtr: outputWritePosPtr,
+                            outputReadPosPtr: outputReadPosPtr,
+                            inputBufferPtr: inputBufferPtr,
+                            inputWritePosPtr: inputWritePosPtr,
+                            inputReadPosPtr: inputReadPosPtr
+                        }
+                    }
+                );
+
+                // Connect worklet to audio output
+                self.workletNode.connect(self.audioContext.destination);
+                console.log('[WebChuGL] Audio worklet connected');
+
+                // Try to connect microphone input
+                self.connectMicrophone();
+
+                // Hide audio hint
+                var audioHint = document.getElementById('audio-hint');
+                if (audioHint) {
+                    audioHint.classList.add('hidden');
+                }
+            })
+            .catch(function(err) {
+                console.error('[WebChuGL] Failed to create audio worklet:', err);
+            });
+    },
+
+    connectMicrophone: function() {
+        var self = this;
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            console.log('[WebChuGL] getUserMedia not available');
+            return;
+        }
+
+        navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(function(stream) {
+                var source = self.audioContext.createMediaStreamSource(stream);
+                source.connect(self.workletNode);
+                console.log('[WebChuGL] Microphone connected');
+            })
+            .catch(function(err) {
+                console.log('[WebChuGL] Microphone not available:', err.message);
+            });
+    }
 };

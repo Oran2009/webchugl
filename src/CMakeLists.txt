@@ -163,7 +163,7 @@ target_compile_options(webchugl PRIVATE
 # ===========================================================================
 include(FetchContent)
 
-# Set global flags for subdirectories (needed for pthread with Audio Worklet)
+# Set global flags for subdirectories (-pthread enables SharedArrayBuffer for audio)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pthread")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 
@@ -194,16 +194,15 @@ target_link_options(webchugl PRIVATE
     "-sASYNCIFY_REMOVE=['ImGui*','ImDraw*','ImFont*','ImPool*','ImVector*','ImGui_Impl*','chuck_*','Chuck_*','uana_*','ugen_*','ulib_*','FT_*','ft_*','stb_*','par_*','glm::*']"
     -sFORCE_FILESYSTEM
     -sDISABLE_EXCEPTION_CATCHING=0
-    -sEXPORTED_FUNCTIONS=['_main','_malloc','_free']
+    "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_getOutputRingBuffer','_getOutputRingWritePos','_getOutputRingReadPos','_getInputRingBuffer','_getInputRingWritePos','_getInputRingReadPos','_getRingCapacity']"
     -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']
     -sENVIRONMENT=web,worker
     -sASSERTIONS=1
     -O2
     -sMINIFY_HTML=0
     --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
-    # Audio Worklet support
-    -sAUDIO_WORKLET=1
-    -sWASM_WORKERS=1
+    # JS-based audio worklet (no AUDIO_WORKLET/WASM_WORKERS needed)
+    # -pthread enables SharedArrayBuffer which is used for ring buffer communication
 )
 
 set_target_properties(webchugl PROPERTIES
@@ -216,4 +215,7 @@ add_custom_command(TARGET webchugl POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_SOURCE_DIR}/web/webchugl.js
         ${CMAKE_CURRENT_BINARY_DIR}/webchugl.js
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_CURRENT_SOURCE_DIR}/web/chugl-audio-processor.js
+        ${CMAKE_CURRENT_BINARY_DIR}/chugl-audio-processor.js
 )
