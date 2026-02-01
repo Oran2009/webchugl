@@ -224,7 +224,7 @@ index 7269768..02dd579 100644
  #include "app.cpp"
  
 diff --git a/src/app.cpp b/src/app.cpp
-index f083176..924a2c9 100644
+index f083176..e600f0a 100644
 --- a/src/app.cpp
 +++ b/src/app.cpp
 @@ -30,19 +30,23 @@
@@ -540,7 +540,33 @@ index f083176..924a2c9 100644
      }
  
      static void _keyCallback(GLFWwindow* window, int key, int scancode, int action,
-@@ -1339,7 +1389,9 @@ struct App {
+@@ -1325,6 +1375,25 @@ struct App {
+     static void _onFramebufferResize(GLFWwindow* window, int width, int height)
+     {
+         log_trace("window resized: %d, %d", width, height);
++#ifdef __EMSCRIPTEN__
++        // Handle High DPI scaling
++        {
++            double dpr = emscripten_get_device_pixel_ratio();
++            double css_w, css_h;
++            emscripten_get_element_css_size("#canvas", &css_w, &css_h);
++            
++            int target_w = (int)(css_w * dpr);
++            int target_h = (int)(css_h * dpr);
++            
++            // Update canvas size if it doesn't match the target high-DPI size
++            if (width != target_w || height != target_h) {
++                emscripten_set_canvas_element_size("#canvas", target_w, target_h);
++                width = target_w;
++                height = target_h;
++                log_info("WebChuGL: Resized canvas to %dx%d (DPR %f)", width, height, dpr);
++            }
++        }
++#endif
+ 
+         App* app              = (App*)glfwGetWindowUserPointer(window);
+         app->window_fb_width  = width;
+@@ -1339,7 +1408,9 @@ struct App {
          glfwGetWindowSize(window, &app->window_width, &app->window_height);
          CHUGL_Window_Size(app->window_width, app->window_height, width, height);
          // broadcast to chuck
@@ -551,7 +577,7 @@ index f083176..924a2c9 100644
      }
  
      static void _mouseButtonCallback(GLFWwindow* window, int button, int action,
-@@ -1347,8 +1399,10 @@ struct App {
+@@ -1347,8 +1418,10 @@ struct App {
      {
          // log_debug("mouse button callback");
  
@@ -562,7 +588,7 @@ index f083176..924a2c9 100644
  
          App* app = (App*)glfwGetWindowUserPointer(window);
          UNUSED_VAR(app);
-@@ -1368,8 +1422,10 @@ struct App {
+@@ -1368,8 +1441,10 @@ struct App {
  
      static void _scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
      {
@@ -573,7 +599,7 @@ index f083176..924a2c9 100644
  
          App* app = (App*)glfwGetWindowUserPointer(window);
          UNUSED_VAR(app);
-@@ -1379,8 +1435,10 @@ struct App {
+@@ -1379,8 +1454,10 @@ struct App {
  
      static void _cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
      {
@@ -584,7 +610,7 @@ index f083176..924a2c9 100644
  
          App* app = (App*)glfwGetWindowUserPointer(window);
          UNUSED_VAR(app);
-@@ -1929,11 +1987,13 @@ static void _R_HandleCommand(App* app, SG_Command* command)
+@@ -1929,11 +2006,13 @@ static void _R_HandleCommand(App* app, SG_Command* command)
              app->imgui_disabled         = cmd->disabled;
              break;
          }
@@ -598,7 +624,7 @@ index f083176..924a2c9 100644
          // component --------------
          case SG_COMMAND_COMPONENT_UPDATE_NAME: {
              SG_Command_ComponentUpdateName* cmd
-@@ -2391,6 +2451,7 @@ static void _R_HandleCommand(App* app, SG_Command* command)
+@@ -2391,6 +2470,7 @@ static void _R_HandleCommand(App* app, SG_Command* command)
                  R_Scene::markPrimitiveStale(Component_GetScene(mesh->scene_id), mesh);
              }
          } break;
@@ -606,7 +632,7 @@ index f083176..924a2c9 100644
          case SG_COMMAND_VIDEO_UPDATE: {
              SG_Command_VideoUpdate* cmd = (SG_Command_VideoUpdate*)command;
              R_Video* video              = Component_GetVideo(cmd->video_id);
-@@ -2424,6 +2485,7 @@ static void _R_HandleCommand(App* app, SG_Command* command)
+@@ -2424,6 +2504,7 @@ static void _R_HandleCommand(App* app, SG_Command* command)
              SG_Command_WebcamUpdate* cmd = (SG_Command_WebcamUpdate*)command;
              R_Webcam::update(cmd);
          } break;
