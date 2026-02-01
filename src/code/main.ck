@@ -701,10 +701,10 @@ Stack ace_stack[4];
 
 // == sound ================================================
 class Sound {
-    ADSR sfx_adsr => Gain gverb => dac;
+    ADSR sfx_adsr => GVerb gverb => dac;
     sfx_adsr.keyOn();
-    // gverb.revtime(.5::second);
-    // gverb.roomsize(20);
+    gverb.revtime(.5::second);
+    gverb.roomsize(20);
 
     CardMusic card_music;
     card_music.rev => ADSR music_adsr => gverb;
