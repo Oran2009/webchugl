@@ -122,7 +122,10 @@ if [ -f "$CHUGL_PATCH" ]; then
         git apply "$CHUGL_PATCH"
         echo "[chugl] Patch applied successfully"
     else
-        echo "[chugl] Patch already applied or conflicts exist"
+        echo "[chugl] Resetting and reapplying patch..."
+        git checkout .
+        git apply "$CHUGL_PATCH"
+        echo "[chugl] Patch applied successfully"
     fi
     cd "$PROJECT_ROOT"
 fi
@@ -136,7 +139,10 @@ if [ -f "$CHUCK_PATCH" ]; then
         git apply "$CHUCK_PATCH"
         echo "[chuck] Patch applied successfully"
     else
-        echo "[chuck] Patch already applied or conflicts exist"
+        echo "[chuck] Resetting and reapplying patch..."
+        git checkout .
+        git apply "$CHUCK_PATCH"
+        echo "[chuck] Patch applied successfully"
     fi
     cd "$PROJECT_ROOT"
 fi
@@ -148,7 +154,7 @@ echo ""
 echo "=== Setup Complete ==="
 echo ""
 echo "Next steps:"
-echo "  cd src"
+echo "  cd src/scripts"
 echo "  ./build.sh        # or ./build.ps1 on Windows"
 echo "  python serve.py"
 echo ""

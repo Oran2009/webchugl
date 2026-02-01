@@ -131,7 +131,10 @@ if (Test-Path $ChuglPatch) {
         git apply $ChuglPatch
         Write-Host "[chugl] Patch applied successfully" -ForegroundColor Green
     } else {
-        Write-Host "[chugl] Patch already applied or conflicts exist" -ForegroundColor Yellow
+        Write-Host "[chugl] Resetting and reapplying patch..." -ForegroundColor Yellow
+        git checkout .
+        git apply $ChuglPatch
+        Write-Host "[chugl] Patch applied successfully" -ForegroundColor Green
     }
     Pop-Location
 }
@@ -146,7 +149,10 @@ if (Test-Path $ChuckPatch) {
         git apply $ChuckPatch
         Write-Host "[chuck] Patch applied successfully" -ForegroundColor Green
     } else {
-        Write-Host "[chuck] Patch already applied or conflicts exist" -ForegroundColor Yellow
+        Write-Host "[chuck] Resetting and reapplying patch..." -ForegroundColor Yellow
+        git checkout .
+        git apply $ChuckPatch
+        Write-Host "[chuck] Patch applied successfully" -ForegroundColor Green
     }
     Pop-Location
 }
@@ -158,7 +164,7 @@ Write-Host ""
 Write-Host "=== Setup Complete ===" -ForegroundColor Green
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
-Write-Host "  cd src" -ForegroundColor Gray
+Write-Host "  cd src/scripts" -ForegroundColor Gray
 Write-Host "  ./build.ps1       # or ./build.sh on Unix" -ForegroundColor Gray
 Write-Host "  python serve.py" -ForegroundColor Gray
 Write-Host ""
