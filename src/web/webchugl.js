@@ -65,7 +65,9 @@ var Module = {
             })
             .then(function(manifest) {
                 var files = manifest.files || [];
-                console.log('[WebChuGL] Loading ' + files.length + ' file(s)...');
+                var total = files.length;
+                var loaded = 0;
+                Module.setStatus('Loading 0/' + total + ' files...');
 
                 return Promise.all(files.map(function(file) {
                     return fetch(file)
@@ -80,8 +82,8 @@ var Module = {
                             } else {
                                 FS.writeFile('/' + file, content);
                             }
-                            var size = content.byteLength || content.length;
-                            console.log('[WebChuGL] Loaded ' + file + ' (' + size + ' bytes)');
+                            loaded++;
+                            Module.setStatus('Loading ' + loaded + '/' + total + ' files...');
                         });
                 }));
             })
@@ -153,20 +155,72 @@ var ChuginLoader = {
             var tableBase = Module.wasmTable.length;
             Module.wasmTable.grow(100);
 
-            // GOT (Global Offset Table) - allocate real memory for each entry
-            var gotBase = Module._malloc(256);
-            var gotOffset = 0;
-            var GOT = {};
-            var createGOTProxy = function() {
+            // Build reverse lookup: wasm function -> table index
+            var funcToTableIdx = new Map();
+            for (var ti = 1; ti < Module.wasmTable.length; ti++) {
+                try {
+                    var f = Module.wasmTable.get(ti);
+                    if (f) funcToTableIdx.set(f, ti);
+                } catch(e) {}
+            }
+            var nextFreeTableSlot = tableBase;
+
+            // GOT entries - created as mutable globals during instantiation,
+            // then patched from ChuGin's own exports before __wasm_apply_data_relocs
+            var GOTFunc = {};
+            var unresolvedGOTFunc = [];
+            var createGOTFuncProxy = function() {
                 return new Proxy({}, {
                     get: function(obj, name) {
-                        if (!GOT[name]) {
-                            GOT[name] = new WebAssembly.Global(
-                                {value: 'i32', mutable: true},
-                                gotBase + (gotOffset++ * 4)
+                        if (!GOTFunc[name]) {
+                            var idx = 0;
+                            // Try main module exports first
+                            var func = (typeof wasmExports !== 'undefined') ? wasmExports[name] : null;
+                            if (func && typeof func === 'function') {
+                                idx = funcToTableIdx.get(func);
+                                if (idx === undefined) {
+                                    idx = nextFreeTableSlot++;
+                                    try {
+                                        Module.wasmTable.set(idx, func);
+                                        funcToTableIdx.set(func, idx);
+                                    } catch(e) { idx = 0; }
+                                }
+                            } else {
+                                // Will try to resolve from ChuGin's own exports after instantiation
+                                unresolvedGOTFunc.push(name);
+                            }
+                            GOTFunc[name] = new WebAssembly.Global(
+                                {value: 'i32', mutable: true}, idx
                             );
                         }
-                        return GOT[name];
+                        return GOTFunc[name];
+                    }
+                });
+            };
+
+            var GOTMem = {};
+            var unresolvedGOTMem = [];
+            var createGOTMemProxy = function() {
+                return new Proxy({}, {
+                    get: function(obj, name) {
+                        if (!GOTMem[name]) {
+                            var addr = 0;
+                            if (typeof wasmExports !== 'undefined' && wasmExports[name]) {
+                                var exp = wasmExports[name];
+                                if (exp instanceof WebAssembly.Global) {
+                                    addr = exp.value;
+                                } else if (typeof exp === 'number') {
+                                    addr = exp;
+                                }
+                            } else {
+                                // Will try to resolve from ChuGin's own exports after instantiation
+                                unresolvedGOTMem.push(name);
+                            }
+                            GOTMem[name] = new WebAssembly.Global(
+                                {value: 'i32', mutable: true}, addr
+                            );
+                        }
+                        return GOTMem[name];
                     }
                 });
             };
@@ -274,11 +328,46 @@ var ChuginLoader = {
             var module = new WebAssembly.Module(wasmBytes);
             var instance = new WebAssembly.Instance(module, {
                 'env': envProxy,
-                'GOT.mem': createGOTProxy(),
-                'GOT.func': createGOTProxy()
+                'GOT.mem': createGOTMemProxy(),
+                'GOT.func': createGOTFuncProxy()
             });
 
-            // Run WASM initializers
+            // Debug: log all ChuGin exports
+            console.log('[ChuginLoader] Exports:', Object.keys(instance.exports));
+            console.log('[ChuginLoader] Unresolved GOT.func:', unresolvedGOTFunc);
+            console.log('[ChuginLoader] Unresolved GOT.mem:', unresolvedGOTMem);
+
+            // Resolve GOT.func entries from ChuGin's own exports
+            // We add each function to a new table slot rather than searching
+            // (table search fails because JS wrapper objects differ even for same WASM func)
+            for (var ui = 0; ui < unresolvedGOTFunc.length; ui++) {
+                var symName = unresolvedGOTFunc[ui];
+                var exportedFunc = instance.exports[symName] || instance.exports['_' + symName];
+                if (exportedFunc && typeof exportedFunc === 'function') {
+                    var idx = nextFreeTableSlot++;
+                    Module.wasmTable.set(idx, exportedFunc);
+                    GOTFunc[symName].value = idx;
+                } else {
+                    console.warn('[ChuginLoader] GOT.func: ChuGin does not export ' + symName);
+                }
+            }
+
+            // Resolve GOT.mem entries from ChuGin's own exports
+            for (var mi = 0; mi < unresolvedGOTMem.length; mi++) {
+                var memName = unresolvedGOTMem[mi];
+                var exportedGlobal = instance.exports[memName] || instance.exports['_' + memName];
+                if (exportedGlobal) {
+                    if (exportedGlobal instanceof WebAssembly.Global) {
+                        GOTMem[memName].value = exportedGlobal.value;
+                    } else if (typeof exportedGlobal === 'number') {
+                        GOTMem[memName].value = exportedGlobal;
+                    }
+                } else {
+                    console.warn('[ChuginLoader] GOT.mem: ChuGin does not export ' + memName);
+                }
+            }
+
+            // Run WASM initializers (AFTER GOT is fully resolved)
             if (instance.exports.__wasm_apply_data_relocs) {
                 instance.exports.__wasm_apply_data_relocs();
             }

@@ -1,6 +1,7 @@
 # Build directories
 src/build/
 src/host-web/
+src/code/
 
 # CMake generated
 CMakeCache.txt

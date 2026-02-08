@@ -170,24 +170,25 @@ static void run_vm_frame(void* data)
     }
 
     if (samplesToGenerate >= 1) {
+        // Planar buffers: [L0..Ln, R0..Rn]
+        static SAMPLE inBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
+        static SAMPLE outBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
+        static float floatBuffer[MAX_SAMPLES_PER_CALL * 2];
+        static float floatInBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
+
+        // Read mic input from input ring buffer (planar format)
+        int inputSamples = inputRingRead(floatInBuffer, samplesToGenerate);
+        // Convert float to SAMPLE and zero-fill if not enough
+        for (int i = 0; i < samplesToGenerate * NUM_CHANNELS; i++) {
+            inBuffer[i] = (i < inputSamples) ? (SAMPLE)floatInBuffer[i] : 0;
+        }
+
+        // Always run ChucK VM (needed for graphics via GG.nextFrame())
+        ck->run(inBuffer, outBuffer, samplesToGenerate);
+
+        // Write to ring buffer if there's space (drop audio if full)
         uint32_t available = ringAvailableToWrite();
         if (available >= (uint32_t)samplesToGenerate) {
-            // Planar buffers: [L0..Ln, R0..Rn]
-            static SAMPLE inBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
-            static SAMPLE outBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
-            static float floatBuffer[MAX_SAMPLES_PER_CALL * 2];
-            static float floatInBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
-
-            // Read mic input from input ring buffer (planar format)
-            int inputSamples = inputRingRead(floatInBuffer, samplesToGenerate);
-            // Convert float to SAMPLE and zero-fill if not enough
-            for (int i = 0; i < samplesToGenerate * NUM_CHANNELS; i++) {
-                inBuffer[i] = (i < inputSamples) ? (SAMPLE)floatInBuffer[i] : 0;
-            }
-
-            // Run ChucK VM with input and output
-            ck->run(inBuffer, outBuffer, samplesToGenerate);
-
             // Convert from planar SAMPLE to interleaved float for ring buffer
             for (int i = 0; i < samplesToGenerate; i++) {
                 floatBuffer[i * 2] = (float)outBuffer[i];                      // Left
