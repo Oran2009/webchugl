@@ -7,7 +7,7 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            background: #1a1a2e;
+            background: #000;
             overflow: hidden;
             width: 100vw;
             height: 100vh;
@@ -20,14 +20,40 @@
             height: 100vh;
             display: block;
         }
-        #status {
+        #loading-screen {
             position: fixed;
-            bottom: 16px;
-            left: 16px;
-            color: #ccc;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+        #loading-screen.hidden { display: none; }
+        #loading-logo {
+            width: 50%;
+            height: auto;
+            margin-bottom: 32px;
+        }
+        #progress-bar {
+            width: 50%;
+            height: 2em;
+            border: 2px solid #000;
+            background: #fff;
+        }
+        #progress-fill {
+            height: 100%;
+            width: 0%;
+            background: #000;
+            transition: width 0.15s;
+        }
+        #error-text {
+            margin-top: 16px;
+            color: #c00;
             font-family: monospace;
-            font-size: 64px;
-            z-index: 5;
+            font-size: 14px;
+            display: none;
         }
         #output {
             display: none;
@@ -62,7 +88,11 @@
 </head>
 <body>
     <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
-    <div id="status">Loading...</div>
+    <div id="loading-screen">
+        <img id="loading-logo" src="chugl_logo.png" alt="ChuGL">
+        <div id="progress-bar"><div id="progress-fill"></div></div>
+        <div id="error-text"></div>
+    </div>
     <div id="output"></div>
     <div id="audio-hint">Click to enable audio</div>
 
@@ -72,9 +102,9 @@
     <script>
         // Check WebGPU support
         if (!navigator.gpu) {
-            var statusEl = document.getElementById('status');
-            statusEl.textContent = 'WebGPU is not supported in this browser. Please use Chrome or Edge.';
-            statusEl.style.color = '#f44';
+            var errEl = document.getElementById('error-text');
+            errEl.textContent = 'WebGPU is not supported in this browser. Please use Chrome or Edge.';
+            errEl.style.display = 'block';
         }
 
         // Hide audio hint on user interaction

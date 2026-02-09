@@ -666,31 +666,83 @@ index 5a767e0..2b29fba 100644
      f32 x, y, z;    // position
      f32 nx, ny, nz; // normal
 diff --git a/src/graphics.cpp b/src/graphics.cpp
-index 09f59d8..20d8bdb 100644
+index 09f59d8..4c0783e 100644
 --- a/src/graphics.cpp
 +++ b/src/graphics.cpp
-@@ -109,8 +109,9 @@ static WGPUAdapter request_adapter(WGPUInstance instance,
+@@ -105,14 +105,22 @@ static WGPUAdapter request_adapter(WGPUInstance instance,
+         };
+ 
+     // Call to the WebGPU request adapter procedure
++#ifdef __EMSCRIPTEN__
++    // On Emscripten, adapter was pre-created in JS before main() started
++    // (see shell.html). This avoids ASYNCIFY, which is incompatible with
++    // MAIN_MODULE due to ASYNCIFY forcing DYNCALLS=1.
++    WGPUAdapter preAdapter = (WGPUAdapter)(uintptr_t)EM_ASM_INT({
++        var adapter = window._preWebGPUAdapter;
++        if (!adapter) return 0;
++        WebGPU.initManagers();
++        var handle = WebGPU.mgrAdapter.create(adapter);
++        window._preWebGPUAdapter = null;
++        return handle;
++    });
++    return preAdapter;
++#else
+     wgpuInstanceRequestAdapter(instance /* equivalent of navigator.gpu */, options,
                                 onAdapterRequestEnded, (void*)&userData);
- #ifdef __EMSCRIPTEN__
-     // In the Emscripten environment, the WebGPU adapter request is asynchronous
+-#ifdef __EMSCRIPTEN__
+-    // In the Emscripten environment, the WebGPU adapter request is asynchronous
 -    // while (!userData.requestEnded) emscripten_sleep(10);
-+    // ASYNCIFY allows yielding to the browser event loop
-     while (!userData.requestEnded) {
-+        emscripten_sleep(1);
-     }
- #endif
+-    while (!userData.requestEnded) {
+-    }
+-#endif
      // In theory we should wait until onAdapterReady has been called, which
-@@ -153,8 +154,8 @@ static WGPUDevice request_device(WGPUAdapter adapter,
+     // could take some time (what the 'await' keyword does in the JavaScript
+     // code). In practice, we know that when the wgpuInstanceRequestAdapter()
+@@ -120,6 +128,7 @@ static WGPUAdapter request_adapter(WGPUInstance instance,
+     ASSERT(userData.requestEnded);
+ 
+     return userData.adapter;
++#endif
+ }
+ 
+ /**
+@@ -149,18 +158,28 @@ static WGPUDevice request_device(WGPUAdapter adapter,
+         userData.requestEnded = true;
+     };
+ 
++#ifdef __EMSCRIPTEN__
++    // On Emscripten, device was pre-created in JS before main() started.
++    // This avoids ASYNCIFY, which is incompatible with MAIN_MODULE
++    // due to ASYNCIFY forcing DYNCALLS=1.
++    WGPUDevice preDevice = (WGPUDevice)(uintptr_t)EM_ASM_INT({
++        var device = window._preWebGPUDevice;
++        if (!device) return 0;
++        // Register queue first, then device with queueId in wrapper
++        // (wgpuDeviceGetQueue looks up objects[deviceId].queueId)
++        var queueId = WebGPU.mgrQueue.create(device.queue);
++        var handle = WebGPU.mgrDevice.create(device, { queueId: queueId });
++        window._preWebGPUDevice = null;
++        return handle;
++    });
++    return preDevice;
++#else
+     wgpuAdapterRequestDevice(adapter, descriptor, onDeviceRequestEnded,
                               (void*)&userData);
- 
- #ifdef __EMSCRIPTEN__
+-
+-#ifdef __EMSCRIPTEN__
 -    // while (!userData.requestEnded) emscripten_sleep(10);
-     while (!userData.requestEnded) {
-+        emscripten_sleep(1);
-     }
- #endif
+-    while (!userData.requestEnded) {
+-    }
+-#endif
+-
+     ASSERT(userData.requestEnded);
  
-@@ -295,6 +296,16 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+     return userData.device;
++#endif
+ }
+ 
+ static void on_device_error(WGPUErrorType type, char const* message,
+@@ -295,6 +314,16 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
      log_trace("adapter created");
  
      { // log adapter info
@@ -707,7 +759,7 @@ index 09f59d8..20d8bdb 100644
          WGPUAdapterInfo adapter_info;
          wgpuAdapterGetInfo(adapter, &adapter_info);
          log_info("Adapter vendor: %s", adapter_info.vendor);
-@@ -307,11 +318,12 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+@@ -307,11 +336,12 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
                   GraphicsContext_AdapterTypeToString(adapter_info.adapterType));
          log_info("Adapter vendor ID: %d", adapter_info.vendorID);
          log_info("Adapter device ID: %d", adapter_info.deviceID);
@@ -721,7 +773,7 @@ index 09f59d8..20d8bdb 100644
      WGPUSupportedLimits supportedLimits = {};
      bool success = wgpuAdapterGetLimits(adapter, &supportedLimits);
      UNUSED_VAR(success);
-@@ -334,6 +346,16 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+@@ -334,6 +364,16 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
      const u32 requiredFeaturesCount = ARRAY_LENGTH(requiredFeatures);
      log_trace("required features: %d", ARRAY_LENGTH(requiredFeatures));
  #else
@@ -738,7 +790,7 @@ index 09f59d8..20d8bdb 100644
      const u32 requiredFeaturesCount   = 0;
      WGPUFeatureName* requiredFeatures = NULL;
  #endif
-@@ -343,7 +365,9 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+@@ -343,7 +383,9 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
      deviceDescriptor.label                = "ChuGL Device";
      deviceDescriptor.requiredFeatureCount = requiredFeaturesCount;
      deviceDescriptor.requiredFeatures     = requiredFeatures;
@@ -748,7 +800,7 @@ index 09f59d8..20d8bdb 100644
      deviceDescriptor.defaultQueue         = { NULL, "ChuGL queue" };
      deviceDescriptor.deviceLostCallback
        = [](WGPUDeviceLostReason reason, char const* message, void* /* pUserData */) {
-@@ -351,14 +375,20 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+@@ -351,14 +393,20 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
              if (message) log_error(" (%s)", message);
          };
      deviceDescriptor.deviceLostUserdata          = NULL;
@@ -769,7 +821,7 @@ index 09f59d8..20d8bdb 100644
      { // set debug callbacks
        // #if defined(WEBGPU_BACKEND_WGPU)
        //         wgpuSetLogLevel(WGPULogLevel_Warn);
-@@ -378,7 +408,7 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+@@ -378,7 +426,7 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
      // determine swapchain format
      // note: we try to always pick an 8unorm format
      {

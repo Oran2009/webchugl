@@ -51,7 +51,7 @@ class ChucKProcessor extends AudioWorkletProcessor {
         }
 
         // Write microphone input → input ring buffer
-        if (inputs[0] && inputs[0].length >= 2 && inputs[0][0].length > 0) {
+        if (inputs[0] && inputs[0].length >= 1 && inputs[0][0].length > 0) {
             const inL = inputs[0][0];
             const inR = inputs[0][1] || inL;
             const inLen = inL.length;

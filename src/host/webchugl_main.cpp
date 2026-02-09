@@ -147,6 +147,7 @@ int main(int argc, char** argv)
     }
 
     // Load ChuGins via dlopen() (paths scanned by JS ChuginLoader during preRun)
+    // Note: web chugins (for webchugl) require SIDE_MODULE=1 and -pthread
     {
         int chuginCount = EM_ASM_INT({
             return window.ChuginLoader ? window.ChuginLoader.getPendingCount() : 0;
@@ -223,10 +224,24 @@ int main(int argc, char** argv)
 
     // Check if adc is used (has downstream connections)
     // Only request microphone permission if the ChucK code actually uses adc
+    // Check both main adc UGen and individual channel sub-UGens
     Chuck_UGen* adc = the_chuck->vm()->m_adc;
-    if (adc && adc->m_num_dest > 0) {
-        g_needsMicrophone = true;
-        printf("[WebChuGL] ADC in use - microphone will be requested\n");
+    if (adc) {
+        if (adc->m_num_dest > 0) {
+            g_needsMicrophone = true;
+        }
+        // Also check individual channel UGens (e.g. adc.chan(0) => ...)
+        if (!g_needsMicrophone && adc->m_multi_chan) {
+            for (t_CKUINT i = 0; i < adc->m_multi_chan_size; i++) {
+                if (adc->m_multi_chan[i] && adc->m_multi_chan[i]->m_num_dest > 0) {
+                    g_needsMicrophone = true;
+                    break;
+                }
+            }
+        }
+        if (g_needsMicrophone) {
+            printf("[WebChuGL] ADC in use - microphone will be requested\n");
+        }
     }
 
     g_lastAudioTime = std::chrono::high_resolution_clock::now();
