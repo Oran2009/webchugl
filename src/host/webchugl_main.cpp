@@ -17,6 +17,8 @@
 #include <emscripten/webaudio.h>
 #include <stdio.h>
 #include <chrono>
+#include <list>
+#include <string>
 
 // ChuGL query function (defined via CK_DLL_QUERY macro in ChuGL.cpp)
 extern "C" t_CKBOOL ck_query(Chuck_DL_Query* QUERY);
@@ -214,6 +216,10 @@ int main(int argc, char** argv)
     the_chuck->setParam(CHUCK_PARAM_VM_HALT, (t_CKINT)0);
     the_chuck->setParam(CHUCK_PARAM_CHUGIN_ENABLE, (t_CKINT)1);
     the_chuck->setParam(CHUCK_PARAM_WORKING_DIRECTORY, "/code");
+
+    std::list<std::string> packagesPaths;
+    packagesPaths.push_back("/packages");
+    the_chuck->setParam(CHUCK_PARAM_IMPORT_PATH_PACKAGES, packagesPaths);
 
     if (!the_chuck->init()) {
         printf("[WebChuGL] ERROR: Failed to initialize ChucK\n");
