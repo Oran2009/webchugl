@@ -3,18 +3,19 @@
   Entry point for the web build.
 
   Initializes ChucK VM, loads ChuGL module, compiles code/main.ck, and starts
-  the graphics loop. Audio samples are passed to Audio Worklet via ring buffer.
+  the graphics loop. Audio samples are passed to a JS AudioWorkletProcessor
+  via SharedArrayBuffer ring buffers (see audio_ring_buffer.h and
+  audio-worklet-processor.js).
 
-  Audio buffer format: PLANAR (left channel first, then right channel)
-  - Output: [L0, L1, ..., Ln, R0, R1, ..., Rn]
-  - Input:  [L0, L1, ..., Ln, R0, R1, ..., Rn]
+  Ring buffer format: Interleaved stereo [L0, R0, L1, R1, ...]
+  ChucK VM format: Planar [L0, L1, ..., Ln, R0, R1, ..., Rn]
 -----------------------------------------------------------------------------*/
 #include "chuck.h"
 #include "audio_ring_buffer.h"
 #include "core/log.h"
 
 #include <emscripten.h>
-#include <emscripten/webaudio.h>
+#include <dlfcn.h>
 #include <stdio.h>
 #include <chrono>
 #include <list>
@@ -40,120 +41,34 @@ static const int MAX_SAMPLES_PER_CALL = 4800; // 100ms max to prevent spikes
 // Audio timing
 static std::chrono::high_resolution_clock::time_point g_lastAudioTime;
 
-// Audio worklet state
-static EMSCRIPTEN_WEBAUDIO_T g_audioContext = 0;
-static uint8_t g_wasmAudioWorkletStack[4096];
-
 // Flag to track if microphone is needed (adc is used in the ChucK code)
 static bool g_needsMicrophone = false;
 
-// Audio worklet callback - runs on audio thread
-// Reads 128 samples from ring buffer and writes to output
-EM_BOOL ProcessAudio(int numInputs, const AudioSampleFrame* inputs,
-                     int numOutputs, AudioSampleFrame* outputs,
-                     int numParams, const AudioParamFrame* params, void* userData)
-{
-    // Write mic input to input ring buffer (if available)
-    if (numInputs > 0 && inputs[0].numberOfChannels >= 2) {
-        // Input is planar: first 128 samples are left, next 128 are right
-        inputRingWrite(inputs[0].data, 128);
-    }
-
-    // Read output from ring buffer
-    for (int i = 0; i < 128; i++) {
-        float left, right;
-        if (ringRead(&left, &right)) {
-            outputs[0].data[i] = left;
-            outputs[0].data[128 + i] = right;
-        } else {
-            outputs[0].data[i] = 0.0f;
-            outputs[0].data[128 + i] = 0.0f;
-        }
-    }
-    return EM_TRUE;
-}
-
-// Callback when AudioWorkletProcessor is created
-void AudioWorkletProcessorCreated(EMSCRIPTEN_WEBAUDIO_T ctx, EM_BOOL success, void* userData)
-{
-    if (!success) {
-        printf("[WebChuGL] ERROR: Failed to create AudioWorkletProcessor\n");
-        return;
-    }
-
-    int outputChannelCounts[1] = { NUM_CHANNELS };
-    EmscriptenAudioWorkletNodeCreateOptions opts = {
-        .numberOfInputs = 1,  // Enable mic input
-        .numberOfOutputs = 1,
-        .outputChannelCounts = outputChannelCounts
-    };
-
-    EMSCRIPTEN_AUDIO_WORKLET_NODE_T node =
-        emscripten_create_wasm_audio_worklet_node(ctx, "chugl-audio", &opts, &ProcessAudio, nullptr);
-
-    // Connect node to destination and optionally set up mic input
-    EM_ASM({
-        let ctx = emscriptenGetAudioObject($0);
-        let node = emscriptenGetAudioObject($1);
-        let needsMic = $2;
-        node.connect(ctx.destination);
-
-        // Only request microphone if adc is used in the ChucK code
-        if (needsMic) {
-            navigator.mediaDevices.getUserMedia({ audio: true })
-                .then(function(stream) {
-                    let source = ctx.createMediaStreamSource(stream);
-                    source.connect(node);
-                    console.log('[WebChuGL] Microphone connected');
-                })
-                .catch(function(err) {
-                    console.log('[WebChuGL] Microphone not available: ' + err.message);
-                });
-        }
-
-        let startAudio = function() {
-            if (ctx.state !== 'running') {
-                ctx.resume();
-            }
-        };
-        document.addEventListener('click', startAudio, { once: true });
-        document.addEventListener('keydown', startAudio, { once: true });
-    }, ctx, node, g_needsMicrophone ? 1 : 0);
-}
-
-// Callback when Audio Worklet thread is initialized
-void WebAudioWorkletThreadInitialized(EMSCRIPTEN_WEBAUDIO_T ctx, EM_BOOL success, void* userData)
-{
-    if (!success) {
-        printf("[WebChuGL] ERROR: Failed to initialize Audio Worklet thread\n");
-        return;
-    }
-
-    WebAudioWorkletProcessorCreateOptions opts = { .name = "chugl-audio" };
-    emscripten_create_wasm_audio_worklet_processor_async(ctx, &opts, AudioWorkletProcessorCreated, nullptr);
-}
-
-// Initialize the audio system
+// Initialize the audio system via JS AudioWorkletProcessor
+// The JS worklet reads/writes directly from WASM shared memory ring buffers
 void initAudio()
 {
-    EmscriptenWebAudioCreateAttributes attrs = {
-        .latencyHint = "interactive",
-        .sampleRate = 48000
-    };
-    g_audioContext = emscripten_create_audio_context(&attrs);
-
-    if (g_audioContext == 0) {
-        printf("[WebChuGL] ERROR: Failed to create audio context\n");
-        return;
-    }
-
-    emscripten_start_wasm_audio_worklet_thread_async(
-        g_audioContext,
-        g_wasmAudioWorkletStack,
-        sizeof(g_wasmAudioWorkletStack),
-        WebAudioWorkletThreadInitialized,
-        nullptr
-    );
+    EM_ASM({
+        if (typeof window.initWebChuGLAudio === 'function') {
+            window.initWebChuGLAudio(
+                Module.wasmMemory.buffer,  // SharedArrayBuffer
+                $0, $1, $2,  // output: buffer ptr, writePos ptr, readPos ptr
+                $3, $4, $5,  // input: buffer ptr, writePos ptr, readPos ptr
+                $6,          // capacity
+                $7           // needsMic
+            );
+        } else {
+            console.error('[WebChuGL] initWebChuGLAudio not found');
+        }
+    },
+    (int)(uintptr_t)g_audioRingBuffer,
+    (int)(uintptr_t)&g_ringWritePos,
+    (int)(uintptr_t)&g_ringReadPos,
+    (int)(uintptr_t)g_inputRingBuffer,
+    (int)(uintptr_t)&g_inputRingWritePos,
+    (int)(uintptr_t)&g_inputRingReadPos,
+    (int)RING_CAPACITY,
+    g_needsMicrophone ? 1 : 0);
 }
 
 // Pre-frame callback: advances the ChucK VM based on elapsed time
@@ -231,60 +146,64 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    // Load ChuGins from JavaScript (scanned from filesystem during preRun)
+    // Load ChuGins via dlopen() (paths scanned by JS ChuginLoader during preRun)
+    // Note: web chugins (for webchugl) require SIDE_MODULE=1 and -pthread
     {
-        // Get the number of pending ChuGins
         int chuginCount = EM_ASM_INT({
             return window.ChuginLoader ? window.ChuginLoader.getPendingCount() : 0;
         });
 
         if (chuginCount > 0) {
-            printf("[WebChuGL] Loading %d ChuGin(s)...\n", chuginCount);
+            printf("[WebChuGL] Loading %d ChuGin(s) via dlopen...\n", chuginCount);
 
-            // Load all ChuGins and get their function table indices
-            // This calls ChuginLoader.loadAllPending() which instantiates the SIDE_MODULEs
-            EM_ASM({
-                var chugins = window.ChuginLoader.loadAllPending();
-                // Store results in a global array for C++ to access
-                window._loadedChugins = chugins;
-            });
-
-            // Now register each ChuGin with ChucK
-            int loadedCount = EM_ASM_INT({
-                return window._loadedChugins ? window._loadedChugins.length : 0;
-            });
-
-            for (int i = 0; i < loadedCount; i++) {
-                // Get name and function index for this ChuGin
-                char* name = (char*)EM_ASM_PTR({
-                    var chugin = window._loadedChugins[$0];
-                    var name = chugin.name;
-                    var len = lengthBytesUTF8(name) + 1;
+            for (int i = 0; i < chuginCount; i++) {
+                // Get the filesystem path from JS
+                char* path = (char*)EM_ASM_PTR({
+                    var paths = window.ChuginLoader.pendingChugins;
+                    var p = paths[$0];
+                    var len = lengthBytesUTF8(p) + 1;
                     var ptr = _malloc(len);
-                    stringToUTF8(name, ptr, len);
+                    stringToUTF8(p, ptr, len);
                     return ptr;
                 }, i);
 
-                int funcIndex = EM_ASM_INT({
-                    return window._loadedChugins[$0].funcIndex;
-                }, i);
+                // Extract name from path (e.g. "/code/Bitcrusher.chug.wasm" -> "Bitcrusher")
+                std::string pathStr(path);
+                std::string name = pathStr.substr(pathStr.rfind('/') + 1);
+                size_t dotPos = name.find(".chug");
+                if (dotPos != std::string::npos) name = name.substr(0, dotPos);
 
-                // Convert function table index to function pointer
-                // In Emscripten, indirect function calls go through the table
-                f_ck_query queryFunc = (f_ck_query)funcIndex;
-
-                // Register with ChucK compiler
-                if (the_chuck->compiler()->bind(queryFunc, name, "global")) {
-                    printf("[WebChuGL] Loaded ChuGin: %s\n", name);
-                } else {
-                    printf("[WebChuGL] ERROR: Failed to load ChuGin: %s\n", name);
+                // Load the SIDE_MODULE via Emscripten's dlopen
+                void* handle = dlopen(path, RTLD_NOW);
+                if (!handle) {
+                    printf("[WebChuGL] ERROR: dlopen failed for %s: %s\n", path, dlerror());
+                    free(path);
+                    continue;
                 }
 
-                free(name);
+                // Get ck_query function pointer
+                f_ck_query queryFunc = (f_ck_query)dlsym(handle, "ck_query");
+                if (!queryFunc) {
+                    printf("[WebChuGL] ERROR: dlsym(ck_query) failed for %s: %s\n",
+                           path, dlerror());
+                    dlclose(handle);
+                    free(path);
+                    continue;
+                }
+
+                // Register with ChucK compiler
+                if (the_chuck->compiler()->bind(queryFunc, name.c_str(), "global")) {
+                    printf("[WebChuGL] Loaded ChuGin: %s\n", name.c_str());
+                } else {
+                    printf("[WebChuGL] ERROR: Failed to bind ChuGin: %s\n", name.c_str());
+                    dlclose(handle);
+                }
+
+                free(path);
             }
 
-            // Clean up
-            EM_ASM({ window._loadedChugins = null; });
+            // Clear pending list
+            EM_ASM({ window.ChuginLoader.pendingChugins = []; });
         }
     }
 
@@ -305,10 +224,24 @@ int main(int argc, char** argv)
 
     // Check if adc is used (has downstream connections)
     // Only request microphone permission if the ChucK code actually uses adc
+    // Check both main adc UGen and individual channel sub-UGens
     Chuck_UGen* adc = the_chuck->vm()->m_adc;
-    if (adc && adc->m_num_dest > 0) {
-        g_needsMicrophone = true;
-        printf("[WebChuGL] ADC in use - microphone will be requested\n");
+    if (adc) {
+        if (adc->m_num_dest > 0) {
+            g_needsMicrophone = true;
+        }
+        // Also check individual channel UGens (e.g. adc.chan(0) => ...)
+        if (!g_needsMicrophone && adc->m_multi_chan) {
+            for (t_CKUINT i = 0; i < adc->m_multi_chan_size; i++) {
+                if (adc->m_multi_chan[i] && adc->m_multi_chan[i]->m_num_dest > 0) {
+                    g_needsMicrophone = true;
+                    break;
+                }
+            }
+        }
+        if (g_needsMicrophone) {
+            printf("[WebChuGL] ADC in use - microphone will be requested\n");
+        }
     }
 
     g_lastAudioTime = std::chrono::high_resolution_clock::now();
