@@ -33,24 +33,26 @@ class ChucKProcessor extends AudioWorkletProcessor {
         const cap = this.capacity;
         const outL = outputs[0][0];
         const outR = outputs[0][1];
-        const len = outL ? outL.length : 128;
+        const len = outL.length;
 
-        // Read from output ring buffer → Web Audio output
-        for (let i = 0; i < len; i++) {
-            const wp = Atomics.load(this.outWritePos, 0);
-            const rp = Atomics.load(this.outReadPos, 0);
-            if (rp !== wp) {
-                const idx = (rp % cap) * 2;
-                if (outL) outL[i] = this.outBuf[idx];
-                if (outR) outR[i] = this.outBuf[idx + 1];
-                Atomics.store(this.outReadPos, 0, rp + 1);
-            } else {
-                if (outL) outL[i] = 0;
-                if (outR) outR[i] = 0;
-            }
+        // Read from output ring buffer → Web Audio output (batch)
+        const rp = Atomics.load(this.outReadPos, 0);
+        const wp = Atomics.load(this.outWritePos, 0);
+        const available = wp - rp;
+        const toRead = Math.min(len, available);
+
+        for (let i = 0; i < toRead; i++) {
+            const idx = ((rp + i) % cap) * 2;
+            outL[i] = this.outBuf[idx];
+            outR[i] = this.outBuf[idx + 1];
         }
+        for (let i = toRead; i < len; i++) {
+            outL[i] = 0;
+            outR[i] = 0;
+        }
+        Atomics.store(this.outReadPos, 0, rp + toRead);
 
-        // Write microphone input → input ring buffer
+        // Write microphone input → input ring buffer (batch)
         if (inputs[0] && inputs[0].length >= 1 && inputs[0][0].length > 0) {
             const inL = inputs[0][0];
             const inR = inputs[0][1] || inL;

@@ -15,7 +15,6 @@
 
 #include <atomic>
 #include <cstdint>
-#include <cstring>
 
 // Ring buffer capacity in samples (not bytes)
 // ~170ms at 48kHz, large enough for variable FPS jitter
@@ -39,13 +38,6 @@ inline uint32_t ringAvailableToWrite() {
     return RING_CAPACITY - (writePos - readPos);
 }
 
-// Returns number of samples available to read
-inline uint32_t ringAvailableToRead() {
-    uint32_t writePos = g_ringWritePos.load(std::memory_order_acquire);
-    uint32_t readPos = g_ringReadPos.load(std::memory_order_relaxed);
-    return writePos - readPos;
-}
-
 // Write interleaved stereo samples to ring buffer
 // data: array of interleaved samples [L0,R0,L1,R1,...] of length samples*2
 // samples: number of stereo sample pairs to write
@@ -59,23 +51,6 @@ inline void ringWrite(const float* data, int samples) {
     }
 
     g_ringWritePos.store(writePos + samples, std::memory_order_release);
-}
-
-// Read one stereo sample from ring buffer
-// Returns true if sample was read, false if buffer empty
-inline bool ringRead(float* left, float* right) {
-    if (ringAvailableToRead() == 0) {
-        return false;
-    }
-
-    uint32_t readPos = g_ringReadPos.load(std::memory_order_relaxed);
-    uint32_t idx = (readPos % RING_CAPACITY) * 2;
-
-    *left = g_audioRingBuffer[idx];
-    *right = g_audioRingBuffer[idx + 1];
-
-    g_ringReadPos.store(readPos + 1, std::memory_order_release);
-    return true;
 }
 
 // ============================================================================
@@ -94,28 +69,6 @@ inline uint32_t inputRingAvailableToRead() {
     uint32_t writePos = g_inputRingWritePos.load(std::memory_order_acquire);
     uint32_t readPos = g_inputRingReadPos.load(std::memory_order_relaxed);
     return writePos - readPos;
-}
-
-// Write planar stereo samples from Audio Worklet to input ring buffer
-// data: planar format [L0,L1,...,L127,R0,R1,...,R127] (128 samples per channel)
-// samples: number of samples per channel (typically 128)
-inline void inputRingWrite(const float* data, int samples) {
-    uint32_t writePos = g_inputRingWritePos.load(std::memory_order_relaxed);
-    uint32_t available = RING_CAPACITY - (writePos - g_inputRingReadPos.load(std::memory_order_acquire));
-
-    // Don't overflow - drop samples if buffer is full
-    if ((uint32_t)samples > available) {
-        samples = available;
-    }
-
-    // Convert from planar [L0..Ln, R0..Rn] to interleaved [L0,R0,L1,R1,...]
-    for (int i = 0; i < samples; i++) {
-        uint32_t idx = ((writePos + i) % RING_CAPACITY) * 2;
-        g_inputRingBuffer[idx] = data[i];           // Left channel
-        g_inputRingBuffer[idx + 1] = data[samples + i]; // Right channel
-    }
-
-    g_inputRingWritePos.store(writePos + samples, std::memory_order_release);
 }
 
 // Read planar stereo samples from input ring buffer for ChucK
