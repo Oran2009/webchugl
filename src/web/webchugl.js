@@ -445,3 +445,62 @@ var ChuginLoader = {
 };
 
 window.ChuginLoader = ChuginLoader;
+
+// ============================================================================
+// Audio System (JS AudioWorkletProcessor + SharedArrayBuffer ring buffers)
+// Called from C++ initAudio() via EM_ASM
+// ============================================================================
+
+window.initWebChuGLAudio = function(sab, outBufPtr, outWritePosPtr, outReadPosPtr,
+                                     inBufPtr, inWritePosPtr, inReadPosPtr,
+                                     capacity, needsMic) {
+    var ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
+
+    ctx.audioWorklet.addModule('audio-worklet-processor.js').then(function() {
+        var node = new AudioWorkletNode(ctx, 'chuck-processor', {
+            numberOfInputs: 1,
+            numberOfOutputs: 1,
+            outputChannelCount: [2]
+        });
+
+        // Send ring buffer memory locations to the worklet
+        node.port.postMessage({
+            sab: sab,
+            outBufOffset: outBufPtr,
+            outWritePosOffset: outWritePosPtr,
+            outReadPosOffset: outReadPosPtr,
+            inBufOffset: inBufPtr,
+            inWritePosOffset: inWritePosPtr,
+            inReadPosOffset: inReadPosPtr,
+            capacity: capacity
+        });
+
+        node.connect(ctx.destination);
+
+        // Request microphone if ChucK code uses adc
+        if (needsMic) {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(function(stream) {
+                    var source = ctx.createMediaStreamSource(stream);
+                    source.connect(node);
+                    console.log('[WebChuGL] Microphone connected');
+                })
+                .catch(function(err) {
+                    console.log('[WebChuGL] Microphone not available: ' + err.message);
+                });
+        }
+
+        // Resume AudioContext on user interaction (autoplay policy)
+        var startAudio = function() {
+            if (ctx.state !== 'running') {
+                ctx.resume();
+            }
+        };
+        document.addEventListener('click', startAudio, { once: true });
+        document.addEventListener('keydown', startAudio, { once: true });
+
+        console.log('[WebChuGL] Audio initialized (JS AudioWorklet)');
+    }).catch(function(err) {
+        console.error('[WebChuGL] Audio worklet failed: ' + err.message);
+    });
+};

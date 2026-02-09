@@ -145,6 +145,7 @@ target_compile_definitions(webchugl PRIVATE
 # Compile options
 # ===========================================================================
 target_compile_options(webchugl PRIVATE
+    -fPIC  # Required for -sMAIN_MODULE (dynamic linking)
     -pthread
     -O2
     -Wno-unused-parameter
@@ -163,9 +164,10 @@ target_compile_options(webchugl PRIVATE
 # ===========================================================================
 include(FetchContent)
 
-# Set global flags for subdirectories (needed for pthread with Audio Worklet)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pthread")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
+# Set global flags for subdirectories
+# -pthread provides SharedArrayBuffer, -fPIC required for -sMAIN_MODULE
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pthread -fPIC")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread -fPIC")
 
 # FreeType font rendering
 set(FT_DISABLE_BROTLI   ON  CACHE BOOL "" FORCE)
@@ -201,9 +203,10 @@ target_link_options(webchugl PRIVATE
     -O2
     -sMINIFY_HTML=0
     --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
-    # Audio Worklet support
-    -sAUDIO_WORKLET=1
-    -sWASM_WORKERS=1
+    # Dynamic linking for ChuGin loading via dlopen()
+    -sMAIN_MODULE=1
+    # Audio: JS AudioWorkletProcessor reads from WASM SharedArrayBuffer
+    # -pthread provides SharedArrayBuffer support (no AUDIO_WORKLET/WASM_WORKERS needed)
 )
 
 set_target_properties(webchugl PROPERTIES
@@ -222,4 +225,7 @@ add_custom_command(TARGET webchugl POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_SOURCE_DIR}/web/jszip.min.js
         ${CMAKE_CURRENT_BINARY_DIR}/jszip.min.js
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_CURRENT_SOURCE_DIR}/web/audio-worklet-processor.js
+        ${CMAKE_CURRENT_BINARY_DIR}/audio-worklet-processor.js
 )
