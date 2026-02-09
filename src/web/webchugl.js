@@ -92,13 +92,6 @@ var Module = {
             }
         }
 
-        // Check if file is binary
-        function isBinary(filename) {
-            var ext = filename.split('.').pop().toLowerCase();
-            var binaryExts = ['png', 'jpg', 'jpeg', 'gif', 'wav', 'mp3', 'mpg', 'ogg', 'ttf', 'otf', 'woff', 'woff2', 'bin', 'dat', 'wasm'];
-            return binaryExts.indexOf(ext) >= 0;
-        }
-
         // Fetch all files from bundle.zip (compressed) and extract to VFS
         Module.setStatus('Downloading...');
         fetch('bundle.zip')
@@ -147,14 +140,9 @@ var Module = {
                 Module.setStatus('Loading 0/' + total + ' files...');
 
                 return Promise.all(entries.map(function(name) {
-                    var type = isBinary(name) ? 'arraybuffer' : 'string';
-                    return zip.files[name].async(type).then(function(content) {
+                    return zip.files[name].async('arraybuffer').then(function(content) {
                         ensureDir(name);
-                        if (content instanceof ArrayBuffer) {
-                            FS.writeFile('/' + name, new Uint8Array(content));
-                        } else {
-                            FS.writeFile('/' + name, content);
-                        }
+                        FS.writeFile('/' + name, new Uint8Array(content));
                         loaded++;
                         Module.setStatus('Loading ' + loaded + '/' + total + ' files...');
                     });

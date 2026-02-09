@@ -192,7 +192,6 @@ target_link_options(webchugl PRIVATE
     -sSTACK_SIZE=1048576
     -sFORCE_FILESYSTEM
     -sDISABLE_EXCEPTION_CATCHING=0
-    -sEXPORTED_FUNCTIONS=['_main','_malloc','_free']
     -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','addFunction','wasmTable','wasmMemory','callMain']
     -sENVIRONMENT=web,worker
     -sASSERTIONS=1
@@ -201,8 +200,12 @@ target_link_options(webchugl PRIVATE
     -sMINIFY_HTML=0
     --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
     # Dynamic linking for ChuGin loading via dlopen()
+    # -pthread required for ABI compatibility with SIDE_MODULE ChuGins
     -sMAIN_MODULE=1
-    # Audio: JS AudioWorkletProcessor reads from WASM SharedArrayBuffer via -pthread
+    # Suppress expected warnings: pthreads+MAIN_MODULE is experimental but works,
+    # and ALLOW_MEMORY_GROWTH+pthreads JS overhead is negligible for our use case
+    -Wno-experimental
+    -Wno-pthreads-mem-growth
 )
 
 set_target_properties(webchugl PROPERTIES
