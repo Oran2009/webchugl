@@ -154,6 +154,19 @@ try {
     Pop-Location
 }
 
+# Clean up build artifacts (keep only files needed for web serving)
+Write-Host "Cleaning build directory..." -ForegroundColor Gray
+$cleanDirs = @("CMakeFiles", "freetype_build", "code", "packages")
+foreach ($d in $cleanDirs) {
+    $p = Join-Path $BuildDir $d
+    if (Test-Path $p) { Remove-Item -Recurse -Force $p }
+}
+$cleanFiles = @("cmake_install.cmake", "CMakeCache.txt", "Makefile", ".ninja_deps", ".ninja_log", "build.ninja", "manifest.json", "CPackConfig.cmake", "CPackSourceConfig.cmake")
+foreach ($f in $cleanFiles) {
+    $p = Join-Path $BuildDir $f
+    if (Test-Path $p) { Remove-Item -Force $p }
+}
+
 Write-Host "`n=== Build Complete ===" -ForegroundColor Green
 Write-Host "Output: $BuildDir/index.html" -ForegroundColor Gray
 Write-Host "`nTo test: python scripts/serve.py" -ForegroundColor Cyan

@@ -161,6 +161,14 @@ echo "Building WASM..."
 cd "$BUILD_DIR"
 "$EMMAKE" make -j "$JOBS"
 
+# Clean up build artifacts (keep only files needed for web serving)
+echo "Cleaning build directory..."
+cd "$BUILD_DIR"
+# Remove CMake/Make build artifacts
+rm -rf CMakeFiles cmake_install.cmake CMakeCache.txt Makefile freetype_build .ninja_deps .ninja_log build.ninja CPackConfig.cmake CPackSourceConfig.cmake
+# Remove source directories already bundled in bundle.zip
+rm -rf code packages
+
 echo ""
 echo "=== Build Complete ==="
 echo "Output: $BUILD_DIR/index.html"
