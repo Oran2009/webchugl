@@ -219,4 +219,7 @@ add_custom_command(TARGET webchugl POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_SOURCE_DIR}/web/coi-serviceworker.js
         ${CMAKE_CURRENT_BINARY_DIR}/coi-serviceworker.js
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_CURRENT_SOURCE_DIR}/web/jszip.min.js
+        ${CMAKE_CURRENT_BINARY_DIR}/jszip.min.js
 )

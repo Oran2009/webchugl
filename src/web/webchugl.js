@@ -57,38 +57,69 @@ var Module = {
             return binaryExts.indexOf(ext) >= 0;
         }
 
-        // Fetch manifest listing all files
-        fetch('manifest.json')
+        // Fetch all files from bundle.zip (compressed) and extract to VFS
+        Module.setStatus('Downloading...');
+        fetch('bundle.zip')
             .then(function(response) {
-                if (!response.ok) throw new Error('Failed to fetch manifest.json');
-                return response.json();
+                if (!response.ok) throw new Error('Failed to fetch bundle.zip');
+                var contentLength = response.headers.get('content-length');
+                if (!contentLength || !response.body) {
+                    // Fallback: no streaming progress
+                    return response.arrayBuffer();
+                }
+                // Stream download with progress
+                var total = parseInt(contentLength, 10);
+                var loaded = 0;
+                var reader = response.body.getReader();
+                var chunks = [];
+                function read() {
+                    return reader.read().then(function(result) {
+                        if (result.done) {
+                            var combined = new Uint8Array(loaded);
+                            var offset = 0;
+                            for (var i = 0; i < chunks.length; i++) {
+                                combined.set(chunks[i], offset);
+                                offset += chunks[i].length;
+                            }
+                            return combined.buffer;
+                        }
+                        chunks.push(result.value);
+                        loaded += result.value.length;
+                        var pct = Math.round(loaded / total * 100);
+                        Module.setStatus('Downloading... ' + pct + '%');
+                        return read();
+                    });
+                }
+                return read();
             })
-            .then(function(manifest) {
-                var files = manifest.files || [];
-                var total = files.length;
+            .then(function(zipData) {
+                Module.setStatus('Extracting...');
+                return JSZip.loadAsync(zipData);
+            })
+            .then(function(zip) {
+                var entries = Object.keys(zip.files).filter(function(name) {
+                    return !zip.files[name].dir;
+                });
+                var total = entries.length;
                 var loaded = 0;
                 Module.setStatus('Loading 0/' + total + ' files...');
 
-                return Promise.all(files.map(function(file) {
-                    return fetch(file)
-                        .then(function(response) {
-                            if (!response.ok) throw new Error('Failed to fetch ' + file);
-                            return isBinary(file) ? response.arrayBuffer() : response.text();
-                        })
-                        .then(function(content) {
-                            ensureDir(file);
-                            if (content instanceof ArrayBuffer) {
-                                FS.writeFile('/' + file, new Uint8Array(content));
-                            } else {
-                                FS.writeFile('/' + file, content);
-                            }
-                            loaded++;
-                            Module.setStatus('Loading ' + loaded + '/' + total + ' files...');
-                        });
+                return Promise.all(entries.map(function(name) {
+                    var type = isBinary(name) ? 'arraybuffer' : 'string';
+                    return zip.files[name].async(type).then(function(content) {
+                        ensureDir(name);
+                        if (content instanceof ArrayBuffer) {
+                            FS.writeFile('/' + name, new Uint8Array(content));
+                        } else {
+                            FS.writeFile('/' + name, content);
+                        }
+                        loaded++;
+                        Module.setStatus('Loading ' + loaded + '/' + total + ' files...');
+                    });
                 }));
             })
             .then(function() {
-                // Scan for ChuGins in the code directory only (recursive)
+                // Scan for ChuGins in the code directory (recursive)
                 ChuginLoader.scanForChugins('/code');
                 if (ChuginLoader.pendingChugins.length > 0) {
                     console.log('[WebChuGL] Found ' + ChuginLoader.pendingChugins.length + ' ChuGin(s)');

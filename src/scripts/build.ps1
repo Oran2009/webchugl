@@ -37,15 +37,97 @@ if (Test-Path $CodeDir) {
     }
     Copy-Item $CodeDir $BuildCodeDir -Recurse -Force
     Write-Host "Copied code/ to build/code/" -ForegroundColor Gray
-
-    # Generate manifest.json listing all files with code/ prefix
-    $codeFiles = Get-ChildItem -Path $CodeDir -File -Recurse | ForEach-Object {
-        "code/" + $_.FullName.Substring($CodeDir.Length + 1).Replace('\', '/')
-    }
-    $manifest = @{ files = @($codeFiles) } | ConvertTo-Json
-    $manifest | Out-File -FilePath (Join-Path $BuildDir "manifest.json") -Encoding utf8
-    Write-Host "Generated manifest.json with $($codeFiles.Count) file(s)" -ForegroundColor Gray
 }
+
+# Fetch ChuMP packages if packages.json exists
+$PackagesJson = Join-Path $CodeDir "packages.json"
+$BuildPackagesDir = Join-Path $BuildDir "packages"
+if (Test-Path $PackagesJson) {
+    Write-Host "Fetching ChuMP packages..." -ForegroundColor Yellow
+    $fetchScript = @"
+import json, urllib.request, zipfile, io, os, shutil, sys, glob
+
+packages_json = sys.argv[1]
+output_dir = sys.argv[2]
+
+with open(packages_json) as f:
+    config = json.load(f)
+
+os.makedirs(output_dir, exist_ok=True)
+
+for pkg in config.get('packages', []):
+    name = pkg['name']
+    version = pkg['version']
+    pkg_dir = os.path.join(output_dir, name)
+
+    # Skip if already fetched
+    if os.path.isdir(pkg_dir):
+        print(f'  {name} {version} (cached)')
+        continue
+
+    print(f'  Fetching {name} {version}...')
+
+    # Download ZIP from URL specified in packages.json
+    zip_url = pkg.get('url')
+    if not zip_url:
+        print(f'  ERROR: No url specified for {name}')
+        continue
+    try:
+        zip_data = urllib.request.urlopen(zip_url).read()
+    except Exception as e:
+        print(f'  ERROR: Could not download {name}: {e}')
+        continue
+
+    # Extract to packages/<name>/
+    os.makedirs(pkg_dir, exist_ok=True)
+    with zipfile.ZipFile(io.BytesIO(zip_data)) as zf:
+        zf.extractall(pkg_dir)
+
+    # Strip non-essential directories
+    for strip_dir in ['examples', '_examples', 'scripts', 'releases', '.git']:
+        strip_path = os.path.join(pkg_dir, strip_dir)
+        if os.path.isdir(strip_path):
+            shutil.rmtree(strip_path)
+
+    # Strip non-essential files
+    for pattern in ['README*', 'VERSIONS', 'imgui.ini', '*.md']:
+        for match in glob.glob(os.path.join(pkg_dir, pattern)):
+            if os.path.isfile(match):
+                os.remove(match)
+
+    print(f'  Installed {name} {version}')
+"@
+    py -c $fetchScript "$PackagesJson" "$BuildPackagesDir"
+    if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: Package fetch failed" -ForegroundColor Yellow }
+}
+
+# Create bundle.zip containing code/ and packages/ directories
+Write-Host "Creating bundle.zip..." -ForegroundColor Yellow
+$bundleScript = @"
+import zipfile, os, sys
+
+os.chdir(sys.argv[1])
+
+files = []
+for dirpath in ['code', 'packages']:
+    if not os.path.isdir(dirpath):
+        continue
+    for root, dirs, filenames in os.walk(dirpath):
+        for f in filenames:
+            path = os.path.join(root, f).replace('\\', '/')
+            files.append(path)
+
+with zipfile.ZipFile('bundle.zip', 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+    for path in files:
+        zf.write(path, path)
+
+raw_size = sum(os.path.getsize(f) for f in files)
+zip_size = os.path.getsize('bundle.zip')
+ratio = (1 - zip_size / raw_size) * 100 if raw_size > 0 else 0
+print(f'Created bundle.zip: {len(files)} files, {raw_size/1024/1024:.1f} MB -> {zip_size/1024/1024:.1f} MB ({ratio:.0f}% compression)')
+"@
+py -c $bundleScript "$BuildDir"
+if ($LASTEXITCODE -ne 0) { throw "Bundle creation failed" }
 
 # Configure
 $CMakeCacheFile = Join-Path $BuildDir "CMakeCache.txt"
