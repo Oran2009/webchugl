@@ -31,11 +31,12 @@
             z-index: 10;
         }
         #loading-screen.hidden { display: none; }
-        #loading-logo {
+        .loading-logo {
             width: 50%;
             height: auto;
             margin-bottom: 32px;
         }
+        #loading-logo-dark { display: none; }
         #progress-bar {
             width: 50%;
             height: 2em;
@@ -47,6 +48,12 @@
             width: 0%;
             background: #4f9019;
             transition: width 0.15s;
+        }
+        @media (prefers-color-scheme: dark) {
+            #loading-screen { background: #000; }
+            #progress-bar { background: #000; }
+            #loading-logo-light { display: none; }
+            #loading-logo-dark { display: block; }
         }
         #error-text {
             margin-top: 16px;
@@ -89,7 +96,8 @@
 <body>
     <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
     <div id="loading-screen">
-        <img id="loading-logo" src="chugl_logo.png" alt="ChuGL">
+        <img id="loading-logo-light" class="loading-logo" src="chugl_logo_light.png" alt="ChuGL">
+        <img id="loading-logo-dark" class="loading-logo" src="chugl_logo_dark.png" alt="ChuGL">
         <div id="progress-bar"><div id="progress-fill"></div></div>
         <div id="error-text"></div>
     </div>

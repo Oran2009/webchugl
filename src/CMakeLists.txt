@@ -228,6 +228,9 @@ add_custom_command(TARGET webchugl POST_BUILD
         ${CMAKE_CURRENT_SOURCE_DIR}/web/audio-worklet-processor.js
         ${CMAKE_CURRENT_BINARY_DIR}/audio-worklet-processor.js
     COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/web/chugl_logo.png
-        ${CMAKE_CURRENT_BINARY_DIR}/chugl_logo.png
+        ${CMAKE_CURRENT_SOURCE_DIR}/web/chugl_logo_light.png
+        ${CMAKE_CURRENT_BINARY_DIR}/chugl_logo_light.png
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_CURRENT_SOURCE_DIR}/web/chugl_logo_dark.png
+        ${CMAKE_CURRENT_BINARY_DIR}/chugl_logo_dark.png
 )
