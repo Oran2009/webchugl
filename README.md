@@ -48,7 +48,7 @@ Requires a browser with WebGPU support (Chrome, Edge).
 
 ## ChuGins
 
-Pre-built `.chug.wasm` files for 34 web-compatible ChuGins are available in `chugins/`. To use a ChuGin, copy its `.chug.wasm` into `src/code/` before building.
+Pre-built `.chug.wasm` files for select web-compatible ChuGins are available in `chugins/`. To use a ChuGin, copy its `.chug.wasm` into `src/code/` before building.
 
 To rebuild ChuGins from source (requires the [chugins repo](https://github.com/ccrma/chugins)):
 
@@ -62,8 +62,8 @@ cd src/scripts
 
 - **ChucK VM** runs on the main thread, driven by the ChuGL render loop
 - **Audio** passes through lock-free ring buffers in WASM shared memory (`SharedArrayBuffer`) to a JS `AudioWorkletProcessor` on the audio thread
-- **ChuGins** are loaded via `dlopen()` (`-sMAIN_MODULE=1` / `-sSIDE_MODULE=1`)
 - **Graphics** uses WebGPU via ChuGL's rendering pipeline
+- **ChuGins** are loaded via `dlopen()` (`-sMAIN_MODULE=1` / `-sSIDE_MODULE=1`)
 
 ## Project Structure
 
