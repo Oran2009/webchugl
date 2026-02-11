@@ -87,6 +87,10 @@ echo "Building WASM..."
 cd "$BUILD_DIR"
 "$EMMAKE" make -j "$JOBS"
 
+# Minify JS assets
+echo "Minifying JS..."
+python3 "$SCRIPT_DIR/minify_js.py" "$BUILD_DIR/webchugl.js"
+
 # Clean up build artifacts (keep only files needed for web serving)
 echo "Cleaning build directory..."
 cd "$BUILD_DIR"

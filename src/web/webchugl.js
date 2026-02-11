@@ -92,6 +92,15 @@ var Module = {
             }
         }
 
+        // Load JSZip dynamically (in parallel with bundle fetch, off critical render path)
+        var jszipReady = new Promise(function(resolve, reject) {
+            var s = document.createElement('script');
+            s.src = 'jszip.min.js';
+            s.onload = resolve;
+            s.onerror = reject;
+            document.head.appendChild(s);
+        });
+
         // Fetch all files from bundle.zip (compressed) and extract to VFS
         Module.setStatus('Downloading...');
         fetch('bundle.zip')
@@ -99,10 +108,8 @@ var Module = {
                 if (!response.ok) throw new Error('Failed to fetch bundle.zip');
                 var contentLength = response.headers.get('content-length');
                 if (!contentLength || !response.body) {
-                    // Fallback: no streaming progress
                     return response.arrayBuffer();
                 }
-                // Stream download with progress
                 var total = parseInt(contentLength, 10);
                 var loaded = 0;
                 var reader = response.body.getReader();
@@ -129,7 +136,7 @@ var Module = {
             })
             .then(function(zipData) {
                 Module.setStatus('Extracting...');
-                return JSZip.loadAsync(zipData);
+                return jszipReady.then(function() { return JSZip.loadAsync(zipData); });
             })
             .then(function(zip) {
                 var entries = Object.keys(zip.files).filter(function(name) {

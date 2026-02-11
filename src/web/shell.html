@@ -1,8 +1,9 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ChuGL compiled to WebAssembly. Run ChucK programs with real-time graphics and audio in the browser.">
     <title>WebChuGL</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -94,18 +95,19 @@
     </style>
 </head>
 <body>
+    <main>
     <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
     <div id="loading-screen">
-        <img id="loading-logo-light" class="loading-logo" src="chugl_logo_light.png" alt="ChuGL">
-        <img id="loading-logo-dark" class="loading-logo" src="chugl_logo_dark.png" alt="ChuGL">
+        <img id="loading-logo-light" class="loading-logo" src="chugl_logo_light.png" alt="ChuGL" fetchpriority="high">
+        <img id="loading-logo-dark" class="loading-logo" src="chugl_logo_dark.png" alt="ChuGL" fetchpriority="high">
         <div id="progress-bar"><div id="progress-fill"></div></div>
         <div id="error-text"></div>
     </div>
     <div id="output"></div>
     <div id="audio-hint">Click to enable audio</div>
+    </main>
 
     <script src="coi-serviceworker.js"></script>
-    <script src="jszip.min.js"></script>
     <script src="webchugl.js"></script>
     <script>
         // Check WebGPU support

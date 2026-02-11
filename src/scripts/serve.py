@@ -15,8 +15,25 @@ import os
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
 
+class CachingHandler(http.server.SimpleHTTPRequestHandler):
+    """Adds cache headers for static assets."""
+
+    # WASM and JS glue don't change between rebuilds of the same code
+    CACHE_EXTENSIONS = {
+        '.wasm': 3600,
+        '.js': 3600,
+        '.png': 3600,
+        '.zip': 3600,
+    }
+
+    def end_headers(self):
+        ext = os.path.splitext(self.path.split('?')[0])[1].lower()
+        max_age = self.CACHE_EXTENSIONS.get(ext, 0)
+        if max_age:
+            self.send_header('Cache-Control', f'public, max-age={max_age}')
+        super().end_headers()
+
 if __name__ == '__main__':
-    # Change to build directory
     src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     build_dir = os.path.join(src_dir, 'build')
     if os.path.exists(build_dir):
@@ -29,10 +46,8 @@ if __name__ == '__main__':
     print('Press Ctrl+C to stop')
     print()
 
-    handler = http.server.SimpleHTTPRequestHandler
-    with http.server.ThreadingHTTPServer(('', PORT), handler) as httpd:
+    with http.server.ThreadingHTTPServer(('', PORT), CachingHandler) as httpd:
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
             print('\nServer stopped.')
-

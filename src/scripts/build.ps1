@@ -78,6 +78,10 @@ try {
     Pop-Location
 }
 
+# Minify JS assets
+Write-Host "Minifying JS..." -ForegroundColor Gray
+py (Join-Path $ScriptDir "minify_js.py") (Join-Path $BuildDir "webchugl.js")
+
 # Clean up build artifacts (keep only files needed for web serving)
 Write-Host "Cleaning build directory..." -ForegroundColor Gray
 $cleanDirs = @("CMakeFiles", "freetype_build", "code", "packages")
