@@ -209,6 +209,28 @@ var ChuginLoader = {
 window.ChuginLoader = ChuginLoader;
 
 // ============================================================================
+// CK: Host → ChucK bridge (sets global variables, signals events)
+// ============================================================================
+
+window.CK = {
+    setInt: function(name, val) {
+        Module.ccall('ck_set_int', 'number', ['string', 'number'], [name, val]);
+    },
+    setFloat: function(name, val) {
+        Module.ccall('ck_set_float', 'number', ['string', 'number'], [name, val]);
+    },
+    setString: function(name, val) {
+        Module.ccall('ck_set_string', 'number', ['string', 'string'], [name, val]);
+    },
+    signalEvent: function(name) {
+        Module.ccall('ck_signal_event', 'number', ['string'], [name]);
+    },
+    broadcastEvent: function(name) {
+        Module.ccall('ck_broadcast_event', 'number', ['string'], [name]);
+    }
+};
+
+// ============================================================================
 // Audio System (JS AudioWorkletProcessor + SharedArrayBuffer ring buffers)
 // Called from C++ initAudio() via EM_ASM
 // ============================================================================

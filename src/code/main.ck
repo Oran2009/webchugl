@@ -1,51 +1,42 @@
-//----------------------------------------------------------------------------
-// name: main.ck
-// desc: Main entry point for the visual novel
-// note: Run the game: chuck main.ck
-//----------------------------------------------------------------------------
+// HTML Integration Demo
+// Responds to global variables set from HTML UI controls
 
-@import "game.ck"
+global float rotation_speed;
+global float scale_factor;
+global int color_mode;
+global Event reset_event;
 
-//----------------------------------------------------------------------------
-// Camera Setup
-//----------------------------------------------------------------------------
+// Defaults
+1.0 => scale_factor;
+1.0 => rotation_speed;
 
-GG.camera().aspect(16./9);
-GG.camera().orthographic();
-GG.camera().posZ(8.0);
+GPlane plane --> GG.scene();
+plane.sca(@(2, 2, 1));
 
-//----------------------------------------------------------------------------
-// Scene Setup
-//----------------------------------------------------------------------------
+// Background
+GG.scene().backgroundColor(@(0.05, 0.05, 0.1));
 
-GG.scene().backgroundColor(@(0.1, 0.1, 0.15));
+// Spork listener for reset event
+spork ~ resetListener();
 
-//----------------------------------------------------------------------------
-// Window Setup
-//----------------------------------------------------------------------------
+fun void resetListener() {
+    while (true) {
+        reset_event => now;
+        0.0 => plane.rotY;
+    }
+}
 
-// GWindow.sizeLimits(1920, 1080, 0, 0, @(16, 9));
-// GWindow.center();
-GWindow.title("Date the Dobots");
-
-//----------------------------------------------------------------------------
-// Start the game
-//----------------------------------------------------------------------------
-
-Game game;
-spork ~ game.run();
-
-// fun void resizeListener() {
-//     while (true) {
-//         GWindow.resizeEvent() => now;
-//         GWindow.sizeLimits(0, 0, 0, 0, @(16, 9));
-//     }
-// } spork ~ resizeListener();
-
-//----------------------------------------------------------------------------
-// Keep the main thread alive
-//----------------------------------------------------------------------------
-
+// Main loop
 while (true) {
     GG.nextFrame() => now;
+    GG.dt() * rotation_speed => float dr;
+    plane.rotY() + dr => plane.rotY;
+    plane.sca(@(scale_factor, scale_factor, 1));
+
+    if (color_mode == 0)
+        plane.color(@(0.4, 0.8, 0.2));
+    else if (color_mode == 1)
+        plane.color(@(0.2, 0.4, 0.8));
+    else
+        plane.color(@(0.8, 0.2, 0.4));
 }

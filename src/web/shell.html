@@ -92,6 +92,68 @@
             opacity: 0;
             pointer-events: none;
         }
+
+        /* Control Panel */
+        #control-panel {
+            position: fixed;
+            bottom: 16px;
+            left: 16px;
+            z-index: 6;
+            font-family: monospace;
+            font-size: 13px;
+        }
+        #panel-toggle {
+            background: rgba(30, 30, 40, 0.85);
+            color: #ccc;
+            border: 1px solid #555;
+            padding: 6px 14px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: inherit;
+        }
+        #panel-toggle:hover { background: rgba(50, 50, 65, 0.9); }
+        #controls {
+            display: none;
+            background: rgba(20, 20, 30, 0.9);
+            border: 1px solid #444;
+            padding: 12px;
+            margin-top: 4px;
+            min-width: 240px;
+        }
+        #controls.visible { display: block; }
+        #controls label {
+            display: block;
+            color: #aaa;
+            margin-bottom: 10px;
+        }
+        #controls input[type="range"] {
+            display: block;
+            width: 100%;
+            margin-top: 4px;
+        }
+        #controls select {
+            display: block;
+            width: 100%;
+            margin-top: 4px;
+            padding: 3px;
+            background: #222;
+            color: #ccc;
+            border: 1px solid #555;
+            font-family: inherit;
+        }
+        #ctrl-reset {
+            display: block;
+            width: 100%;
+            padding: 6px;
+            margin-top: 4px;
+            background: rgba(50, 50, 65, 0.9);
+            color: #ccc;
+            border: 1px solid #555;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: inherit;
+        }
+        #ctrl-reset:hover { background: rgba(70, 70, 90, 0.9); }
     </style>
 </head>
 <body>
@@ -105,6 +167,25 @@
     </div>
     <div id="output"></div>
     <div id="audio-hint">Click to enable audio</div>
+    <div id="control-panel">
+        <button id="panel-toggle">Controls</button>
+        <div id="controls">
+            <label>Rotation Speed
+                <input type="range" id="ctrl-speed" min="0" max="10" step="0.1" value="1">
+            </label>
+            <label>Scale
+                <input type="range" id="ctrl-scale" min="0.1" max="5" step="0.1" value="1">
+            </label>
+            <label>Color
+                <select id="ctrl-color">
+                    <option value="0">Green</option>
+                    <option value="1">Blue</option>
+                    <option value="2">Red</option>
+                </select>
+            </label>
+            <button id="ctrl-reset">Reset Rotation</button>
+        </div>
+    </div>
     </main>
 
     <script src="coi-serviceworker.js"></script>
@@ -124,6 +205,27 @@
         };
         document.addEventListener('click', hideAudioHint, { once: true });
         document.addEventListener('keydown', hideAudioHint, { once: true });
+
+        // Control panel toggle
+        var panelToggle = document.getElementById('panel-toggle');
+        var controls = document.getElementById('controls');
+        panelToggle.addEventListener('click', function() {
+            controls.classList.toggle('visible');
+        });
+
+        // Wire controls to CK bridge
+        document.getElementById('ctrl-speed').addEventListener('input', function(e) {
+            if (window.CK) CK.setFloat('rotation_speed', parseFloat(e.target.value));
+        });
+        document.getElementById('ctrl-scale').addEventListener('input', function(e) {
+            if (window.CK) CK.setFloat('scale_factor', parseFloat(e.target.value));
+        });
+        document.getElementById('ctrl-color').addEventListener('change', function(e) {
+            if (window.CK) CK.setInt('color_mode', parseInt(e.target.value));
+        });
+        document.getElementById('ctrl-reset').addEventListener('click', function() {
+            if (window.CK) CK.broadcastEvent('reset_event');
+        });
     </script>
     {{{ SCRIPT }}}
 </body>

@@ -11,6 +11,7 @@
   ChucK VM format: Planar [L0, L1, ..., Ln, R0, R1, ..., Rn]
 -----------------------------------------------------------------------------*/
 #include "chuck.h"
+#include "chuck_globals.h"
 #include "audio_ring_buffer.h"
 #include "core/log.h"
 
@@ -254,3 +255,47 @@ int main(int argc, char** argv)
 
     return 0;
 }
+
+// ============================================================================
+// Host → ChucK bridge (exposed to JS via Module.ccall)
+// Uses Chuck_Globals_Manager's thread-safe lock-free queue
+// ============================================================================
+
+extern "C" {
+
+EMSCRIPTEN_KEEPALIVE
+int ck_set_int(const char* name, int val)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->setGlobalInt(name, (t_CKINT)val);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_set_float(const char* name, double val)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->setGlobalFloat(name, (t_CKFLOAT)val);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_set_string(const char* name, const char* val)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->setGlobalString(name, val);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_signal_event(const char* name)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->signalGlobalEvent(name);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_broadcast_event(const char* name)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->broadcastGlobalEvent(name);
+}
+
+} // extern "C"
