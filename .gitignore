@@ -27,7 +27,6 @@ Thumbs.db
 nul
 
 # Large binary files
-*.wasm
 *.o
 *.a
 *.lib
