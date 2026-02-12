@@ -145,20 +145,26 @@ def watch_and_rebuild():
             shell_changed = any('shell.html' in c for c in changed)
             assets_changed = any('shell.html' not in c for c in changed)
 
-            if shell_changed:
-                process_template()
-                log('Rebuilt: shell.html → index.html')
-            if assets_changed:
-                copy_web_assets()
-                log('Rebuilt: web assets copied')
+            try:
+                if shell_changed:
+                    process_template()
+                    log('Rebuilt: shell.html → index.html')
+                if assets_changed:
+                    copy_web_assets()
+                    log('Rebuilt: web assets copied')
+            except Exception as e:
+                log(f'ERROR: Web rebuild failed: {e}')
 
             web_mtimes = new_web
 
         # Check code/ changes
         new_code = get_mtimes(CODE_DIR)
         if new_code != code_mtimes:
-            rebuild_bundle()
-            log('Rebuilt: code/ → bundle.zip')
+            try:
+                rebuild_bundle()
+                log('Rebuilt: code/ → bundle.zip')
+            except Exception as e:
+                log(f'ERROR: Bundle rebuild failed: {e}')
             code_mtimes = new_code
 
 
@@ -175,12 +181,23 @@ def validate_prerequisites():
 
 
 if __name__ == '__main__':
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
+    try:
+        port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
+        if not (1 <= port <= 65535):
+            raise ValueError
+    except ValueError:
+        print('Error: Port must be a number between 1 and 65535')
+        sys.exit(1)
 
     validate_prerequisites()
     full_rebuild()
 
-    httpd = start_server(port)
+    try:
+        httpd = start_server(port)
+    except OSError:
+        print(f'Error: Port {port} is already in use.')
+        print(f'Try a different port: python dev_server.py <port>')
+        sys.exit(1)
 
     watcher = threading.Thread(target=watch_and_rebuild, daemon=True)
     watcher.start()
