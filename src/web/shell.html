@@ -4,23 +4,163 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="ChuGL compiled to WebAssembly. Run ChucK programs with real-time graphics and audio in the browser.">
-    <title>WebChuGL</title>
+    <title>particles</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg:        #0c0c14;
+            --surface:   #14141f;
+            --border:    #2a2a3a;
+            --text:      #ffffff;
+            --text-dim:  #d5d5d5;
+            --accent:    #4a90d9;
+            --sidebar-w: 220px;
+            --font:      'Consolas', 'Menlo', 'Monaco', monospace;
+        }
+
         body {
-            background: #000;
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font);
+            font-size: 13px;
             overflow: hidden;
             width: 100vw;
             height: 100vh;
+        }
+
+        /* ── App layout ────────────────────────────────── */
+        #app {
+            display: flex;
+            height: 100vh;
+        }
+
+        /* ── Left sidebar ──────────────────────────────── */
+        #sidebar {
+            width: var(--sidebar-w);
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            overflow-y: auto;
+        }
+        #sidebar h2 {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-dim);
+            padding: 14px 14px 8px;
+        }
+
+        .sidebar-hint {
+            padding: 0 14px 8px;
+            font-size: 11px;
+            color: var(--text-dim);
+            font-style: italic;
+        }
+
+        .sidebar-divider {
+            height: 1px;
+            background: var(--border);
+            margin: 8px 14px;
+        }
+
+        /* ── Controls (in sidebar) ─────────────────────── */
+        .ctrl-group {
+            padding: 0 14px;
+            margin-bottom: 14px;
+        }
+        .ctrl-label {
+            display: block;
+            color: var(--text-dim);
+            font-size: 11px;
+            margin-bottom: 5px;
+        }
+        .ctrl-label span {
+            float: right;
+            color: var(--text);
+        }
+        .ctrl-group input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            outline: none;
+        }
+        .ctrl-group input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+        }
+
+        /* ── Color picker ─────────────────────────────── */
+        .color-row {
             display: flex;
             align-items: center;
-            justify-content: center;
+            gap: 8px;
         }
-        canvas {
-            width: 100vw;
-            height: 100vh;
+        .color-row input[type="color"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 32px;
+            height: 24px;
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            background: none;
+            cursor: pointer;
+            padding: 0;
+        }
+        .color-row input[type="color"]::-webkit-color-swatch-wrapper {
+            padding: 1px;
+        }
+        .color-row input[type="color"]::-webkit-color-swatch {
+            border: none;
+            border-radius: 2px;
+        }
+        .color-row .color-hex {
+            color: var(--text-dim);
+            font-size: 11px;
+        }
+
+        /* ── Select dropdown ──────────────────────────── */
+        .ctrl-group select {
+            width: 100%;
+            padding: 6px 8px;
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            font-family: inherit;
+            font-size: 12px;
+            outline: none;
+            cursor: pointer;
+        }
+        .ctrl-group select:focus {
+            border-color: var(--accent);
+        }
+
+        /* ── Canvas ────────────────────────────────────── */
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: #000;
+        }
+        #canvas-container canvas {
+            width: 100%;
+            height: 100%;
             display: block;
         }
+
+        /* ── Loading screen ────────────────────────────── */
         #loading-screen {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -29,7 +169,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            z-index: 10;
+            z-index: 100;
         }
         #loading-screen.hidden { display: none; }
         .loading-logo {
@@ -63,11 +203,13 @@
             font-size: 14px;
             display: none;
         }
+
+        /* ── Output console ────────────────────────────── */
         #output {
             display: none;
             position: fixed;
             top: 8px;
-            left: 8px;
+            left: calc(var(--sidebar-w) + 8px);
             right: 8px;
             max-height: 30vh;
             overflow-y: auto;
@@ -78,6 +220,8 @@
             pointer-events: none;
             white-space: pre-wrap;
         }
+
+        /* ── Audio hint ────────────────────────────────── */
         #audio-hint {
             position: fixed;
             bottom: 16px;
@@ -93,37 +237,157 @@
             pointer-events: none;
         }
     </style>
+    <script src="coi-serviceworker.js"></script>
 </head>
 <body>
-    <main>
-    <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+    <!-- Loading screen (overlays everything until WASM is ready) -->
     <div id="loading-screen">
         <img id="loading-logo-light" class="loading-logo" src="chugl_logo_light.png" alt="ChuGL" fetchpriority="high">
         <img id="loading-logo-dark" class="loading-logo" src="chugl_logo_dark.png" alt="ChuGL" fetchpriority="high">
         <div id="progress-bar"><div id="progress-fill"></div></div>
         <div id="error-text"></div>
     </div>
+
+    <!-- App layout -->
+    <div id="app">
+        <!-- Left sidebar: controls -->
+        <nav id="sidebar">
+            <h2>Particle System</h2>
+            <p class="sidebar-hint">Click canvas to spawn particles</p>
+
+            <div class="sidebar-divider"></div>
+            <h2>Colors</h2>
+
+            <div class="ctrl-group">
+                <label class="ctrl-label">Background</label>
+                <div class="color-row">
+                    <input type="color" id="ctrl-bg-color" value="#000811">
+                    <span class="color-hex" id="val-bg-color">#000811</span>
+                </div>
+            </div>
+
+            <div class="ctrl-group">
+                <label class="ctrl-label">Start Color</label>
+                <div class="color-row">
+                    <input type="color" id="ctrl-start-color" value="#66bfff">
+                    <span class="color-hex" id="val-start-color">#66bfff</span>
+                </div>
+            </div>
+
+            <div class="ctrl-group">
+                <label class="ctrl-label">End Color</label>
+                <div class="color-row">
+                    <input type="color" id="ctrl-end-color" value="#701f7e">
+                    <span class="color-hex" id="val-end-color">#701f7e</span>
+                </div>
+            </div>
+
+            <div class="sidebar-divider"></div>
+            <h2>Parameters</h2>
+
+            <div class="ctrl-group">
+                <label class="ctrl-label">Lifetime <span id="val-lifetime">1.0s</span></label>
+                <input type="range" id="ctrl-lifetime" min="0.1" max="5" step="0.1" value="1">
+            </div>
+
+            <div class="ctrl-group">
+                <label class="ctrl-label">Blend Mode</label>
+                <select id="ctrl-blend">
+                    <option value="0">Default</option>
+                    <option value="1">Replace</option>
+                    <option value="2">Add</option>
+                    <option value="3">Subtract</option>
+                    <option value="4">Multiply</option>
+                    <option value="5">Screen</option>
+                </select>
+            </div>
+        </nav>
+
+        <!-- Canvas -->
+        <main id="canvas-container">
+            <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+        </main>
+    </div>
+
     <div id="output"></div>
     <div id="audio-hint">Click to enable audio</div>
-    </main>
 
-    <script src="coi-serviceworker.js"></script>
     <script src="webchugl.js"></script>
     <script>
-        // Check WebGPU support
+        // WebGPU check
         if (!navigator.gpu) {
             var errEl = document.getElementById('error-text');
             errEl.textContent = 'WebGPU is not supported in this browser. Please use Chrome or Edge.';
             errEl.style.display = 'block';
         }
 
-        // Hide audio hint on user interaction
+        // Hide audio hint on first interaction
         var audioHint = document.getElementById('audio-hint');
-        var hideAudioHint = function() {
-            audioHint.classList.add('hidden');
-        };
+        var hideAudioHint = function() { audioHint.classList.add('hidden'); };
         document.addEventListener('click', hideAudioHint, { once: true });
         document.addEventListener('keydown', hideAudioHint, { once: true });
+
+        // ── Helpers ─────────────────────────────────────────
+        function hexToRgb(hex) {
+            var r = parseInt(hex.substr(1, 2), 16) / 255;
+            var g = parseInt(hex.substr(3, 2), 16) / 255;
+            var b = parseInt(hex.substr(5, 2), 16) / 255;
+            return [r, g, b];
+        }
+
+        // ── Color controls ──────────────────────────────────
+        var bgColor    = document.getElementById('ctrl-bg-color');
+        var startColor = document.getElementById('ctrl-start-color');
+        var endColor   = document.getElementById('ctrl-end-color');
+        var valBg      = document.getElementById('val-bg-color');
+        var valStart   = document.getElementById('val-start-color');
+        var valEnd     = document.getElementById('val-end-color');
+
+        bgColor.addEventListener('input', function() {
+            valBg.textContent = this.value;
+            var rgb = hexToRgb(this.value);
+            if (window.CK) {
+                CK.setFloat('bg_r', rgb[0]);
+                CK.setFloat('bg_g', rgb[1]);
+                CK.setFloat('bg_b', rgb[2]);
+            }
+        });
+
+        startColor.addEventListener('input', function() {
+            valStart.textContent = this.value;
+            var rgb = hexToRgb(this.value);
+            if (window.CK) {
+                CK.setFloat('start_r', rgb[0]);
+                CK.setFloat('start_g', rgb[1]);
+                CK.setFloat('start_b', rgb[2]);
+            }
+        });
+
+        endColor.addEventListener('input', function() {
+            valEnd.textContent = this.value;
+            var rgb = hexToRgb(this.value);
+            if (window.CK) {
+                CK.setFloat('end_r', rgb[0]);
+                CK.setFloat('end_g', rgb[1]);
+                CK.setFloat('end_b', rgb[2]);
+            }
+        });
+
+        // ── Lifetime slider ─────────────────────────────────
+        var lifetimeSlider = document.getElementById('ctrl-lifetime');
+        var valLifetime    = document.getElementById('val-lifetime');
+
+        lifetimeSlider.addEventListener('input', function() {
+            valLifetime.textContent = parseFloat(this.value).toFixed(1) + 's';
+            if (window.CK) CK.setFloat('g_lifetime', parseFloat(this.value));
+        });
+
+        // ── Blend mode dropdown ─────────────────────────────
+        var blendSelect = document.getElementById('ctrl-blend');
+
+        blendSelect.addEventListener('change', function() {
+            if (window.CK) CK.setInt('g_blend_mode', parseInt(this.value));
+        });
     </script>
     {{{ SCRIPT }}}
 </body>
