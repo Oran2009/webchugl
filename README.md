@@ -58,23 +58,58 @@ cd src/scripts
 ./build_web_chugins.ps1 -ChuginsDir /path/to/chugins  # Windows
 ```
 
+## HTML Integration
+
+HTML UI elements can communicate with the running ChucK VM through ChucK's `global` variables and events. A JS bridge (`window.CK`) wraps the C++ globals API.
+
+### ChucK side
+
+Declare global variables and events in your `.ck` file:
+
+```chuck
+global float speed;
+global int mode;
+global Event reset;
+
+spork ~ fun void listener() {
+    while (true) {
+        reset => now;
+        // handle reset
+    }
+};
+
+while (true) {
+    GG.nextFrame() => now;
+    // use speed, mode, etc.
+}
+```
+
+### JS side
+
+```js
+CK.setFloat('speed', 2.5);       // set a global float
+CK.setInt('mode', 1);            // set a global int
+CK.setString('name', 'hello');   // set a global string
+CK.signalEvent('reset');         // wake one shred waiting on the event
+CK.broadcastEvent('reset');      // wake all shreds waiting on the event
+```
+
+### Example
+
+```html
+<input type="range" id="speed-slider" min="0" max="10" step="0.1" value="1">
+<script>
+document.getElementById('speed-slider').addEventListener('input', function(e) {
+    CK.setFloat('speed', parseFloat(e.target.value));
+});
+</script>
+```
+
+Values are delivered to ChucK via a thread-safe lock-free queue and take effect on the next VM tick.
+
 ## Architecture
 
 - **ChucK VM** runs on the main thread, driven by the ChuGL render loop
 - **Audio** passes through lock-free ring buffers in WASM shared memory (`SharedArrayBuffer`) to a JS `AudioWorkletProcessor` on the audio thread
 - **Graphics** uses WebGPU via ChuGL's rendering pipeline
 - **ChuGins** are loaded via `dlopen()` (`-sMAIN_MODULE=1` / `-sSIDE_MODULE=1`)
-
-## Project Structure
-
-```
-setup.sh / setup.ps1          # One-time dependency setup
-patches/                       # Patches applied to chuck and chugl
-src/
-  CMakeLists.txt               # Emscripten build configuration
-  code/                        # Your ChucK program (main.ck + assets)
-  host/                        # C++ entry point and audio ring buffer
-  web/                         # HTML shell, JS module config, audio worklet
-  scripts/                     # Build, serve, and ChuGin build scripts
-chugins/                       # Pre-built .chug.wasm files
-```
