@@ -98,3 +98,4 @@ foreach ($f in $cleanFiles) {
 Write-Host "`n=== Build Complete ===" -ForegroundColor Green
 Write-Host "Output: $BuildDir/index.html" -ForegroundColor Gray
 Write-Host "`nTo test: python scripts/serve.py" -ForegroundColor Cyan
+Write-Host "To develop: ./scripts/dev.ps1" -ForegroundColor Cyan
