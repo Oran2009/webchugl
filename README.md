@@ -60,8 +60,6 @@ cd src/scripts
 
 ## HTML Integration
 
-HTML UI elements can communicate with the running ChucK VM through ChucK's `global` variables and events. A JS bridge (`window.CK`) wraps the C++ globals API.
-
 ### ChucK side
 
 Declare global variables and events in your `.ck` file:
@@ -105,11 +103,8 @@ document.getElementById('speed-slider').addEventListener('input', function(e) {
 </script>
 ```
 
-Values are delivered to ChucK via a thread-safe lock-free queue and take effect on the next VM tick.
-
 ## Architecture
 
-- **ChucK VM** runs on the main thread, driven by the ChuGL render loop
-- **Audio** passes through lock-free ring buffers in WASM shared memory (`SharedArrayBuffer`) to a JS `AudioWorkletProcessor` on the audio thread
+- **Audio** passes through a `SharedArrayBuffer` to a JS `AudioWorkletProcessor` on the audio thread
 - **Graphics** uses WebGPU via ChuGL's rendering pipeline
-- **ChuGins** are loaded via `dlopen()` (`-sMAIN_MODULE=1` / `-sSIDE_MODULE=1`)
+- **ChuGins** are loaded via `dlopen()` (`-sMAIN_MODULE=1` / `-sSIDE_MODULE=1`) (ChuGins need to be compiled with `-sSIDE_MODULE=1` and `-pthread`)
