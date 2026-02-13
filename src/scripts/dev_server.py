@@ -24,18 +24,27 @@ BUILD_DIR = os.path.join(SRC_DIR, 'build')
 WEB_DIR = os.path.join(SRC_DIR, 'web')
 CODE_DIR = os.path.join(SRC_DIR, 'code')
 
-EMSCRIPTEN_SCRIPT_TAG = '<script async type="text/javascript" src="index.js"></script>'
+# Files that go into build/webchugl/ (relative to src/web/)
+WEBCHUGL_DIR_FILES = [
+    'webchugl.js',
+    'audio-worklet-processor.js',
+    'jszip.min.js',
+    'chugl_logo_light.png',
+    'chugl_logo_dark.png',
+]
+
+# Files that go into build/ root (relative to src/web/)
+ROOT_FILES = [
+    'sw.js',
+    'manifest.json',
+]
 
 
 def process_template():
-    """Replace {{{ SCRIPT }}} in shell.html and write to build/index.html."""
+    """Copy shell.html to build/index.html."""
     src = os.path.join(WEB_DIR, 'shell.html')
     dst = os.path.join(BUILD_DIR, 'index.html')
-    with open(src, 'r', encoding='utf-8') as f:
-        html = f.read()
-    html = html.replace('{{{ SCRIPT }}}', EMSCRIPTEN_SCRIPT_TAG)
-    with open(dst, 'w', encoding='utf-8') as f:
-        f.write(html)
+    shutil.copy2(src, dst)
 
 
 def rebuild_bundle():
@@ -54,10 +63,16 @@ def rebuild_bundle():
 
 
 def copy_web_assets():
-    """Copy all files from src/web/ to build/ except shell.html."""
-    for name in os.listdir(WEB_DIR):
-        if name == 'shell.html':
-            continue
+    """Copy web assets from src/web/ to build/ in organized structure."""
+    webchugl_dir = os.path.join(BUILD_DIR, 'webchugl')
+    os.makedirs(webchugl_dir, exist_ok=True)
+
+    for name in WEBCHUGL_DIR_FILES:
+        src = os.path.join(WEB_DIR, name)
+        if os.path.isfile(src):
+            shutil.copy2(src, os.path.join(webchugl_dir, name))
+
+    for name in ROOT_FILES:
         src = os.path.join(WEB_DIR, name)
         if os.path.isfile(src):
             shutil.copy2(src, os.path.join(BUILD_DIR, name))
@@ -162,8 +177,21 @@ def watch_and_rebuild():
 # ── Main ───────────────────────────────────────────────────────────
 
 def validate_prerequisites():
-    """Check that a full build has been done at least once."""
-    required = ['index.js', 'index.wasm']
+    """Check that a full build has been done at least once. Migrate flat layout if needed."""
+    webchugl_dir = os.path.join(BUILD_DIR, 'webchugl')
+    wasm_files = ['index.js', 'index.wasm']
+
+    # Migrate from old flat layout: move index.js/index.wasm into webchugl/
+    if not os.path.exists(os.path.join(webchugl_dir, 'index.js')) \
+       and os.path.exists(os.path.join(BUILD_DIR, 'index.js')):
+        os.makedirs(webchugl_dir, exist_ok=True)
+        for f in wasm_files:
+            src = os.path.join(BUILD_DIR, f)
+            if os.path.exists(src):
+                shutil.move(src, os.path.join(webchugl_dir, f))
+        print('Migrated index.js/index.wasm into webchugl/')
+
+    required = [os.path.join('webchugl', f) for f in wasm_files]
     missing = [f for f in required if not os.path.exists(os.path.join(BUILD_DIR, f))]
     if missing:
         print(f'Error: {", ".join(missing)} not found in {BUILD_DIR}')

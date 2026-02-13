@@ -1,0 +1,16 @@
+{
+    "name": "WebChuGL",
+    "short_name": "WebChuGL",
+    "description": "ChuGL compiled to WebAssembly — real-time graphics and audio in the browser.",
+    "start_url": "./",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#0c0c14",
+    "icons": [
+        {
+            "src": "webchugl/chugl_logo_light.png",
+            "sizes": "any",
+            "type": "image/png"
+        }
+    ]
+}

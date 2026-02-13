@@ -1,5 +1,55 @@
-// WebChuGL Module Configuration
-// Sets up the Emscripten Module and handles file loading from manifest
+// WebChuGL Runtime
+// Sets up the Emscripten Module, service worker, CK bridge, sensors, and audio.
+
+// ============================================================================
+// Service Worker Registration (COOP/COEP headers + offline caching)
+// ============================================================================
+
+(function() {
+    if (!('serviceWorker' in navigator)) return;
+
+    // If SW is already controlling this page, send coepCredentialless preference
+    if (navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({
+            type: 'coepCredentialless',
+            value: false
+        });
+    }
+
+    // Already cross-origin isolated — SW is working, nothing to do
+    if (window.crossOriginIsolated) return;
+
+    // Not secure context — SW won't work
+    if (!window.isSecureContext) {
+        console.log('[WebChuGL] Service worker requires a secure context (HTTPS or localhost).');
+        return;
+    }
+
+    navigator.serviceWorker.register('sw.js').then(function(reg) {
+        // Prevent infinite reload loops
+        if (sessionStorage.getItem('webchugl-sw-reload')) return;
+
+        reg.addEventListener('updatefound', function() {
+            sessionStorage.setItem('webchugl-sw-reload', '1');
+            location.reload();
+        });
+
+        // SW is registered but not yet controlling — reload to activate
+        if (reg.active && !navigator.serviceWorker.controller) {
+            sessionStorage.setItem('webchugl-sw-reload', '1');
+            location.reload();
+        }
+    });
+})();
+
+// ============================================================================
+// Emscripten Module Configuration
+// ============================================================================
+
+var _progressFill = document.getElementById('progress-fill');
+function _setProgress(pct) {
+    if (_progressFill) _progressFill.style.width = Math.round(pct) + '%';
+}
 
 var Module = {
     noInitialRun: true,
@@ -20,34 +70,9 @@ var Module = {
         console.error(text);
     },
 
-    setStatus: function(text) {
-        if (!text) {
-            // Loading complete — but don't hide loading screen here.
-            // The WebGPU success path in onRuntimeInitialized hides it
-            // explicitly. Hiding here would also hide error-text if an
-            // error is being displayed (e.g. no WebGPU support).
-            return;
-        }
-        // Update progress bar based on loading phase
-        var fill = document.getElementById('progress-fill');
-        if (!fill) return;
-        var pct = 0;
-        var match;
-        if ((match = text.match(/Downloading\.\.\.\s*(\d+)%/))) {
-            pct = parseInt(match[1], 10) * 0.7; // download = 0-70%
-        } else if (text.indexOf('Extracting') >= 0) {
-            pct = 75;
-        } else if ((match = text.match(/Loading\s+(\d+)\/(\d+)/))) {
-            var done = parseInt(match[1], 10);
-            var total = parseInt(match[2], 10);
-            pct = 80 + (done / total) * 20; // loading = 80-100%
-        }
-        fill.style.width = Math.round(pct) + '%';
-    },
+    setStatus: function() {},
 
     // After runtime is ready: pre-init WebGPU, then call main()
-    // This avoids the need for ASYNCIFY (which is incompatible with MAIN_MODULE
-    // due to ASYNCIFY forcing DYNCALLS=1, which breaks JS library callbacks).
     onRuntimeInitialized: function() {
         if (!navigator.gpu) return;
         navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).then(function(adapter) {
@@ -80,27 +105,15 @@ var Module = {
     preRun: [function() {
         Module.addRunDependency('ck-files');
 
-        // Helper to create parent directories
-        function ensureDir(path) {
-            var parts = path.split('/').slice(0, -1);
-            var current = '';
-            for (var i = 0; i < parts.length; i++) {
-                current += '/' + parts[i];
-                try { FS.mkdir(current); } catch(e) {}
-            }
-        }
-
-        // Load JSZip dynamically (in parallel with bundle fetch, off critical render path)
         var jszipReady = new Promise(function(resolve, reject) {
             var s = document.createElement('script');
-            s.src = 'jszip.min.js';
+            s.src = 'webchugl/jszip.min.js';
             s.onload = resolve;
             s.onerror = reject;
             document.head.appendChild(s);
         });
 
-        // Fetch all files from bundle.zip (compressed) and extract to VFS
-        Module.setStatus('Downloading...');
+        _setProgress(0);
         fetch('bundle.zip')
             .then(function(response) {
                 if (!response.ok) throw new Error('Failed to fetch bundle.zip');
@@ -125,15 +138,14 @@ var Module = {
                         }
                         chunks.push(result.value);
                         loaded += result.value.length;
-                        var pct = Math.round(loaded / total * 100);
-                        Module.setStatus('Downloading... ' + pct + '%');
+                        _setProgress(Math.round(loaded / total * 100) * 0.7);
                         return read();
                     });
                 }
                 return read();
             })
             .then(function(zipData) {
-                Module.setStatus('Extracting...');
+                _setProgress(75);
                 return jszipReady.then(function() { return JSZip.loadAsync(zipData); });
             })
             .then(function(zip) {
@@ -142,19 +154,16 @@ var Module = {
                 });
                 var total = entries.length;
                 var loaded = 0;
-                Module.setStatus('Loading 0/' + total + ' files...');
-
                 return Promise.all(entries.map(function(name) {
                     return zip.files[name].async('arraybuffer').then(function(content) {
-                        ensureDir(name);
+                        _ensureVfsDir('/' + name);
                         FS.writeFile('/' + name, new Uint8Array(content));
                         loaded++;
-                        Module.setStatus('Loading ' + loaded + '/' + total + ' files...');
+                        _setProgress(80 + (loaded / total) * 20);
                     });
                 }));
             })
             .then(function() {
-                // Scan for ChuGins in the code directory (recursive)
                 ChuginLoader.scanForChugins('/code');
                 if (ChuginLoader.pendingChugins.length > 0) {
                     console.log('[WebChuGL] Found ' + ChuginLoader.pendingChugins.length + ' ChuGin(s)');
@@ -210,14 +219,12 @@ window.ChuginLoader = ChuginLoader;
 
 // ============================================================================
 // CK: Host ↔ ChucK bridge
-// Setters are fire-and-forget. Getters return Promises (resolved on next VM
-// tick). Event listeners use persistent callbacks.
 // ============================================================================
 
 // Callback infrastructure for async getters and event listeners
 var _ckNextId = 1;
-Module._ckCallbacks = {};       // one-shot: getter Promises (auto-deleted)
-Module._ckEventListeners = {};  // persistent: event listener callbacks
+Module._ckCallbacks = {};
+Module._ckEventListeners = {};
 
 window.CK = {
 
@@ -283,6 +290,10 @@ window.CK = {
         delete Module._ckEventListeners[listenerId];
         Module.ccall('ck_stop_listening_event', 'number',
             ['string', 'number'], [name, listenerId]);
+    },
+    // Alias for WebChucK API compatibility
+    startListeningForEvent: function(name, callback) {
+        return this.listenForEvent(name, callback);
     },
 
     // ── Int array operations ──────────────────────────────────────────────
@@ -371,20 +382,250 @@ window.CK = {
             Module.ccall('ck_get_assoc_float_array_value', 'number',
                 ['string', 'string', 'number'], [name, key, id]);
         });
+    },
+
+    // ── Persistent Storage (IndexedDB) ──────────────────────────────────
+
+    save: function(key, value) {
+        return _getDB().then(function(db) {
+            return new Promise(function(resolve, reject) {
+                var tx = db.transaction('kv', 'readwrite');
+                var req = tx.objectStore('kv').put(value, key);
+                req.onsuccess = function() { resolve(); };
+                req.onerror = function() { reject(req.error); };
+            });
+        });
+    },
+
+    load: function(key) {
+        return _getDB().then(function(db) {
+            return new Promise(function(resolve, reject) {
+                var tx = db.transaction('kv', 'readonly');
+                var req = tx.objectStore('kv').get(key);
+                req.onsuccess = function() { resolve(req.result); };
+                req.onerror = function() { reject(req.error); };
+            });
+        });
+    },
+
+    delete: function(key) {
+        return _getDB().then(function(db) {
+            return new Promise(function(resolve, reject) {
+                var tx = db.transaction('kv', 'readwrite');
+                var req = tx.objectStore('kv').delete(key);
+                req.onsuccess = function() { resolve(); };
+                req.onerror = function() { reject(req.error); };
+            });
+        });
+    },
+
+    listKeys: function() {
+        return _getDB().then(function(db) {
+            return new Promise(function(resolve, reject) {
+                var tx = db.transaction('kv', 'readonly');
+                var req = tx.objectStore('kv').getAllKeys();
+                req.onsuccess = function() { resolve(req.result); };
+                req.onerror = function() { reject(req.error); };
+            });
+        });
+    },
+
+    // ── Dynamic Audio Import ────────────────────────────────────────────
+
+    loadAudio: function(url, vfsPath) {
+        if (vfsPath[0] !== '/') vfsPath = '/' + vfsPath;
+        return fetch(url, { mode: 'cors' })
+            .catch(function() {
+                throw new Error('Failed to fetch (CORS blocked or network error): ' + url);
+            })
+            .then(function(response) {
+                if (!response.ok) throw new Error('HTTP ' + response.status + ': ' + url);
+                return response.arrayBuffer();
+            })
+            .then(function(arrayBuffer) {
+                var audioCtx = new OfflineAudioContext(1, 1, 48000);
+                return audioCtx.decodeAudioData(arrayBuffer);
+            })
+            .then(function(audioBuffer) {
+                var wavData = _audioBufferToWav(audioBuffer);
+                _ensureVfsDir(vfsPath);
+                FS.writeFile(vfsPath, new Uint8Array(wavData));
+                console.log('[WebChuGL] Audio loaded: ' + vfsPath +
+                    ' (' + audioBuffer.duration.toFixed(2) + 's, ' +
+                    audioBuffer.numberOfChannels + 'ch)');
+                return vfsPath;
+            });
     }
 };
 
 // ============================================================================
+// Persistent Storage (IndexedDB) — lazy-initialized
+// ============================================================================
+
+var _ckDBReady = null;
+
+function _getDB() {
+    if (_ckDBReady) return _ckDBReady;
+    _ckDBReady = new Promise(function(resolve, reject) {
+        var request = indexedDB.open('WebChuGL', 1);
+        request.onupgradeneeded = function(event) {
+            var db = event.target.result;
+            if (!db.objectStoreNames.contains('kv')) {
+                db.createObjectStore('kv');
+            }
+        };
+        request.onsuccess = function(event) { resolve(event.target.result); };
+        request.onerror = function(event) {
+            console.error('[WebChuGL] IndexedDB error:', event.target.error);
+            reject(event.target.error);
+        };
+    });
+    return _ckDBReady;
+}
+
+// ============================================================================
+// Dynamic Audio Import — WAV encoder helpers
+// ============================================================================
+
+function _writeString(view, offset, string) {
+    for (var i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+    }
+}
+
+function _ensureVfsDir(path) {
+    var parts = path.split('/').slice(0, -1);
+    var current = '';
+    for (var i = 0; i < parts.length; i++) {
+        if (!parts[i]) continue;
+        current += '/' + parts[i];
+        try { FS.mkdir(current); } catch(e) {}
+    }
+}
+
+function _audioBufferToWav(audioBuffer) {
+    var numChannels = audioBuffer.numberOfChannels;
+    var sampleRate = audioBuffer.sampleRate;
+    var numSamples = audioBuffer.length;
+    var blockAlign = numChannels * 2;
+    var dataSize = numSamples * blockAlign;
+    var buffer = new ArrayBuffer(44 + dataSize);
+    var view = new DataView(buffer);
+
+    _writeString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    _writeString(view, 8, 'WAVE');
+    _writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * blockAlign, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, 16, true);
+    _writeString(view, 36, 'data');
+    view.setUint32(40, dataSize, true);
+
+    var channels = [];
+    for (var ch = 0; ch < numChannels; ch++) {
+        channels.push(audioBuffer.getChannelData(ch));
+    }
+
+    var offset = 44;
+    for (var i = 0; i < numSamples; i++) {
+        for (var ch = 0; ch < numChannels; ch++) {
+            var sample = Math.max(-1, Math.min(1, channels[ch][i]));
+            view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+            offset += 2;
+        }
+    }
+
+    return buffer;
+}
+
+// ============================================================================
 // Device Sensors (Accelerometer + Gyroscope)
-// Bridges browser DeviceMotionEvent / DeviceOrientationEvent to ChucK globals.
-// ChucK classes (Accel, AccelMsg, Gyro, GyroMsg) are compiled into the VM
-// by C++ before user code — this JS side just pushes sensor data.
 // ============================================================================
 
 function _initSensors() {
-    // Accumulate latest sensor readings; push to ChucK once per frame
     var accelPending = null;
     var gyroPending = null;
+
+    var _gamepadConnected = {};
+
+    var _gpAxesBuf = Module._malloc(6 * 4);   // 6 floats
+    var _gpBtnBuf = Module._malloc(15);       // 15 bytes
+    var _gpAxesArr = new Float32Array(6);
+    var _gpBtnArr = new Uint8Array(15);
+
+    // Web Standard Gamepad → GLFW button index mapping
+    // Web buttons[6,7] are LT/RT (mapped as axes, not buttons)
+    var _gpBtnMap = [
+        0,  // 0  A
+        1,  // 1  B
+        2,  // 2  X
+        3,  // 3  Y
+        4,  // 4  LB
+        5,  // 5  RB
+        -1, // 6  LT (trigger → axis 4)
+        -1, // 7  RT (trigger → axis 5)
+        6,  // 8  Back
+        7,  // 9  Start
+        9,  // 10 Left Thumb
+        10, // 11 Right Thumb
+        11, // 12 DPad Up
+        13, // 13 DPad Down
+        14, // 14 DPad Left
+        12, // 15 DPad Right
+        8   // 16 Guide
+    ];
+
+    function _pollGamepads() {
+        var gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+        for (var i = 0; i < gamepads.length; i++) {
+            var gp = gamepads[i];
+            if (!gp) {
+                // Disconnected
+                if (_gamepadConnected[i]) {
+                    Module.ccall('ck_gamepad_disconnect', null, ['number'], [i]);
+                    delete _gamepadConnected[i];
+                }
+                continue;
+            }
+
+            // Newly connected
+            if (!_gamepadConnected[i]) {
+                Module.ccall('ck_gamepad_connect', null,
+                    ['number', 'string'], [i, gp.id]);
+                _gamepadConnected[i] = true;
+            }
+
+            // Map axes: Web axes[0-3] → GLFW axes[0-3]
+            // Web buttons[6].value → GLFW axis 4 (LT), buttons[7].value → axis 5 (RT)
+            // GLFW triggers: [-1, 1], Web triggers: [0, 1]
+            _gpAxesArr[0] = gp.axes[0] || 0;
+            _gpAxesArr[1] = gp.axes[1] || 0;
+            _gpAxesArr[2] = gp.axes[2] || 0;
+            _gpAxesArr[3] = gp.axes[3] || 0;
+            _gpAxesArr[4] = gp.buttons[6] ? gp.buttons[6].value * 2 - 1 : -1;
+            _gpAxesArr[5] = gp.buttons[7] ? gp.buttons[7].value * 2 - 1 : -1;
+
+            // Map buttons: Web → GLFW layout
+            _gpBtnArr.fill(0);
+            for (var b = 0; b < gp.buttons.length && b < _gpBtnMap.length; b++) {
+                var mapped = _gpBtnMap[b];
+                if (mapped >= 0 && mapped < 15) {
+                    _gpBtnArr[mapped] = gp.buttons[b].pressed ? 1 : 0;
+                }
+            }
+
+            HEAPF32.set(_gpAxesArr, _gpAxesBuf >> 2);
+            HEAPU8.set(_gpBtnArr, _gpBtnBuf);
+            Module.ccall('ck_gamepad_state', null,
+                ['number', 'number', 'number', 'number', 'number'],
+                [i, _gpAxesBuf, 6, _gpBtnBuf, 15]);
+        }
+    }
 
     function flushSensors() {
         if (accelPending) {
@@ -401,11 +642,12 @@ function _initSensors() {
             CK.broadcastEvent('_gyroReading');
             gyroPending = null;
         }
+        _pollGamepads();
         requestAnimationFrame(flushSensors);
     }
     requestAnimationFrame(flushSensors);
 
-    // Accelerometer: devicemotion → accumulate latest reading
+    // Accelerometer
     if (window.DeviceMotionEvent) {
         var handleMotion = function(e) {
             var a = e.accelerationIncludingGravity;
@@ -413,7 +655,6 @@ function _initSensors() {
             accelPending = { x: a.x || 0, y: a.y || 0, z: a.z || 0 };
         };
 
-        // iOS 13+ requires explicit permission from a user gesture
         if (typeof DeviceMotionEvent.requestPermission === 'function') {
             var requestAccelPermission = function() {
                 DeviceMotionEvent.requestPermission().then(function(state) {
@@ -429,13 +670,12 @@ function _initSensors() {
         }
     }
 
-    // Gyroscope: deviceorientation → accumulate latest reading
+    // Gyroscope
     if (window.DeviceOrientationEvent) {
         var handleOrientation = function(e) {
             gyroPending = { alpha: e.alpha || 0, beta: e.beta || 0, gamma: e.gamma || 0 };
         };
 
-        // iOS 13+ requires explicit permission from a user gesture
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
             var requestGyroPermission = function() {
                 DeviceOrientationEvent.requestPermission().then(function(state) {
@@ -454,7 +694,6 @@ function _initSensors() {
 
 // ============================================================================
 // Audio System (JS AudioWorkletProcessor + SharedArrayBuffer ring buffers)
-// Called from C++ initAudio() via EM_ASM
 // ============================================================================
 
 window.initWebChuGLAudio = function(sab, outBufPtr, outWritePosPtr, outReadPosPtr,
@@ -468,7 +707,7 @@ window.initWebChuGLAudio = function(sab, outBufPtr, outWritePosPtr, outReadPosPt
         return;
     }
 
-    ctx.audioWorklet.addModule('audio-worklet-processor.js').then(function() {
+    ctx.audioWorklet.addModule('webchugl/audio-worklet-processor.js').then(function() {
         var node = new AudioWorkletNode(ctx, 'chuck-processor', {
             numberOfInputs: 1,
             numberOfOutputs: 1,
@@ -502,8 +741,7 @@ window.initWebChuGLAudio = function(sab, outBufPtr, outWritePosPtr, outReadPosPt
                 });
         }
 
-        // Resume AudioContext on user interaction (autoplay policy)
-        // Keep retrying until context is running (some browsers need gesture on canvas)
+        // Resume AudioContext on user interaction
         var startAudio = function() {
             if (ctx.state === 'running') {
                 document.removeEventListener('click', startAudio);

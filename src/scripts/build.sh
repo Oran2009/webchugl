@@ -89,7 +89,7 @@ cd "$BUILD_DIR"
 
 # Minify JS assets
 echo "Minifying JS..."
-python3 "$SCRIPT_DIR/minify_js.py" "$BUILD_DIR/webchugl.js"
+python3 "$SCRIPT_DIR/minify_js.py" "$BUILD_DIR/webchugl/webchugl.js"
 
 # Clean up build artifacts (keep only files needed for web serving)
 echo "Cleaning build directory..."
@@ -102,5 +102,4 @@ rm -rf code packages
 echo ""
 echo "=== Build Complete ==="
 echo "Output: $BUILD_DIR/index.html"
-echo "To test: python scripts/serve.py"
-echo "To develop: ./scripts/dev.sh"
+echo "To serve: ./scripts/dev.sh"

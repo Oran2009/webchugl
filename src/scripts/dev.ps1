@@ -9,16 +9,6 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = $PSScriptRoot
-$SrcDir = Split-Path -Parent $ScriptDir
-$BuildDir = Join-Path $SrcDir "build"
-
-# Validate prerequisites
-if (-not (Test-Path (Join-Path $BuildDir "index.js")) -or
-    -not (Test-Path (Join-Path $BuildDir "index.wasm"))) {
-    Write-Host "Error: build/index.js or index.wasm not found." -ForegroundColor Red
-    Write-Host "Run build.ps1 first to do the initial C++ compilation." -ForegroundColor Yellow
-    exit 1
-}
 
 Write-Host "Starting WebChuGL dev server..." -ForegroundColor Cyan
 Write-Host "Watching src/code/ and src/web/ for changes" -ForegroundColor Gray

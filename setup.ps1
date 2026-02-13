@@ -166,5 +166,5 @@ Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
 Write-Host "  cd src/scripts" -ForegroundColor Gray
 Write-Host "  ./build.ps1       # or ./build.sh on Unix" -ForegroundColor Gray
-Write-Host "  python serve.py" -ForegroundColor Gray
+Write-Host "  ./dev.ps1" -ForegroundColor Gray
 Write-Host ""

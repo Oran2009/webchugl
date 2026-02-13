@@ -216,24 +216,40 @@ set_target_properties(webchugl PROPERTIES
     OUTPUT_NAME "index"
 )
 
-# Copy web assets to build directory
+# Organize build output: root files + webchugl/ subdirectory
 add_custom_command(TARGET webchugl POST_BUILD
+    # Create webchugl/ subdirectory
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/webchugl
+    # Move Emscripten outputs (index.js, index.wasm) into webchugl/
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_CURRENT_BINARY_DIR}/index.js
+        ${CMAKE_CURRENT_BINARY_DIR}/webchugl/index.js
+    COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_CURRENT_BINARY_DIR}/index.js
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_CURRENT_BINARY_DIR}/index.wasm
+        ${CMAKE_CURRENT_BINARY_DIR}/webchugl/index.wasm
+    COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_CURRENT_BINARY_DIR}/index.wasm
+    # Copy JS/WASM runtime into webchugl/
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_SOURCE_DIR}/web/webchugl.js
-        ${CMAKE_CURRENT_BINARY_DIR}/webchugl.js
-    COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/web/coi-serviceworker.js
-        ${CMAKE_CURRENT_BINARY_DIR}/coi-serviceworker.js
-    COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/web/jszip.min.js
-        ${CMAKE_CURRENT_BINARY_DIR}/jszip.min.js
+        ${CMAKE_CURRENT_BINARY_DIR}/webchugl/webchugl.js
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_SOURCE_DIR}/web/audio-worklet-processor.js
-        ${CMAKE_CURRENT_BINARY_DIR}/audio-worklet-processor.js
+        ${CMAKE_CURRENT_BINARY_DIR}/webchugl/audio-worklet-processor.js
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_CURRENT_SOURCE_DIR}/web/jszip.min.js
+        ${CMAKE_CURRENT_BINARY_DIR}/webchugl/jszip.min.js
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_SOURCE_DIR}/web/chugl_logo_light.png
-        ${CMAKE_CURRENT_BINARY_DIR}/chugl_logo_light.png
+        ${CMAKE_CURRENT_BINARY_DIR}/webchugl/chugl_logo_light.png
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_SOURCE_DIR}/web/chugl_logo_dark.png
-        ${CMAKE_CURRENT_BINARY_DIR}/chugl_logo_dark.png
+        ${CMAKE_CURRENT_BINARY_DIR}/webchugl/chugl_logo_dark.png
+    # Copy root-level files
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_CURRENT_SOURCE_DIR}/web/sw.js
+        ${CMAKE_CURRENT_BINARY_DIR}/sw.js
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_CURRENT_SOURCE_DIR}/web/manifest.json
+        ${CMAKE_CURRENT_BINARY_DIR}/manifest.json
 )

@@ -13,8 +13,10 @@
 #include "chuck.h"
 #include "chuck_globals.h"
 #include "audio_ring_buffer.h"
+#include "sg_command.h"
 #include "core/log.h"
 
+#include <GLFW/glfw3.h>
 #include <emscripten.h>
 #include <dlfcn.h>
 #include <stdio.h>
@@ -228,15 +230,13 @@ public class Gyro extends Event {
 }
 )CK";
 
-// Audio configuration
-static const int NUM_CHANNELS = 2;  // Stereo
+// Audio
+static const int NUM_CHANNELS = 2;
 static const double SAMPLE_RATE = 48000.0;
-static const int MAX_SAMPLES_PER_CALL = 4800; // 100ms max to prevent spikes
+static const int MAX_SAMPLES_PER_CALL = 4800;
 
-// Audio timing
 static std::chrono::high_resolution_clock::time_point g_lastAudioTime;
 
-// Flag to track if microphone is needed (adc is used in the ChucK code)
 static bool g_needsMicrophone = false;
 
 // Initialize the audio system via JS AudioWorkletProcessor
@@ -406,8 +406,7 @@ int main(int argc, char** argv)
     // static initialization shreds can execute properly (they check m_is_running)
     the_chuck->start();
 
-    // Compile built-in sensor classes (compatible with WebChucK's Accel/Gyro API)
-    // These must be compiled before user code so the types are always available
+    // Compile built-in sensor classes
     if (!the_chuck->compileCode(k_AccelMsg_ck, "", 1, TRUE) ||
         !the_chuck->compileCode(k_Accel_ck, "", 1, TRUE) ||
         !the_chuck->compileCode(k_GyroMsg_ck, "", 1, TRUE) ||
@@ -426,9 +425,7 @@ int main(int argc, char** argv)
         the_chuck->run(nullptr, initBuffer, 256);
     }
 
-    // Check if adc is used (has downstream connections)
-    // Only request microphone permission if the ChucK code actually uses adc
-    // Check both main adc UGen and individual channel sub-UGens
+    // Check if adc is used
     Chuck_UGen* adc = the_chuck->vm()->m_adc;
     if (adc) {
         if (adc->m_num_dest > 0) {
@@ -712,6 +709,33 @@ int ck_get_assoc_float_array_value(const char* name, const char* key, int callba
     if (!the_chuck) return 0;
     return the_chuck->vm()->globals_manager()->getGlobalAssociativeFloatArrayValue(
         name, (t_CKINT)callback_id, key, _cb_get_float);
+}
+
+// ---- Gamepad bridge -------------------------------------------------
+
+EMSCRIPTEN_KEEPALIVE
+void ck_gamepad_connect(int gp_id, const char* name)
+{
+    CQ_PushCommand_G2A_GamepadConnect(gp_id, 1, name);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ck_gamepad_disconnect(int gp_id)
+{
+    CQ_PushCommand_G2A_GamepadConnect(gp_id, 0, "");
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ck_gamepad_state(int gp_id, float* axes, int num_axes,
+                      unsigned char* buttons, int num_buttons)
+{
+    GLFWgamepadstate state;
+    memset(&state, 0, sizeof(state));
+    int axesToCopy = num_axes < 6 ? num_axes : 6;
+    for (int i = 0; i < axesToCopy; i++) state.axes[i] = axes[i];
+    int btnsToCopy = num_buttons < 15 ? num_buttons : 15;
+    for (int i = 0; i < btnsToCopy; i++) state.buttons[i] = buttons[i];
+    CQ_PushCommand_G2A_GamepadState(gp_id, &state);
 }
 
 } // extern "C"

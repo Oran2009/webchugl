@@ -40,8 +40,8 @@ Output goes to `src/build/`.
 ## Serve
 
 ```bash
-python src/scripts/serve.py
-# Open http://localhost:8000
+python src/scripts/dev_server.py
+# Open http://localhost:8080
 ```
 
 Requires a browser with WebGPU support (Chrome, Edge).

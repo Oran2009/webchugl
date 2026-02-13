@@ -80,7 +80,7 @@ try {
 
 # Minify JS assets
 Write-Host "Minifying JS..." -ForegroundColor Gray
-py (Join-Path $ScriptDir "minify_js.py") (Join-Path $BuildDir "webchugl.js")
+py (Join-Path $ScriptDir "minify_js.py") (Join-Path $BuildDir "webchugl" "webchugl.js")
 
 # Clean up build artifacts (keep only files needed for web serving)
 Write-Host "Cleaning build directory..." -ForegroundColor Gray
@@ -89,7 +89,7 @@ foreach ($d in $cleanDirs) {
     $p = Join-Path $BuildDir $d
     if (Test-Path $p) { Remove-Item -Recurse -Force $p }
 }
-$cleanFiles = @("cmake_install.cmake", "CMakeCache.txt", "Makefile", ".ninja_deps", ".ninja_log", "build.ninja", "manifest.json", "CPackConfig.cmake", "CPackSourceConfig.cmake")
+$cleanFiles = @("cmake_install.cmake", "CMakeCache.txt", "Makefile", ".ninja_deps", ".ninja_log", "build.ninja", "CPackConfig.cmake", "CPackSourceConfig.cmake")
 foreach ($f in $cleanFiles) {
     $p = Join-Path $BuildDir $f
     if (Test-Path $p) { Remove-Item -Force $p }
@@ -97,5 +97,4 @@ foreach ($f in $cleanFiles) {
 
 Write-Host "`n=== Build Complete ===" -ForegroundColor Green
 Write-Host "Output: $BuildDir/index.html" -ForegroundColor Gray
-Write-Host "`nTo test: python scripts/serve.py" -ForegroundColor Cyan
-Write-Host "To develop: ./scripts/dev.ps1" -ForegroundColor Cyan
+Write-Host "`nTo serve: ./scripts/dev.ps1" -ForegroundColor Cyan
