@@ -69,6 +69,7 @@ var Module = {
                 document.getElementById('loading-screen').classList.add('hidden');
                 document.getElementById('canvas').focus();
                 Module.callMain([]);
+                _initSensors();
             });
         }).catch(function(e) {
             console.error('WebGPU pre-init failed:', e);
@@ -373,6 +374,67 @@ window.CK = {
         });
     }
 };
+
+// ============================================================================
+// Device Sensors (Accelerometer + Gyroscope)
+// Bridges browser DeviceMotionEvent / DeviceOrientationEvent to ChucK globals.
+// ChucK classes (Accel, AccelMsg, Gyro, GyroMsg) are compiled into the VM
+// by C++ before user code — this JS side just pushes sensor data.
+// ============================================================================
+
+function _initSensors() {
+    // Accelerometer: devicemotion → _accelX/Y/Z + _accelReading
+    if (window.DeviceMotionEvent) {
+        var handleMotion = function(e) {
+            var a = e.accelerationIncludingGravity;
+            if (!a) return;
+            CK.setFloat('_accelX', a.x || 0);
+            CK.setFloat('_accelY', a.y || 0);
+            CK.setFloat('_accelZ', a.z || 0);
+            CK.broadcastEvent('_accelReading');
+        };
+
+        // iOS 13+ requires explicit permission from a user gesture
+        if (typeof DeviceMotionEvent.requestPermission === 'function') {
+            var requestAccelPermission = function() {
+                DeviceMotionEvent.requestPermission().then(function(state) {
+                    if (state === 'granted') {
+                        window.addEventListener('devicemotion', handleMotion);
+                    }
+                }).catch(function() {});
+            };
+            document.addEventListener('click', requestAccelPermission, { once: true });
+            document.addEventListener('touchend', requestAccelPermission, { once: true });
+        } else {
+            window.addEventListener('devicemotion', handleMotion);
+        }
+    }
+
+    // Gyroscope: deviceorientation → _gyroX/Y/Z + _gyroReading
+    if (window.DeviceOrientationEvent) {
+        var handleOrientation = function(e) {
+            CK.setFloat('_gyroX', e.alpha || 0);
+            CK.setFloat('_gyroY', e.beta || 0);
+            CK.setFloat('_gyroZ', e.gamma || 0);
+            CK.broadcastEvent('_gyroReading');
+        };
+
+        // iOS 13+ requires explicit permission from a user gesture
+        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+            var requestGyroPermission = function() {
+                DeviceOrientationEvent.requestPermission().then(function(state) {
+                    if (state === 'granted') {
+                        window.addEventListener('deviceorientation', handleOrientation);
+                    }
+                }).catch(function() {});
+            };
+            document.addEventListener('click', requestGyroPermission, { once: true });
+            document.addEventListener('touchend', requestGyroPermission, { once: true });
+        } else {
+            window.addEventListener('deviceorientation', handleOrientation);
+        }
+    }
+}
 
 // ============================================================================
 // Audio System (JS AudioWorkletProcessor + SharedArrayBuffer ring buffers)
