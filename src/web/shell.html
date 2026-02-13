@@ -326,6 +326,7 @@
         var hideAudioHint = function() { audioHint.classList.add('hidden'); };
         document.addEventListener('click', hideAudioHint, { once: true });
         document.addEventListener('keydown', hideAudioHint, { once: true });
+        document.addEventListener('touchstart', hideAudioHint, { once: true });
 
         // ── Helpers ─────────────────────────────────────────
         function hexToRgb(hex) {

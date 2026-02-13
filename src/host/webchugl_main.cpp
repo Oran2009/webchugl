@@ -263,7 +263,6 @@ int main(int argc, char** argv)
 
 // --- EM_JS dispatchers: called from C++ callbacks, dispatch into JS --------
 
-// One-shot getter callbacks (resolve a Promise, then delete from map)
 EM_JS(void, _ck_resolve_int, (int id, int val), {
     var cb = Module._ckCallbacks[id];
     if (cb) { cb(val); delete Module._ckCallbacks[id]; }
@@ -279,7 +278,6 @@ EM_JS(void, _ck_resolve_string, (int id, const char* val), {
     if (cb) { cb(UTF8ToString(val)); delete Module._ckCallbacks[id]; }
 });
 
-// Array getter callbacks (copy from WASM heap into JS array)
 EM_JS(void, _ck_resolve_int_array, (int id, int* arr, unsigned int len), {
     var cb = Module._ckCallbacks[id];
     if (cb) {
@@ -300,7 +298,6 @@ EM_JS(void, _ck_resolve_float_array, (int id, double* arr, unsigned int len), {
     }
 });
 
-// Persistent event listener callback (don't delete)
 EM_JS(void, _ck_dispatch_event, (int id), {
     var entry = Module._ckEventListeners[id];
     if (entry) {
@@ -329,11 +326,11 @@ static void _cb_get_float_array(t_CKINT id, t_CKFLOAT a[], t_CKUINT n)
 static void _cb_event(t_CKINT id)
 { _ck_dispatch_event((int)id); }
 
-// --- Exported functions (EMSCRIPTEN_KEEPALIVE) ------------------------------
+// --- Exported functions ------------------------------
 
 extern "C" {
 
-// ---- Scalar setters (existing) --------------------------------------------
+// ---- Scalar setters --------------------------------------------
 
 EMSCRIPTEN_KEEPALIVE
 int ck_set_int(const char* name, int val)
@@ -356,7 +353,7 @@ int ck_set_string(const char* name, const char* val)
     return the_chuck->vm()->globals_manager()->setGlobalString(name, val);
 }
 
-// ---- Scalar getters (new) -------------------------------------------------
+// ---- Scalar getters -------------------------------------------------
 
 EMSCRIPTEN_KEEPALIVE
 int ck_get_int(const char* name, int callback_id)
@@ -382,7 +379,7 @@ int ck_get_string(const char* name, int callback_id)
         name, (t_CKINT)callback_id, _cb_get_string);
 }
 
-// ---- Events (signal/broadcast existing, listeners new) --------------------
+// ---- Events --------------------
 
 EMSCRIPTEN_KEEPALIVE
 int ck_signal_event(const char* name)
@@ -414,7 +411,7 @@ int ck_stop_listening_event(const char* name, int callback_id)
         name, (t_CKINT)callback_id, _cb_event);
 }
 
-// ---- Int array operations (new) -------------------------------------------
+// ---- Int array operations -------------------------------------------
 
 EMSCRIPTEN_KEEPALIVE
 int ck_set_int_array(const char* name, int* values, unsigned int len)
@@ -464,7 +461,7 @@ int ck_get_assoc_int_array_value(const char* name, const char* key, int callback
         name, (t_CKINT)callback_id, key, _cb_get_int);
 }
 
-// ---- Float array operations (new) -----------------------------------------
+// ---- Float array operations -----------------------------------------
 
 EMSCRIPTEN_KEEPALIVE
 int ck_set_float_array(const char* name, double* values, unsigned int len)
