@@ -56,8 +56,11 @@ set(CHUCK_CORE_SOURCES
     ${CHUCK_CORE_DIR}/util_string.cpp
     ${CHUCK_CORE_DIR}/util_thread.cpp
     ${CHUCK_CORE_DIR}/util_xforms.c
+    # MIDI support via Web MIDI API
+    ${CHUCK_CORE_DIR}/midiio_rtmidi.cpp
+    ${CHUCK_CORE_DIR}/rtmidi.cpp
     # Excluded for web: chuck_otf network deps handled by __DISABLE_OTF_SERVER__
-    # Excluded: midiio_rtmidi.cpp, rtmidi.cpp, hidio_sdl.cpp (platform-specific)
+    # Excluded: hidio_sdl.cpp (platform-specific)
     # Excluded: util_network.c, util_opsc.cpp, ulib_opsc.cpp (network)
     # Excluded: util_serial.cpp (serial), util_hid.cpp (HID)
 )
@@ -115,7 +118,6 @@ target_include_directories(webchugl PRIVATE
 # ===========================================================================
 target_compile_definitions(webchugl PRIVATE
     # Disable ChucK features not available on web
-    __DISABLE_MIDI__
     __DISABLE_NETWORK__
     __DISABLE_SERIAL__
     __DISABLE_HID__
@@ -130,6 +132,7 @@ target_compile_definitions(webchugl PRIVATE
     __CHUCK_USE_PLANAR_BUFFERS__
     __OLDSCHOOL_RANDOM__
     __PLATFORM_EMSCRIPTEN__
+    __WEB_MIDI_API__
 
     # ChuGL options
     WEBCHUGL_NO_VIDEO
