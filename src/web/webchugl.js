@@ -209,10 +209,20 @@ var ChuginLoader = {
 window.ChuginLoader = ChuginLoader;
 
 // ============================================================================
-// CK: Host → ChucK bridge (sets global variables, signals events)
+// CK: Host ↔ ChucK bridge
+// Setters are fire-and-forget. Getters return Promises (resolved on next VM
+// tick). Event listeners use persistent callbacks.
 // ============================================================================
 
+// Callback infrastructure for async getters and event listeners
+var _ckNextId = 1;
+Module._ckCallbacks = {};       // one-shot: getter Promises (auto-deleted)
+Module._ckEventListeners = {};  // persistent: event listener callbacks
+
 window.CK = {
+
+    // ── Scalar setters ────────────────────────────────────────────────────
+
     setInt: function(name, val) {
         Module.ccall('ck_set_int', 'number', ['string', 'number'], [name, val]);
     },
@@ -222,11 +232,145 @@ window.CK = {
     setString: function(name, val) {
         Module.ccall('ck_set_string', 'number', ['string', 'string'], [name, val]);
     },
+
+    // ── Scalar getters (Promise-based) ────────────────────────────────────
+
+    getInt: function(name) {
+        return new Promise(function(resolve) {
+            var id = _ckNextId++;
+            Module._ckCallbacks[id] = resolve;
+            Module.ccall('ck_get_int', 'number', ['string', 'number'], [name, id]);
+        });
+    },
+    getFloat: function(name) {
+        return new Promise(function(resolve) {
+            var id = _ckNextId++;
+            Module._ckCallbacks[id] = resolve;
+            Module.ccall('ck_get_float', 'number', ['string', 'number'], [name, id]);
+        });
+    },
+    getString: function(name) {
+        return new Promise(function(resolve) {
+            var id = _ckNextId++;
+            Module._ckCallbacks[id] = resolve;
+            Module.ccall('ck_get_string', 'number', ['string', 'number'], [name, id]);
+        });
+    },
+
+    // ── Events ────────────────────────────────────────────────────────────
+
     signalEvent: function(name) {
         Module.ccall('ck_signal_event', 'number', ['string'], [name]);
     },
     broadcastEvent: function(name) {
         Module.ccall('ck_broadcast_event', 'number', ['string'], [name]);
+    },
+    listenForEvent: function(name, callback) {
+        var id = _ckNextId++;
+        Module._ckEventListeners[id] = { callback: callback, once: false };
+        Module.ccall('ck_listen_event', 'number',
+            ['string', 'number', 'number'], [name, id, 1]);
+        return id;
+    },
+    listenForEventOnce: function(name, callback) {
+        var id = _ckNextId++;
+        Module._ckEventListeners[id] = { callback: callback, once: true };
+        Module.ccall('ck_listen_event', 'number',
+            ['string', 'number', 'number'], [name, id, 0]);
+        return id;
+    },
+    stopListeningForEvent: function(name, listenerId) {
+        delete Module._ckEventListeners[listenerId];
+        Module.ccall('ck_stop_listening_event', 'number',
+            ['string', 'number'], [name, listenerId]);
+    },
+
+    // ── Int array operations ──────────────────────────────────────────────
+
+    setIntArray: function(name, jsArray) {
+        var len = jsArray.length;
+        var bytes = len * 4;
+        var ptr = Module._malloc(bytes);
+        for (var i = 0; i < len; i++) Module.HEAP32[(ptr >> 2) + i] = jsArray[i];
+        Module.ccall('ck_set_int_array', 'number',
+            ['string', 'number', 'number'], [name, ptr, len]);
+        Module._free(ptr);
+    },
+    setIntArrayValue: function(name, index, value) {
+        Module.ccall('ck_set_int_array_value', 'number',
+            ['string', 'number', 'number'], [name, index, value]);
+    },
+    setAssocIntArrayValue: function(name, key, value) {
+        Module.ccall('ck_set_assoc_int_array_value', 'number',
+            ['string', 'string', 'number'], [name, key, value]);
+    },
+    getIntArray: function(name) {
+        return new Promise(function(resolve) {
+            var id = _ckNextId++;
+            Module._ckCallbacks[id] = resolve;
+            Module.ccall('ck_get_int_array', 'number',
+                ['string', 'number'], [name, id]);
+        });
+    },
+    getIntArrayValue: function(name, index) {
+        return new Promise(function(resolve) {
+            var id = _ckNextId++;
+            Module._ckCallbacks[id] = resolve;
+            Module.ccall('ck_get_int_array_value', 'number',
+                ['string', 'number', 'number'], [name, index, id]);
+        });
+    },
+    getAssocIntArrayValue: function(name, key) {
+        return new Promise(function(resolve) {
+            var id = _ckNextId++;
+            Module._ckCallbacks[id] = resolve;
+            Module.ccall('ck_get_assoc_int_array_value', 'number',
+                ['string', 'string', 'number'], [name, key, id]);
+        });
+    },
+
+    // ── Float array operations ────────────────────────────────────────────
+
+    setFloatArray: function(name, jsArray) {
+        var len = jsArray.length;
+        var bytes = len * 8;
+        var ptr = Module._malloc(bytes);
+        for (var i = 0; i < len; i++) Module.HEAPF64[(ptr >> 3) + i] = jsArray[i];
+        Module.ccall('ck_set_float_array', 'number',
+            ['string', 'number', 'number'], [name, ptr, len]);
+        Module._free(ptr);
+    },
+    setFloatArrayValue: function(name, index, value) {
+        Module.ccall('ck_set_float_array_value', 'number',
+            ['string', 'number', 'number'], [name, index, value]);
+    },
+    setAssocFloatArrayValue: function(name, key, value) {
+        Module.ccall('ck_set_assoc_float_array_value', 'number',
+            ['string', 'string', 'number'], [name, key, value]);
+    },
+    getFloatArray: function(name) {
+        return new Promise(function(resolve) {
+            var id = _ckNextId++;
+            Module._ckCallbacks[id] = resolve;
+            Module.ccall('ck_get_float_array', 'number',
+                ['string', 'number'], [name, id]);
+        });
+    },
+    getFloatArrayValue: function(name, index) {
+        return new Promise(function(resolve) {
+            var id = _ckNextId++;
+            Module._ckCallbacks[id] = resolve;
+            Module.ccall('ck_get_float_array_value', 'number',
+                ['string', 'number', 'number'], [name, index, id]);
+        });
+    },
+    getAssocFloatArrayValue: function(name, key) {
+        return new Promise(function(resolve) {
+            var id = _ckNextId++;
+            Module._ckCallbacks[id] = resolve;
+            Module.ccall('ck_get_assoc_float_array_value', 'number',
+                ['string', 'string', 'number'], [name, key, id]);
+        });
     }
 };
 

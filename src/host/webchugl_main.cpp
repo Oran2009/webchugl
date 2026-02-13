@@ -257,11 +257,83 @@ int main(int argc, char** argv)
 }
 
 // ============================================================================
-// Host → ChucK bridge (exposed to JS via Module.ccall)
+// Host ↔ ChucK bridge (exposed to JS via Module.ccall)
 // Uses Chuck_Globals_Manager's thread-safe lock-free queue
 // ============================================================================
 
+// --- EM_JS dispatchers: called from C++ callbacks, dispatch into JS --------
+
+// One-shot getter callbacks (resolve a Promise, then delete from map)
+EM_JS(void, _ck_resolve_int, (int id, int val), {
+    var cb = Module._ckCallbacks[id];
+    if (cb) { cb(val); delete Module._ckCallbacks[id]; }
+});
+
+EM_JS(void, _ck_resolve_float, (int id, double val), {
+    var cb = Module._ckCallbacks[id];
+    if (cb) { cb(val); delete Module._ckCallbacks[id]; }
+});
+
+EM_JS(void, _ck_resolve_string, (int id, const char* val), {
+    var cb = Module._ckCallbacks[id];
+    if (cb) { cb(UTF8ToString(val)); delete Module._ckCallbacks[id]; }
+});
+
+// Array getter callbacks (copy from WASM heap into JS array)
+EM_JS(void, _ck_resolve_int_array, (int id, int* arr, unsigned int len), {
+    var cb = Module._ckCallbacks[id];
+    if (cb) {
+        var result = new Array(len);
+        for (var i = 0; i < len; i++) result[i] = HEAP32[(arr >> 2) + i];
+        cb(result);
+        delete Module._ckCallbacks[id];
+    }
+});
+
+EM_JS(void, _ck_resolve_float_array, (int id, double* arr, unsigned int len), {
+    var cb = Module._ckCallbacks[id];
+    if (cb) {
+        var result = new Array(len);
+        for (var i = 0; i < len; i++) result[i] = HEAPF64[(arr >> 3) + i];
+        cb(result);
+        delete Module._ckCallbacks[id];
+    }
+});
+
+// Persistent event listener callback (don't delete)
+EM_JS(void, _ck_dispatch_event, (int id), {
+    var entry = Module._ckEventListeners[id];
+    if (entry) {
+        entry.callback();
+        if (entry.once) delete Module._ckEventListeners[id];
+    }
+});
+
+// --- Static C++ callbacks (match ck_get_id signatures from chuck_globals.h) -
+
+static void _cb_get_int(t_CKINT id, t_CKINT val)
+{ _ck_resolve_int((int)id, (int)val); }
+
+static void _cb_get_float(t_CKINT id, t_CKFLOAT val)
+{ _ck_resolve_float((int)id, val); }
+
+static void _cb_get_string(t_CKINT id, const char* val)
+{ _ck_resolve_string((int)id, val); }
+
+static void _cb_get_int_array(t_CKINT id, t_CKINT a[], t_CKUINT n)
+{ _ck_resolve_int_array((int)id, (int*)a, (unsigned int)n); }
+
+static void _cb_get_float_array(t_CKINT id, t_CKFLOAT a[], t_CKUINT n)
+{ _ck_resolve_float_array((int)id, (double*)a, (unsigned int)n); }
+
+static void _cb_event(t_CKINT id)
+{ _ck_dispatch_event((int)id); }
+
+// --- Exported functions (EMSCRIPTEN_KEEPALIVE) ------------------------------
+
 extern "C" {
+
+// ---- Scalar setters (existing) --------------------------------------------
 
 EMSCRIPTEN_KEEPALIVE
 int ck_set_int(const char* name, int val)
@@ -284,6 +356,34 @@ int ck_set_string(const char* name, const char* val)
     return the_chuck->vm()->globals_manager()->setGlobalString(name, val);
 }
 
+// ---- Scalar getters (new) -------------------------------------------------
+
+EMSCRIPTEN_KEEPALIVE
+int ck_get_int(const char* name, int callback_id)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->getGlobalInt(
+        name, (t_CKINT)callback_id, _cb_get_int);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_get_float(const char* name, int callback_id)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->getGlobalFloat(
+        name, (t_CKINT)callback_id, _cb_get_float);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_get_string(const char* name, int callback_id)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->getGlobalString(
+        name, (t_CKINT)callback_id, _cb_get_string);
+}
+
+// ---- Events (signal/broadcast existing, listeners new) --------------------
+
 EMSCRIPTEN_KEEPALIVE
 int ck_signal_event(const char* name)
 {
@@ -296,6 +396,122 @@ int ck_broadcast_event(const char* name)
 {
     if (!the_chuck) return 0;
     return the_chuck->vm()->globals_manager()->broadcastGlobalEvent(name);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_listen_event(const char* name, int callback_id, int listen_forever)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->listenForGlobalEvent(
+        name, (t_CKINT)callback_id, _cb_event, (t_CKBOOL)listen_forever);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_stop_listening_event(const char* name, int callback_id)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->stopListeningForGlobalEvent(
+        name, (t_CKINT)callback_id, _cb_event);
+}
+
+// ---- Int array operations (new) -------------------------------------------
+
+EMSCRIPTEN_KEEPALIVE
+int ck_set_int_array(const char* name, int* values, unsigned int len)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->setGlobalIntArray(
+        name, (t_CKINT*)values, (t_CKUINT)len);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_get_int_array(const char* name, int callback_id)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->getGlobalIntArray(
+        name, (t_CKINT)callback_id, _cb_get_int_array);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_set_int_array_value(const char* name, unsigned int index, int value)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->setGlobalIntArrayValue(
+        name, (t_CKUINT)index, (t_CKINT)value);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_get_int_array_value(const char* name, unsigned int index, int callback_id)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->getGlobalIntArrayValue(
+        name, (t_CKINT)callback_id, (t_CKUINT)index, _cb_get_int);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_set_assoc_int_array_value(const char* name, const char* key, int value)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->setGlobalAssociativeIntArrayValue(
+        name, key, (t_CKINT)value);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_get_assoc_int_array_value(const char* name, const char* key, int callback_id)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->getGlobalAssociativeIntArrayValue(
+        name, (t_CKINT)callback_id, key, _cb_get_int);
+}
+
+// ---- Float array operations (new) -----------------------------------------
+
+EMSCRIPTEN_KEEPALIVE
+int ck_set_float_array(const char* name, double* values, unsigned int len)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->setGlobalFloatArray(
+        name, (t_CKFLOAT*)values, (t_CKUINT)len);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_get_float_array(const char* name, int callback_id)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->getGlobalFloatArray(
+        name, (t_CKINT)callback_id, _cb_get_float_array);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_set_float_array_value(const char* name, unsigned int index, double value)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->setGlobalFloatArrayValue(
+        name, (t_CKUINT)index, (t_CKFLOAT)value);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_get_float_array_value(const char* name, unsigned int index, int callback_id)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->getGlobalFloatArrayValue(
+        name, (t_CKINT)callback_id, (t_CKUINT)index, _cb_get_float);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_set_assoc_float_array_value(const char* name, const char* key, double value)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->setGlobalAssociativeFloatArrayValue(
+        name, key, (t_CKFLOAT)value);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_get_assoc_float_array_value(const char* name, const char* key, int callback_id)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->globals_manager()->getGlobalAssociativeFloatArrayValue(
+        name, (t_CKINT)callback_id, key, _cb_get_float);
 }
 
 } // extern "C"
