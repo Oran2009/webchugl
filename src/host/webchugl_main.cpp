@@ -289,10 +289,10 @@ static void run_vm_frame(void* data)
         static float floatInBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
 
         // Read mic input from input ring buffer (planar format)
-        int inputSamples = inputRingRead(floatInBuffer, samplesToGenerate);
+        int inputFloatsWritten = inputRingRead(floatInBuffer, samplesToGenerate);
         // Convert float to SAMPLE and zero-fill if not enough
         for (int i = 0; i < samplesToGenerate * NUM_CHANNELS; i++) {
-            inBuffer[i] = (i < inputSamples) ? (SAMPLE)floatInBuffer[i] : 0;
+            inBuffer[i] = (i < inputFloatsWritten) ? (SAMPLE)floatInBuffer[i] : 0;
         }
 
         // Always run ChucK VM (needed for graphics via GG.nextFrame())
@@ -408,10 +408,12 @@ int main(int argc, char** argv)
 
     // Compile built-in sensor classes (compatible with WebChucK's Accel/Gyro API)
     // These must be compiled before user code so the types are always available
-    the_chuck->compileCode(k_AccelMsg_ck, "", 1, TRUE);
-    the_chuck->compileCode(k_Accel_ck, "", 1, TRUE);
-    the_chuck->compileCode(k_GyroMsg_ck, "", 1, TRUE);
-    the_chuck->compileCode(k_Gyro_ck, "", 1, TRUE);
+    if (!the_chuck->compileCode(k_AccelMsg_ck, "", 1, TRUE) ||
+        !the_chuck->compileCode(k_Accel_ck, "", 1, TRUE) ||
+        !the_chuck->compileCode(k_GyroMsg_ck, "", 1, TRUE) ||
+        !the_chuck->compileCode(k_Gyro_ck, "", 1, TRUE)) {
+        printf("[WebChuGL] WARNING: Failed to compile built-in sensor classes\n");
+    }
 
     if (!the_chuck->compileFile("/code/main.ck", "", 1, TRUE)) {
         printf("[WebChuGL] ERROR: Failed to compile /code/main.ck\n");

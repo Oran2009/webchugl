@@ -73,8 +73,8 @@ inline uint32_t inputRingAvailableToRead() {
 
 // Read planar stereo samples from input ring buffer for ChucK
 // outBuffer: planar format [L0,L1,...,Ln,R0,R1,...,Rn]
-// samples: number of samples per channel to read
-// Returns: total number of SAMPLE values written (samples * 2 if successful)
+// samples: max number of samples per channel to read
+// Returns: total floats written to outBuffer (samplesRead * NUM_CHANNELS)
 inline int inputRingRead(float* outBuffer, int samples) {
     uint32_t available = inputRingAvailableToRead();
     if (available == 0) {

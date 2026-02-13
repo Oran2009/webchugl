@@ -14,13 +14,6 @@ var Module = {
 
     print: function(text) {
         console.log(text);
-        var outputEl = document.getElementById('output');
-        if (outputEl) {
-            outputEl.textContent += text + '\n';
-            if (outputEl.childNodes.length > 100) {
-                outputEl.textContent = outputEl.textContent.split('\n').slice(-50).join('\n');
-            }
-        }
     },
 
     printErr: function(text) {
@@ -29,8 +22,10 @@ var Module = {
 
     setStatus: function(text) {
         if (!text) {
-            // Loading complete — hide loading screen
-            document.getElementById('loading-screen').classList.add('hidden');
+            // Loading complete — but don't hide loading screen here.
+            // The WebGPU success path in onRuntimeInitialized hides it
+            // explicitly. Hiding here would also hide error-text if an
+            // error is being displayed (e.g. no WebGPU support).
             return;
         }
         // Update progress bar based on loading phase
@@ -57,6 +52,7 @@ var Module = {
         if (!navigator.gpu) return;
         navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).then(function(adapter) {
             if (!adapter) {
+                document.getElementById('progress-bar').style.display = 'none';
                 var errEl = document.getElementById('error-text');
                 errEl.textContent = 'Failed to get WebGPU adapter';
                 errEl.style.display = 'block';
@@ -73,6 +69,7 @@ var Module = {
             });
         }).catch(function(e) {
             console.error('WebGPU pre-init failed:', e);
+            document.getElementById('progress-bar').style.display = 'none';
             var errEl = document.getElementById('error-text');
             errEl.textContent = 'WebGPU init failed: ' + e.message;
             errEl.style.display = 'block';
@@ -165,9 +162,11 @@ var Module = {
                 Module.removeRunDependency('ck-files');
             })
             .catch(function(err) {
-                console.error('[WebChuGL] ' + err.message);
+                var msg = (err && err.message) ? err.message : String(err);
+                console.error('[WebChuGL] ' + msg);
+                document.getElementById('progress-bar').style.display = 'none';
                 var errEl = document.getElementById('error-text');
-                errEl.textContent = 'Failed to load files: ' + err.message;
+                errEl.textContent = 'Failed to load files: ' + msg;
                 errEl.style.display = 'block';
             });
     }]
@@ -383,15 +382,35 @@ window.CK = {
 // ============================================================================
 
 function _initSensors() {
-    // Accelerometer: devicemotion → _accelX/Y/Z + _accelReading
+    // Accumulate latest sensor readings; push to ChucK once per frame
+    var accelPending = null;
+    var gyroPending = null;
+
+    function flushSensors() {
+        if (accelPending) {
+            CK.setFloat('_accelX', accelPending.x);
+            CK.setFloat('_accelY', accelPending.y);
+            CK.setFloat('_accelZ', accelPending.z);
+            CK.broadcastEvent('_accelReading');
+            accelPending = null;
+        }
+        if (gyroPending) {
+            CK.setFloat('_gyroX', gyroPending.alpha);
+            CK.setFloat('_gyroY', gyroPending.beta);
+            CK.setFloat('_gyroZ', gyroPending.gamma);
+            CK.broadcastEvent('_gyroReading');
+            gyroPending = null;
+        }
+        requestAnimationFrame(flushSensors);
+    }
+    requestAnimationFrame(flushSensors);
+
+    // Accelerometer: devicemotion → accumulate latest reading
     if (window.DeviceMotionEvent) {
         var handleMotion = function(e) {
             var a = e.accelerationIncludingGravity;
             if (!a) return;
-            CK.setFloat('_accelX', a.x || 0);
-            CK.setFloat('_accelY', a.y || 0);
-            CK.setFloat('_accelZ', a.z || 0);
-            CK.broadcastEvent('_accelReading');
+            accelPending = { x: a.x || 0, y: a.y || 0, z: a.z || 0 };
         };
 
         // iOS 13+ requires explicit permission from a user gesture
@@ -410,13 +429,10 @@ function _initSensors() {
         }
     }
 
-    // Gyroscope: deviceorientation → _gyroX/Y/Z + _gyroReading
+    // Gyroscope: deviceorientation → accumulate latest reading
     if (window.DeviceOrientationEvent) {
         var handleOrientation = function(e) {
-            CK.setFloat('_gyroX', e.alpha || 0);
-            CK.setFloat('_gyroY', e.beta || 0);
-            CK.setFloat('_gyroZ', e.gamma || 0);
-            CK.broadcastEvent('_gyroReading');
+            gyroPending = { alpha: e.alpha || 0, beta: e.beta || 0, gamma: e.gamma || 0 };
         };
 
         // iOS 13+ requires explicit permission from a user gesture
@@ -444,7 +460,13 @@ function _initSensors() {
 window.initWebChuGLAudio = function(sab, outBufPtr, outWritePosPtr, outReadPosPtr,
                                      inBufPtr, inWritePosPtr, inReadPosPtr,
                                      capacity, needsMic) {
-    var ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
+    var ctx;
+    try {
+        ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
+    } catch (e) {
+        console.error('[WebChuGL] Failed to create AudioContext: ' + e.message);
+        return;
+    }
 
     ctx.audioWorklet.addModule('audio-worklet-processor.js').then(function() {
         var node = new AudioWorkletNode(ctx, 'chuck-processor', {
@@ -481,13 +503,19 @@ window.initWebChuGLAudio = function(sab, outBufPtr, outWritePosPtr, outReadPosPt
         }
 
         // Resume AudioContext on user interaction (autoplay policy)
+        // Keep retrying until context is running (some browsers need gesture on canvas)
         var startAudio = function() {
-            if (ctx.state !== 'running') {
-                ctx.resume();
+            if (ctx.state === 'running') {
+                document.removeEventListener('click', startAudio);
+                document.removeEventListener('keydown', startAudio);
+                document.removeEventListener('touchstart', startAudio);
+                return;
             }
+            ctx.resume();
         };
-        document.addEventListener('click', startAudio, { once: true });
-        document.addEventListener('keydown', startAudio, { once: true });
+        document.addEventListener('click', startAudio);
+        document.addEventListener('keydown', startAudio);
+        document.addEventListener('touchstart', startAudio);
 
         console.log('[WebChuGL] Audio initialized (JS AudioWorklet)');
     }).catch(function(err) {

@@ -26,16 +26,6 @@ CODE_DIR = os.path.join(SRC_DIR, 'code')
 
 EMSCRIPTEN_SCRIPT_TAG = '<script async type="text/javascript" src="index.js"></script>'
 
-# Web assets to copy (everything in src/web/ except shell.html)
-WEB_ASSETS = [
-    'webchugl.js',
-    'audio-worklet-processor.js',
-    'coi-serviceworker.js',
-    'jszip.min.js',
-    'chugl_logo_light.png',
-    'chugl_logo_dark.png',
-]
-
 
 def process_template():
     """Replace {{{ SCRIPT }}} in shell.html and write to build/index.html."""
@@ -64,12 +54,13 @@ def rebuild_bundle():
 
 
 def copy_web_assets():
-    """Copy JS/PNG assets from src/web/ to build/."""
-    for name in WEB_ASSETS:
+    """Copy all files from src/web/ to build/ except shell.html."""
+    for name in os.listdir(WEB_DIR):
+        if name == 'shell.html':
+            continue
         src = os.path.join(WEB_DIR, name)
-        dst = os.path.join(BUILD_DIR, name)
-        if os.path.exists(src):
-            shutil.copy2(src, dst)
+        if os.path.isfile(src):
+            shutil.copy2(src, os.path.join(BUILD_DIR, name))
 
 
 def full_rebuild():

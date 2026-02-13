@@ -38,7 +38,7 @@ class ChucKProcessor extends AudioWorkletProcessor {
         // Read from output ring buffer → Web Audio output (batch)
         const rp = Atomics.load(this.outReadPos, 0);
         const wp = Atomics.load(this.outWritePos, 0);
-        const available = wp - rp;
+        const available = (wp - rp) >>> 0;
         const toRead = Math.min(len, available);
 
         for (let i = 0; i < toRead; i++) {
@@ -59,7 +59,7 @@ class ChucKProcessor extends AudioWorkletProcessor {
             const inLen = inL.length;
             const wrPos = Atomics.load(this.inWritePos, 0);
             const rdPos = Atomics.load(this.inReadPos, 0);
-            const available = cap - (wrPos - rdPos);
+            const available = (cap - ((wrPos - rdPos) >>> 0)) >>> 0;
             const toWrite = Math.min(inLen, available);
 
             for (let i = 0; i < toWrite; i++) {
