@@ -80,7 +80,7 @@ try {
 
 # Minify JS assets
 Write-Host "Minifying JS..." -ForegroundColor Gray
-py (Join-Path $ScriptDir "minify_js.py") (Join-Path $BuildDir "webchugl" "webchugl.js")
+py (Join-Path $ScriptDir "minify_js.py") (Join-Path (Join-Path $BuildDir "webchugl") "webchugl.js")
 
 # Clean up build artifacts (keep only files needed for web serving)
 Write-Host "Cleaning build directory..." -ForegroundColor Gray

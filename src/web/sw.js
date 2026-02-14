@@ -6,7 +6,7 @@
  *
  */
 
-var CACHE_NAME = 'webchugl-v1';
+var CACHE_NAME = 'webchugl-v4';
 var ASSETS_TO_CACHE = [
     './',
     'index.html',
@@ -27,7 +27,8 @@ var coepCredentialless = false;
 self.addEventListener('install', function(event) {
     event.waitUntil(
         caches.open(CACHE_NAME).then(function(cache) {
-            return cache.addAll(ASSETS_TO_CACHE);
+            // Cache failure is non-fatal (assets may not all be available during dev)
+            return cache.addAll(ASSETS_TO_CACHE).catch(function() {});
         }).then(function() {
             return self.skipWaiting();
         })
@@ -79,8 +80,8 @@ self.addEventListener('fetch', function(event) {
                 }
                 return addCoiHeaders(response);
             }).catch(function() {
-                // Network failure — return cached version if available
-                return cached;
+                // Network failure — return cached version with headers if available
+                return cached ? addCoiHeaders(cached) : undefined;
             });
 
             return cached ? addCoiHeaders(cached) : fetchPromise;

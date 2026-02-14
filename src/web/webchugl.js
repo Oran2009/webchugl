@@ -8,16 +8,19 @@
 (function() {
     if (!('serviceWorker' in navigator)) return;
 
-    // If SW is already controlling this page, send coepCredentialless preference
+    // Tell active SW to use credentialless COEP (allows cross-origin CDN resources)
     if (navigator.serviceWorker.controller) {
         navigator.serviceWorker.controller.postMessage({
             type: 'coepCredentialless',
-            value: false
+            value: true
         });
     }
 
     // Already cross-origin isolated — SW is working, nothing to do
-    if (window.crossOriginIsolated) return;
+    if (window.crossOriginIsolated) {
+        sessionStorage.removeItem('webchugl-sw-reload');
+        return;
+    }
 
     // Not secure context — SW won't work
     if (!window.isSecureContext) {
@@ -25,17 +28,23 @@
         return;
     }
 
-    navigator.serviceWorker.register('sw.js').then(function(reg) {
-        // Prevent infinite reload loops
-        if (sessionStorage.getItem('webchugl-sw-reload')) return;
+    // Safety net: prevent infinite reload if SW can't provide cross-origin isolation
+    if (sessionStorage.getItem('webchugl-sw-reload')) {
+        console.warn('[WebChuGL] Page reloaded but crossOriginIsolated is still false.');
+        return;
+    }
 
-        reg.addEventListener('updatefound', function() {
+    navigator.serviceWorker.register('sw.js').then(function(registration) {
+        // Case 1: New or updated SW being installed — reload to pick up headers
+        registration.addEventListener('updatefound', function() {
             sessionStorage.setItem('webchugl-sw-reload', '1');
             location.reload();
         });
 
-        // SW is registered but not yet controlling — reload to activate
-        if (reg.active && !navigator.serviceWorker.controller) {
+        // Case 2: SW is active but not controlling this page (hard refresh recovery).
+        // Hard refresh bypasses the SW fetch handler for the navigation request,
+        // so the page loads without COOP/COEP headers. A normal reload recovers.
+        if (registration.active && !navigator.serviceWorker.controller) {
             sessionStorage.setItem('webchugl-sw-reload', '1');
             location.reload();
         }
@@ -46,30 +55,29 @@
 // Web MIDI
 // ============================================================================
 
-var _midiReady = (function() {
-    if (!navigator.requestMIDIAccess) return Promise.resolve(null);
-    return navigator.requestMIDIAccess({ sysex: false }).then(function(access) {
-        window._rtmidi_internals_midi_access = access;
-        window._rtmidi_internals_latest_message_timestamp = 0.0;
-        window._rtmidi_internals_waiting = false;
-        window._rtmidi_internals_get_port_by_number = function(portNumber, isInput) {
-            var midi = window._rtmidi_internals_midi_access;
-            var devices = isInput ? midi.inputs : midi.outputs;
-            var i = 0;
-            for (var device of devices.values()) {
-                if (i == portNumber) return device;
-                i++;
-            }
-            return null;
-        };
-        return access;
-    }).catch(function() {
+function _initMidi(access) {
+    window._rtmidi_internals_midi_access = access;
+    window._rtmidi_internals_latest_message_timestamp = 0.0;
+    window._rtmidi_internals_waiting = false;
+    window._rtmidi_internals_get_port_by_number = function(portNumber, isInput) {
+        var midi = window._rtmidi_internals_midi_access;
+        var devices = isInput ? midi.inputs : midi.outputs;
+        var i = 0;
+        for (var device of devices.values()) {
+            if (i == portNumber) return device;
+            i++;
+        }
         return null;
-    });
-})();
+    };
+}
+
+// MIDI access is requested on-demand by ChucK's RtMidi C++ code when a
+// program creates MidiIn/MidiOut. The browser will prompt for permission
+// only when needed. Programs can also pre-request MIDI via setup.js by
+// calling _initMidi(access) to avoid the async race condition.
 
 // ============================================================================
-// Emscripten Module Configuration
+// Emscripten Module — MODULARIZE factory pattern
 // ============================================================================
 
 var _progressFill = document.getElementById('progress-fill');
@@ -77,7 +85,13 @@ function _setProgress(pct) {
     if (_progressFill) _progressFill.style.width = Math.round(pct) + '%';
 }
 
-var Module = {
+// The Module instance, set during preRun and confirmed in .then().
+// All runtime code (CK bridge, sensors, etc.) accesses Emscripten through this.
+var _module = null;
+
+// Config object passed to the factory. This becomes Module inside the factory
+// closure, so properties set here are accessible from C++ via EM_ASM.
+var _moduleConfig = {
     noInitialRun: true,
 
     canvas: (function() {
@@ -98,41 +112,15 @@ var Module = {
 
     setStatus: function() {},
 
-    // After runtime is ready: pre-init WebGPU, then call main()
-    onRuntimeInitialized: function() {
-        if (!navigator.gpu) return;
-        navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).then(function(adapter) {
-            if (!adapter) {
-                document.getElementById('progress-bar').style.display = 'none';
-                var errEl = document.getElementById('error-text');
-                errEl.textContent = 'Failed to get WebGPU adapter';
-                errEl.style.display = 'block';
-                return;
-            }
-            return adapter.requestDevice().then(function(device) {
-                // Store JS objects for C++ to register via EM_ASM
-                window._preWebGPUAdapter = adapter;
-                window._preWebGPUDevice = device;
-                // Wait for MIDI pre-init before starting ChucK VM
-                return _midiReady.then(function() {
-                    document.getElementById('loading-screen').classList.add('hidden');
-                    document.getElementById('canvas').focus();
-                    Module.callMain([]);
-                    _initSensors();
-                });
-            });
-        }).catch(function(e) {
-            console.error('WebGPU pre-init failed:', e);
-            document.getElementById('progress-bar').style.display = 'none';
-            var errEl = document.getElementById('error-text');
-            errEl.textContent = 'WebGPU init failed: ' + e.message;
-            errEl.style.display = 'block';
-        });
-    },
+    // Callback/event listener maps used by C++ EM_ASM code.
+    // Set here so they exist on Module from the start.
+    _ckCallbacks: {},
+    _ckEventListeners: {},
 
-    // Fetch all files from manifest before main() runs
-    preRun: [function() {
-        Module.addRunDependency('ck-files');
+    // Fetch all files from bundle.zip before main() runs
+    preRun: [function(mod) {
+        _module = mod;
+        mod.addRunDependency('ck-files');
 
         var jszipReady = new Promise(function(resolve, reject) {
             var s = document.createElement('script');
@@ -186,7 +174,7 @@ var Module = {
                 return Promise.all(entries.map(function(name) {
                     return zip.files[name].async('arraybuffer').then(function(content) {
                         _ensureVfsDir('/' + name);
-                        FS.writeFile('/' + name, new Uint8Array(content));
+                        _module.FS.writeFile('/' + name, new Uint8Array(content));
                         loaded++;
                         _setProgress(80 + (loaded / total) * 20);
                     });
@@ -197,7 +185,7 @@ var Module = {
                 if (ChuginLoader.pendingChugins.length > 0) {
                     console.log('[WebChuGL] Found ' + ChuginLoader.pendingChugins.length + ' ChuGin(s)');
                 }
-                Module.removeRunDependency('ck-files');
+                mod.removeRunDependency('ck-files');
             })
             .catch(function(err) {
                 var msg = (err && err.message) ? err.message : String(err);
@@ -210,6 +198,43 @@ var Module = {
     }]
 };
 
+// Launch the Emscripten module. The promise resolves when the runtime is ready
+// (equivalent to onRuntimeInitialized in non-MODULARIZE builds).
+createWebChuGL(_moduleConfig).then(function(mod) {
+    _module = mod;
+
+    if (!navigator.gpu) return;
+    navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).then(function(adapter) {
+        if (!adapter) {
+            document.getElementById('progress-bar').style.display = 'none';
+            var errEl = document.getElementById('error-text');
+            errEl.textContent = 'Failed to get WebGPU adapter';
+            errEl.style.display = 'block';
+            return;
+        }
+        return adapter.requestDevice().then(function(device) {
+            // Store JS objects for C++ to register via EM_ASM
+            window._preWebGPUAdapter = adapter;
+            window._preWebGPUDevice = device;
+            document.getElementById('loading-screen').classList.add('hidden');
+            document.getElementById('canvas').focus();
+            _module.callMain([]);
+            _initSensors();
+
+            // Flush any CK bridge calls queued before callMain().
+            // Global arrays declared with [0] are allocated during
+            // callMain(), so no frame delay is needed.
+            _ckFlush();
+        });
+    }).catch(function(e) {
+        console.error('WebGPU pre-init failed:', e);
+        document.getElementById('progress-bar').style.display = 'none';
+        var errEl = document.getElementById('error-text');
+        errEl.textContent = 'WebGPU init failed: ' + e.message;
+        errEl.style.display = 'block';
+    });
+});
+
 // ============================================================================
 // ChuGin Loader
 // Scans for .chug.wasm files; actual loading is done via dlopen() in C++
@@ -221,14 +246,15 @@ var ChuginLoader = {
     // Recursively scan directory for .chug.wasm files
     scanForChugins: function(dirPath) {
         try {
-            var files = FS.readdir(dirPath);
+            var fs = _module.FS;
+            var files = fs.readdir(dirPath);
             for (var i = 0; i < files.length; i++) {
                 var file = files[i];
                 if (file === '.' || file === '..') continue;
                 var fullPath = dirPath + '/' + file;
                 try {
-                    var stat = FS.stat(fullPath);
-                    if (FS.isDir(stat.mode)) {
+                    var stat = fs.stat(fullPath);
+                    if (fs.isDir(stat.mode)) {
                         this.scanForChugins(fullPath);
                     } else if (file.endsWith('.chug.wasm')) {
                         this.pendingChugins.push(fullPath);
@@ -252,73 +278,126 @@ window.ChuginLoader = ChuginLoader;
 
 // Callback infrastructure for async getters and event listeners
 var _ckNextId = 1;
-Module._ckCallbacks = {};
-Module._ckEventListeners = {};
+
+// ── Deferred call queue ──────────────────────────────────────────────
+// CK methods can be called before the WASM module is ready.
+// Calls are queued and flushed once callMain() has executed.
+var _ckReady = false;
+var _ckQueue = [];
+var _ckReadyResolve;
+var _ckReadyPromise = new Promise(function(r) { _ckReadyResolve = r; });
+
+function _ckDefer(fn) {
+    if (_ckReady) fn();
+    else _ckQueue.push(fn);
+}
+
+function _ckDeferPromise(fn) {
+    if (_ckReady) return fn();
+    return new Promise(function(resolve, reject) {
+        _ckQueue.push(function() { fn().then(resolve, reject); });
+    });
+}
+
+function _ckFlush() {
+    _ckReady = true;
+    for (var i = 0; i < _ckQueue.length; i++) _ckQueue[i]();
+    _ckQueue = [];
+    _ckReadyResolve();
+}
 
 window.CK = {
+
+    // Promise that resolves when the CK bridge is ready to use.
+    // All methods below auto-queue if called before ready, but this is
+    // available for code that wants to explicitly wait:
+    //   CK.ready.then(function() { ... });
+    ready: _ckReadyPromise,
 
     // ── Scalar setters ────────────────────────────────────────────────────
 
     setInt: function(name, val) {
-        Module.ccall('ck_set_int', 'number', ['string', 'number'], [name, val]);
+        _ckDefer(function() {
+            _module.ccall('ck_set_int', 'number', ['string', 'number'], [name, val]);
+        });
     },
     setFloat: function(name, val) {
-        Module.ccall('ck_set_float', 'number', ['string', 'number'], [name, val]);
+        _ckDefer(function() {
+            _module.ccall('ck_set_float', 'number', ['string', 'number'], [name, val]);
+        });
     },
     setString: function(name, val) {
-        Module.ccall('ck_set_string', 'number', ['string', 'string'], [name, val]);
+        _ckDefer(function() {
+            _module.ccall('ck_set_string', 'number', ['string', 'string'], [name, val]);
+        });
     },
 
     // ── Scalar getters (Promise-based) ────────────────────────────────────
 
     getInt: function(name) {
-        return new Promise(function(resolve) {
-            var id = _ckNextId++;
-            Module._ckCallbacks[id] = resolve;
-            Module.ccall('ck_get_int', 'number', ['string', 'number'], [name, id]);
+        return _ckDeferPromise(function() {
+            return new Promise(function(resolve) {
+                var id = _ckNextId++;
+                _moduleConfig._ckCallbacks[id] = resolve;
+                _module.ccall('ck_get_int', 'number', ['string', 'number'], [name, id]);
+            });
         });
     },
     getFloat: function(name) {
-        return new Promise(function(resolve) {
-            var id = _ckNextId++;
-            Module._ckCallbacks[id] = resolve;
-            Module.ccall('ck_get_float', 'number', ['string', 'number'], [name, id]);
+        return _ckDeferPromise(function() {
+            return new Promise(function(resolve) {
+                var id = _ckNextId++;
+                _moduleConfig._ckCallbacks[id] = resolve;
+                _module.ccall('ck_get_float', 'number', ['string', 'number'], [name, id]);
+            });
         });
     },
     getString: function(name) {
-        return new Promise(function(resolve) {
-            var id = _ckNextId++;
-            Module._ckCallbacks[id] = resolve;
-            Module.ccall('ck_get_string', 'number', ['string', 'number'], [name, id]);
+        return _ckDeferPromise(function() {
+            return new Promise(function(resolve) {
+                var id = _ckNextId++;
+                _moduleConfig._ckCallbacks[id] = resolve;
+                _module.ccall('ck_get_string', 'number', ['string', 'number'], [name, id]);
+            });
         });
     },
 
     // ── Events ────────────────────────────────────────────────────────────
 
     signalEvent: function(name) {
-        Module.ccall('ck_signal_event', 'number', ['string'], [name]);
+        _ckDefer(function() {
+            _module.ccall('ck_signal_event', 'number', ['string'], [name]);
+        });
     },
     broadcastEvent: function(name) {
-        Module.ccall('ck_broadcast_event', 'number', ['string'], [name]);
+        _ckDefer(function() {
+            _module.ccall('ck_broadcast_event', 'number', ['string'], [name]);
+        });
     },
     listenForEvent: function(name, callback) {
         var id = _ckNextId++;
-        Module._ckEventListeners[id] = { callback: callback, once: false };
-        Module.ccall('ck_listen_event', 'number',
-            ['string', 'number', 'number'], [name, id, 1]);
+        _moduleConfig._ckEventListeners[id] = { callback: callback, once: false };
+        _ckDefer(function() {
+            _module.ccall('ck_listen_event', 'number',
+                ['string', 'number', 'number'], [name, id, 1]);
+        });
         return id;
     },
     listenForEventOnce: function(name, callback) {
         var id = _ckNextId++;
-        Module._ckEventListeners[id] = { callback: callback, once: true };
-        Module.ccall('ck_listen_event', 'number',
-            ['string', 'number', 'number'], [name, id, 0]);
+        _moduleConfig._ckEventListeners[id] = { callback: callback, once: true };
+        _ckDefer(function() {
+            _module.ccall('ck_listen_event', 'number',
+                ['string', 'number', 'number'], [name, id, 0]);
+        });
         return id;
     },
     stopListeningForEvent: function(name, listenerId) {
-        delete Module._ckEventListeners[listenerId];
-        Module.ccall('ck_stop_listening_event', 'number',
-            ['string', 'number'], [name, listenerId]);
+        delete _moduleConfig._ckEventListeners[listenerId];
+        _ckDefer(function() {
+            _module.ccall('ck_stop_listening_event', 'number',
+                ['string', 'number'], [name, listenerId]);
+        });
     },
     // Alias for WebChucK API compatibility
     startListeningForEvent: function(name, callback) {
@@ -328,88 +407,104 @@ window.CK = {
     // ── Int array operations ──────────────────────────────────────────────
 
     setIntArray: function(name, jsArray) {
-        var len = jsArray.length;
-        var bytes = len * 4;
-        var ptr = Module._malloc(bytes);
-        for (var i = 0; i < len; i++) Module.HEAP32[(ptr >> 2) + i] = jsArray[i];
-        Module.ccall('ck_set_int_array', 'number',
-            ['string', 'number', 'number'], [name, ptr, len]);
-        Module._free(ptr);
+        _ckDefer(function() {
+            var buf = new Uint8Array(new Int32Array(jsArray).buffer);
+            _module.ccall('ck_set_int_array', 'number',
+                ['string', 'array', 'number'], [name, buf, jsArray.length]);
+        });
     },
     setIntArrayValue: function(name, index, value) {
-        Module.ccall('ck_set_int_array_value', 'number',
-            ['string', 'number', 'number'], [name, index, value]);
+        _ckDefer(function() {
+            _module.ccall('ck_set_int_array_value', 'number',
+                ['string', 'number', 'number'], [name, index, value]);
+        });
     },
     setAssocIntArrayValue: function(name, key, value) {
-        Module.ccall('ck_set_assoc_int_array_value', 'number',
-            ['string', 'string', 'number'], [name, key, value]);
+        _ckDefer(function() {
+            _module.ccall('ck_set_assoc_int_array_value', 'number',
+                ['string', 'string', 'number'], [name, key, value]);
+        });
     },
     getIntArray: function(name) {
-        return new Promise(function(resolve) {
-            var id = _ckNextId++;
-            Module._ckCallbacks[id] = resolve;
-            Module.ccall('ck_get_int_array', 'number',
-                ['string', 'number'], [name, id]);
+        return _ckDeferPromise(function() {
+            return new Promise(function(resolve) {
+                var id = _ckNextId++;
+                _moduleConfig._ckCallbacks[id] = resolve;
+                _module.ccall('ck_get_int_array', 'number',
+                    ['string', 'number'], [name, id]);
+            });
         });
     },
     getIntArrayValue: function(name, index) {
-        return new Promise(function(resolve) {
-            var id = _ckNextId++;
-            Module._ckCallbacks[id] = resolve;
-            Module.ccall('ck_get_int_array_value', 'number',
-                ['string', 'number', 'number'], [name, index, id]);
+        return _ckDeferPromise(function() {
+            return new Promise(function(resolve) {
+                var id = _ckNextId++;
+                _moduleConfig._ckCallbacks[id] = resolve;
+                _module.ccall('ck_get_int_array_value', 'number',
+                    ['string', 'number', 'number'], [name, index, id]);
+            });
         });
     },
     getAssocIntArrayValue: function(name, key) {
-        return new Promise(function(resolve) {
-            var id = _ckNextId++;
-            Module._ckCallbacks[id] = resolve;
-            Module.ccall('ck_get_assoc_int_array_value', 'number',
-                ['string', 'string', 'number'], [name, key, id]);
+        return _ckDeferPromise(function() {
+            return new Promise(function(resolve) {
+                var id = _ckNextId++;
+                _moduleConfig._ckCallbacks[id] = resolve;
+                _module.ccall('ck_get_assoc_int_array_value', 'number',
+                    ['string', 'string', 'number'], [name, key, id]);
+            });
         });
     },
 
     // ── Float array operations ────────────────────────────────────────────
 
     setFloatArray: function(name, jsArray) {
-        var len = jsArray.length;
-        var bytes = len * 8;
-        var ptr = Module._malloc(bytes);
-        for (var i = 0; i < len; i++) Module.HEAPF64[(ptr >> 3) + i] = jsArray[i];
-        Module.ccall('ck_set_float_array', 'number',
-            ['string', 'number', 'number'], [name, ptr, len]);
-        Module._free(ptr);
+        _ckDefer(function() {
+            var buf = new Uint8Array(new Float64Array(jsArray).buffer);
+            _module.ccall('ck_set_float_array', 'number',
+                ['string', 'array', 'number'], [name, buf, jsArray.length]);
+        });
     },
     setFloatArrayValue: function(name, index, value) {
-        Module.ccall('ck_set_float_array_value', 'number',
-            ['string', 'number', 'number'], [name, index, value]);
+        _ckDefer(function() {
+            _module.ccall('ck_set_float_array_value', 'number',
+                ['string', 'number', 'number'], [name, index, value]);
+        });
     },
     setAssocFloatArrayValue: function(name, key, value) {
-        Module.ccall('ck_set_assoc_float_array_value', 'number',
-            ['string', 'string', 'number'], [name, key, value]);
+        _ckDefer(function() {
+            _module.ccall('ck_set_assoc_float_array_value', 'number',
+                ['string', 'string', 'number'], [name, key, value]);
+        });
     },
     getFloatArray: function(name) {
-        return new Promise(function(resolve) {
-            var id = _ckNextId++;
-            Module._ckCallbacks[id] = resolve;
-            Module.ccall('ck_get_float_array', 'number',
-                ['string', 'number'], [name, id]);
+        return _ckDeferPromise(function() {
+            return new Promise(function(resolve) {
+                var id = _ckNextId++;
+                _moduleConfig._ckCallbacks[id] = resolve;
+                _module.ccall('ck_get_float_array', 'number',
+                    ['string', 'number'], [name, id]);
+            });
         });
     },
     getFloatArrayValue: function(name, index) {
-        return new Promise(function(resolve) {
-            var id = _ckNextId++;
-            Module._ckCallbacks[id] = resolve;
-            Module.ccall('ck_get_float_array_value', 'number',
-                ['string', 'number', 'number'], [name, index, id]);
+        return _ckDeferPromise(function() {
+            return new Promise(function(resolve) {
+                var id = _ckNextId++;
+                _moduleConfig._ckCallbacks[id] = resolve;
+                _module.ccall('ck_get_float_array_value', 'number',
+                    ['string', 'number', 'number'], [name, index, id]);
+            });
         });
     },
     getAssocFloatArrayValue: function(name, key) {
-        return new Promise(function(resolve) {
-            var id = _ckNextId++;
-            Module._ckCallbacks[id] = resolve;
-            Module.ccall('ck_get_assoc_float_array_value', 'number',
-                ['string', 'string', 'number'], [name, key, id]);
+        return _ckDeferPromise(function() {
+            return new Promise(function(resolve) {
+                var id = _ckNextId++;
+                _moduleConfig._ckCallbacks[id] = resolve;
+                _module.ccall('ck_get_assoc_float_array_value', 'number',
+                    ['string', 'string', 'number'], [name, key, id]);
+            });
         });
     },
 
@@ -478,7 +573,7 @@ window.CK = {
             .then(function(audioBuffer) {
                 var wavData = _audioBufferToWav(audioBuffer);
                 _ensureVfsDir(vfsPath);
-                FS.writeFile(vfsPath, new Uint8Array(wavData));
+                _module.FS.writeFile(vfsPath, new Uint8Array(wavData));
                 console.log('[WebChuGL] Audio loaded: ' + vfsPath +
                     ' (' + audioBuffer.duration.toFixed(2) + 's, ' +
                     audioBuffer.numberOfChannels + 'ch)');
@@ -528,7 +623,7 @@ function _ensureVfsDir(path) {
     for (var i = 0; i < parts.length; i++) {
         if (!parts[i]) continue;
         current += '/' + parts[i];
-        try { FS.mkdir(current); } catch(e) {}
+        try { _module.FS.mkdir(current); } catch(e) {}
     }
 }
 
@@ -615,7 +710,7 @@ function _initSensors() {
             if (!gp) {
                 // Disconnected
                 if (_gamepadConnected[i]) {
-                    Module.ccall('ck_gamepad_disconnect', null, ['number'], [i]);
+                    _module.ccall('ck_gamepad_disconnect', null, ['number'], [i]);
                     delete _gamepadConnected[i];
                 }
                 continue;
@@ -623,7 +718,7 @@ function _initSensors() {
 
             // Newly connected
             if (!_gamepadConnected[i]) {
-                Module.ccall('ck_gamepad_connect', null,
+                _module.ccall('ck_gamepad_connect', null,
                     ['number', 'string'], [i, gp.id]);
                 _gamepadConnected[i] = true;
             }
@@ -647,7 +742,7 @@ function _initSensors() {
                 }
             }
 
-            Module.ccall('ck_gamepad_state', null,
+            _module.ccall('ck_gamepad_state', null,
                 ['number', 'array', 'number', 'array', 'number'],
                 [i, _gpAxesBytes, 6, _gpBtnArr, 15]);
         }

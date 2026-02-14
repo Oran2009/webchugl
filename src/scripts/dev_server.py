@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """WebChuGL dev server — fast iteration on HTML + ChucK code.
 
-Watches src/code/ and src/web/ for changes, rebuilds only what's needed
-(skipping C++ compilation), and serves the result.
+Watches src/code/, src/web/, and examples/ for changes, rebuilds only what's
+needed (skipping C++ compilation), and serves the result.
 
-Usage:
+Examples:
     python dev_server.py [port]
     python dev_server.py 8080
+
+    Then visit http://localhost:8080/?example=web-data to load an example.
 """
 
 import http.server
@@ -16,13 +18,16 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 
 # ── Paths ──────────────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SRC_DIR = os.path.dirname(SCRIPT_DIR)
+PROJECT_DIR = os.path.dirname(SRC_DIR)
 BUILD_DIR = os.path.join(SRC_DIR, 'build')
 WEB_DIR = os.path.join(SRC_DIR, 'web')
 CODE_DIR = os.path.join(SRC_DIR, 'code')
+EXAMPLES_DIR = os.path.join(PROJECT_DIR, 'examples')
 
 # Files that go into build/webchugl/ (relative to src/web/)
 WEBCHUGL_DIR_FILES = [
@@ -39,6 +44,9 @@ ROOT_FILES = [
     'manifest.json',
 ]
 
+# ── Example state ─────────────────────────────────────────────────
+_current_example = None  # name of the currently loaded example, or None
+
 
 def process_template():
     """Copy shell.html to build/index.html."""
@@ -47,12 +55,21 @@ def process_template():
     shutil.copy2(src, dst)
 
 
-def rebuild_bundle():
-    """Re-create bundle.zip from src/code/ (via create_bundle.py)."""
+def rebuild_bundle(example=None):
+    """Re-create bundle.zip from src/code/ (via create_bundle.py).
+
+    If example is set, replaces code/main.ck with the example's main.ck.
+    """
     build_code = os.path.join(BUILD_DIR, 'code')
     if os.path.exists(build_code):
         shutil.rmtree(build_code)
     shutil.copytree(CODE_DIR, build_code)
+
+    # Override main.ck with example's version
+    if example:
+        example_ck = os.path.join(EXAMPLES_DIR, example, 'main.ck')
+        if os.path.exists(example_ck):
+            shutil.copy2(example_ck, os.path.join(build_code, 'main.ck'))
 
     subprocess.run(
         [sys.executable, os.path.join(SCRIPT_DIR, 'create_bundle.py'), BUILD_DIR],
@@ -60,6 +77,32 @@ def rebuild_bundle():
     )
 
     shutil.rmtree(build_code)
+
+
+def apply_example(example):
+    """Switch to a different example (or None for default). Rebuilds bundle and copies setup.js."""
+    global _current_example
+    if example == _current_example:
+        return
+
+    _current_example = example
+    rebuild_bundle(example)
+
+    setup_dst = os.path.join(BUILD_DIR, 'example-setup.js')
+    if example:
+        setup_src = os.path.join(EXAMPLES_DIR, example, 'setup.js')
+        if os.path.exists(setup_src):
+            shutil.copy2(setup_src, setup_dst)
+        else:
+            # No setup.js — write empty file
+            with open(setup_dst, 'w') as f:
+                f.write('// No setup.js for this example\n')
+        log(f'Loaded example: {example}')
+    else:
+        # Remove leftover setup.js when switching back to default
+        if os.path.exists(setup_dst):
+            os.remove(setup_dst)
+        log('Loaded default program')
 
 
 def copy_web_assets():
@@ -81,7 +124,7 @@ def copy_web_assets():
 def full_rebuild():
     """Run all rebuild steps (template + bundle + assets)."""
     process_template()
-    rebuild_bundle()
+    rebuild_bundle(_current_example)
     copy_web_assets()
     log('Full rebuild complete')
 
@@ -95,13 +138,50 @@ def log(msg):
 # ── HTTP Server ────────────────────────────────────────────────────
 
 class DevHandler(http.server.SimpleHTTPRequestHandler):
-    """Serves build/ with CORS headers required for SharedArrayBuffer."""
+    """Serves build/ with no-store caching.
+
+    COOP/COEP headers for SharedArrayBuffer are provided by sw.js, not
+    this server.  The first page load triggers a SW-driven reload.
+
+    When ?example=<name> is present, injects the example's setup.js into
+    the HTML response and triggers a bundle rebuild if the example changed.
+    """
 
     def end_headers(self):
-        self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
-        self.send_header('Cross-Origin-Embedder-Policy', 'require-corp')
         self.send_header('Cache-Control', 'no-store')
         super().end_headers()
+
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        params = urllib.parse.parse_qs(parsed.query)
+        example = params.get('example', [None])[0]
+
+        # For root or index.html requests, handle example switching
+        if parsed.path in ('/', '/index.html'):
+            apply_example(example)
+
+            if example:
+                # Serve modified HTML with injected setup.js
+                html_path = os.path.join(BUILD_DIR, 'index.html')
+                with open(html_path, 'rb') as f:
+                    html = f.read().decode('utf-8')
+
+                # CK bridge auto-queues calls until WASM is ready,
+                # so setup.js can run at any time safely.
+                injection = '    <script src="example-setup.js"></script>\n'
+                html = html.replace('</body>', injection + '</body>')
+
+                data = html.encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/html; charset=utf-8')
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
+
+        # Strip query params so SimpleHTTPRequestHandler finds the right file
+        self.path = parsed.path
+        super().do_GET()
 
     def log_message(self, format, *args):
         # Suppress default access logs (noisy during dev)
@@ -113,6 +193,13 @@ def start_server(port):
     os.chdir(BUILD_DIR)
     httpd = http.server.ThreadingHTTPServer(('', port), DevHandler)
     print(f'Serving at http://localhost:{port}')
+    if os.path.isdir(EXAMPLES_DIR):
+        examples = sorted(d for d in os.listdir(EXAMPLES_DIR)
+                          if os.path.isdir(os.path.join(EXAMPLES_DIR, d)))
+        if examples:
+            print(f'Available examples:')
+            for ex in examples:
+                print(f'  http://localhost:{port}/?example={ex}')
     print('Press Ctrl+C to stop\n')
     return httpd
 
@@ -138,6 +225,7 @@ def watch_and_rebuild():
     """Poll for file changes every second, rebuild as needed."""
     web_mtimes = get_mtimes(WEB_DIR)
     code_mtimes = get_mtimes(CODE_DIR)
+    examples_mtimes = get_mtimes(EXAMPLES_DIR)
 
     while True:
         time.sleep(1)
@@ -167,11 +255,27 @@ def watch_and_rebuild():
         new_code = get_mtimes(CODE_DIR)
         if new_code != code_mtimes:
             try:
-                rebuild_bundle()
+                rebuild_bundle(_current_example)
                 log('Rebuilt: code/ → bundle.zip')
             except Exception as e:
                 log(f'ERROR: Bundle rebuild failed: {e}')
             code_mtimes = new_code
+
+        # Check examples/ changes
+        new_examples = get_mtimes(EXAMPLES_DIR)
+        if new_examples != examples_mtimes:
+            if _current_example:
+                try:
+                    rebuild_bundle(_current_example)
+                    # Also re-copy setup.js
+                    setup_src = os.path.join(EXAMPLES_DIR, _current_example, 'setup.js')
+                    setup_dst = os.path.join(BUILD_DIR, 'example-setup.js')
+                    if os.path.exists(setup_src):
+                        shutil.copy2(setup_src, setup_dst)
+                    log(f'Rebuilt: examples/{_current_example}/ → bundle.zip')
+                except Exception as e:
+                    log(f'ERROR: Example rebuild failed: {e}')
+            examples_mtimes = new_examples
 
 
 # ── Main ───────────────────────────────────────────────────────────

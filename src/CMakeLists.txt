@@ -189,24 +189,23 @@ target_link_libraries(webchugl PRIVATE freetype)
 target_link_options(webchugl PRIVATE
     -sUSE_WEBGPU
     -sUSE_GLFW=3
+    # -pthread required for ABI compatibility with SIDE_MODULE ChuGins
     -pthread
     -sALLOW_MEMORY_GROWTH
     -sALLOW_TABLE_GROWTH
     -sSTACK_SIZE=1048576
     -sFORCE_FILESYSTEM
     -sDISABLE_EXCEPTION_CATCHING=0
-    -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','addFunction','wasmTable','wasmMemory','callMain']
+    -sEXPORTED_FUNCTIONS=['_main','_malloc','_free']
+    -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','addFunction','wasmTable','wasmMemory','callMain','FS']
+    -sMODULARIZE=1
+    -sEXPORT_NAME=createWebChuGL
     -sENVIRONMENT=web,worker
-    -sASSERTIONS=1
     -O2
     --profiling-funcs
     -sMINIFY_HTML=0
     --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
-    # Dynamic linking for ChuGin loading via dlopen()
-    # -pthread required for ABI compatibility with SIDE_MODULE ChuGins
     -sMAIN_MODULE=1
-    # Suppress expected warnings: pthreads+MAIN_MODULE is experimental but works,
-    # and ALLOW_MEMORY_GROWTH+pthreads JS overhead is negligible for our use case
     -Wno-experimental
     -Wno-pthreads-mem-growth
 )

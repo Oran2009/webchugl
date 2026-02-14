@@ -12,6 +12,40 @@ index f4d385a7..227704b0 100644
      // pop indent level
      EM_poplog();
  
+diff --git a/src/core/rtmidi.cpp b/src/core/rtmidi.cpp
+index 9bb3b50c..655a7c97 100644
+--- a/src/core/rtmidi.cpp
++++ b/src/core/rtmidi.cpp
+@@ -4670,9 +4670,13 @@ void MidiInWeb::openPort( unsigned int portNumber, const std::string &portName )
+   if (open_port_number >= 0)
+     return;
+ 
+-  MAIN_THREAD_EM_ASM( {
++  int ok = MAIN_THREAD_EM_ASM_INT( {
+     // In Web MIDI API world, there is no step to open a port, but we have to register the input callback instead.
+     var input = window._rtmidi_internals_get_port_by_number($0, true);
++    if( input == null ) {
++      console.log( "Port #" + $0 + " could not be found.");
++      return 0;
++    }
+     input.onmidimessage = function(e) {
+       // In RtMidi world, timestamps are delta time from previous message, while in Web MIDI world
+       // timestamps are relative to window creation time (i.e. kind of absolute time with window "epoch" time).
+@@ -4680,9 +4684,12 @@ void MidiInWeb::openPort( unsigned int portNumber, const std::string &portName )
+       window._rtmidi_internals_latest_message_timestamp = e.timeStamp;
+       Module.ccall( 'rtmidi_onMidiMessageProc', 'void', ['number', 'array', 'number', 'number'], [$1, e.data, e.data.length, rtmidiTimestamp] );
+     };
++    return 1;
+   }, portNumber, &inputData_ );
+-  open_port_number = portNumber;
+-  connected_ = true;
++  if( ok ) {
++    open_port_number = portNumber;
++    connected_ = true;
++  }
+ }
+ 
+ void MidiInWeb::openVirtualPort( const std::string &portName )
 diff --git a/src/core/util_thread.cpp b/src/core/util_thread.cpp
 index b03b2b4e..8cf658e8 100644
 --- a/src/core/util_thread.cpp

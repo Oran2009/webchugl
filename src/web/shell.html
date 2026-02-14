@@ -96,7 +96,6 @@
 
     <div id="audio-hint">Click to enable audio</div>
 
-    <script src="webchugl/webchugl.js"></script>
     <script>
         // WebGPU check
         if (!navigator.gpu) {
@@ -113,6 +112,8 @@
         document.addEventListener('keydown', hideAudioHint, { once: true });
         document.addEventListener('touchstart', hideAudioHint, { once: true });
     </script>
-    <script async type="text/javascript" src="webchugl/index.js"></script>
+    <!-- {{{ SCRIPT }}} -->
+    <script src="webchugl/index.js"></script>
+    <script src="webchugl/webchugl.js"></script>
 </body>
 </html>
