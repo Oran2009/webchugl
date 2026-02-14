@@ -43,6 +43,32 @@
 })();
 
 // ============================================================================
+// Web MIDI
+// ============================================================================
+
+var _midiReady = (function() {
+    if (!navigator.requestMIDIAccess) return Promise.resolve(null);
+    return navigator.requestMIDIAccess({ sysex: false }).then(function(access) {
+        window._rtmidi_internals_midi_access = access;
+        window._rtmidi_internals_latest_message_timestamp = 0.0;
+        window._rtmidi_internals_waiting = false;
+        window._rtmidi_internals_get_port_by_number = function(portNumber, isInput) {
+            var midi = window._rtmidi_internals_midi_access;
+            var devices = isInput ? midi.inputs : midi.outputs;
+            var i = 0;
+            for (var device of devices.values()) {
+                if (i == portNumber) return device;
+                i++;
+            }
+            return null;
+        };
+        return access;
+    }).catch(function() {
+        return null;
+    });
+})();
+
+// ============================================================================
 // Emscripten Module Configuration
 // ============================================================================
 
@@ -87,10 +113,13 @@ var Module = {
                 // Store JS objects for C++ to register via EM_ASM
                 window._preWebGPUAdapter = adapter;
                 window._preWebGPUDevice = device;
-                document.getElementById('loading-screen').classList.add('hidden');
-                document.getElementById('canvas').focus();
-                Module.callMain([]);
-                _initSensors();
+                // Wait for MIDI pre-init before starting ChucK VM
+                return _midiReady.then(function() {
+                    document.getElementById('loading-screen').classList.add('hidden');
+                    document.getElementById('canvas').focus();
+                    Module.callMain([]);
+                    _initSensors();
+                });
             });
         }).catch(function(e) {
             console.error('WebGPU pre-init failed:', e);
@@ -553,9 +582,8 @@ function _initSensors() {
 
     var _gamepadConnected = {};
 
-    var _gpAxesBuf = Module._malloc(6 * 4);   // 6 floats
-    var _gpBtnBuf = Module._malloc(15);       // 15 bytes
     var _gpAxesArr = new Float32Array(6);
+    var _gpAxesBytes = new Uint8Array(_gpAxesArr.buffer); // byte view of same buffer
     var _gpBtnArr = new Uint8Array(15);
 
     // Web Standard Gamepad → GLFW button index mapping
@@ -619,11 +647,9 @@ function _initSensors() {
                 }
             }
 
-            HEAPF32.set(_gpAxesArr, _gpAxesBuf >> 2);
-            HEAPU8.set(_gpBtnArr, _gpBtnBuf);
             Module.ccall('ck_gamepad_state', null,
-                ['number', 'number', 'number', 'number', 'number'],
-                [i, _gpAxesBuf, 6, _gpBtnBuf, 15]);
+                ['number', 'array', 'number', 'array', 'number'],
+                [i, _gpAxesBytes, 6, _gpBtnArr, 15]);
         }
     }
 
