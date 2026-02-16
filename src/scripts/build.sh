@@ -4,12 +4,16 @@
 #
 # This only compiles C++/WASM. To bundle code/packages into bundle.zip,
 # run bundle.sh separately (or use build-and-bundle.sh for both).
+#
+# CMake builds in src/.cmake-build/ (outside build/) so that build/
+# contains only web-deployable files.
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$SRC_DIR/build"
+CMAKE_BUILD_DIR="$SRC_DIR/.cmake-build"
 PROJECT_ROOT="$(dirname "$SRC_DIR")"
 EMSDK_DIR="$PROJECT_ROOT/emsdk-3.1.61/install/emscripten"
 
@@ -48,26 +52,37 @@ EMCMAKE="$EMSDK_DIR/emcmake"
 EMMAKE="$EMSDK_DIR/emmake"
 
 # Clean if requested
-if [ "$CLEAN" = true ] && [ -d "$BUILD_DIR" ]; then
-    echo "Cleaning build directory..."
-    rm -rf "$BUILD_DIR"
+if [ "$CLEAN" = true ]; then
+    for d in "$BUILD_DIR" "$CMAKE_BUILD_DIR"; do
+        [ -d "$d" ] && echo "Cleaning $d..." && rm -rf "$d"
+    done
 fi
 
-# Create build directory
-mkdir -p "$BUILD_DIR"
+# Create directories
+mkdir -p "$BUILD_DIR" "$CMAKE_BUILD_DIR"
 
 # Configure if needed
-if [ ! -f "$BUILD_DIR/CMakeCache.txt" ]; then
+if [ ! -f "$CMAKE_BUILD_DIR/CMakeCache.txt" ]; then
     echo "Configuring with CMake..."
-    cd "$BUILD_DIR"
-    "$EMCMAKE" cmake ..
+    cd "$CMAKE_BUILD_DIR"
+    "$EMCMAKE" cmake "$SRC_DIR"
     cd "$SRC_DIR"
 fi
 
 # Build
 echo "Building WASM..."
-cd "$BUILD_DIR"
+cd "$CMAKE_BUILD_DIR"
 "$EMMAKE" make -j "$JOBS"
+
+# Copy web outputs to build/
+echo "Copying web outputs..."
+for f in index.html index.worker.js sw.js manifest.json; do
+    [ -f "$CMAKE_BUILD_DIR/$f" ] && cp "$CMAKE_BUILD_DIR/$f" "$BUILD_DIR/$f"
+done
+if [ -d "$CMAKE_BUILD_DIR/webchugl" ]; then
+    mkdir -p "$BUILD_DIR/webchugl"
+    cp -r "$CMAKE_BUILD_DIR/webchugl/"* "$BUILD_DIR/webchugl/"
+fi
 
 # Minify JS assets
 echo "Minifying JS..."
@@ -76,4 +91,4 @@ python3 "$SCRIPT_DIR/py/minify_js.py" "$BUILD_DIR/webchugl/webchugl.js"
 echo ""
 echo "=== Build Complete ==="
 echo "Output: $BUILD_DIR"
-echo "Next: ./scripts/bundle.sh (to create bundle.zip)"
+echo "Next: ./scripts/bundle.sh (to create bundle.sh)"
