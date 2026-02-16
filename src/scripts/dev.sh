@@ -13,4 +13,4 @@ echo "Starting WebChuGL dev server..."
 echo "Watching src/code/ and src/web/ for changes"
 echo ""
 
-python3 "$SCRIPT_DIR/dev_server.py" "$PORT"
+python3 "$SCRIPT_DIR/py/dev_server.py" "$PORT"

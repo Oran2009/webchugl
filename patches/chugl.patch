@@ -1,5 +1,5 @@
 diff --git a/src/ChuGL.cpp b/src/ChuGL.cpp
-index 1c3c674..fd5ae90 100644
+index 1c3c674..6cc0a9e 100644
 --- a/src/ChuGL.cpp
 +++ b/src/ChuGL.cpp
 @@ -32,12 +32,16 @@
@@ -58,7 +58,48 @@ index 1c3c674..fd5ae90 100644
      }
  
      if (allShredsWaiting && first_of_last_shreds_waited) {
-@@ -704,6 +717,7 @@ void processAsyncFileDialogResults()
+@@ -413,15 +426,39 @@ static void chugl_GraphicsShredUnregister(Chuck_VM_Shred* SHRED)
+     // remove from registered list
+     Sync_UnregisterShred(SHRED);
+ 
+-    // if this is the last graphics shred, close the window
++    // if this is the last graphics shred...
+     if (Sync_NumShredsRegistered() == 0) {
++#ifdef __EMSCRIPTEN__
++        // On web: reset the scene for live coding (clear objects, restore defaults)
++        // Keep the default camera (render pipeline asserts camera->scene_id)
++        // and lights (0-light buffer violates WebGPU minBindingSize)
++        SG_Scene* scene = SG_GetScene(gg_config.mainScene);
++        if (scene) {
++            SG_ID cam_id = scene->desc.main_camera_id;
++            for (int i = (int)SG_Transform::numChildren(scene) - 1; i >= 0; i--) {
++                SG_Transform* child = SG_Transform::child(scene, i);
++                if (!child) continue;
++                if (child->id == cam_id || child->type == SG_COMPONENT_LIGHT)
++                    continue;
++                CQ_PushCommand_RemoveChild(scene, child);
++            }
++            scene->desc.bg_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
++            CQ_PushCommand_SceneUpdate(scene);
++        }
++#else
+         CQ_PushCommand_WindowClose();
++#endif
+     }
+ 
+     // if this would have been the one to trigger graphics thread wakeup, do it
+     // now
+     {
+         spinlock::lock(&waitingShredsLock);
++        // Reset waitingShreds when all graphics shreds are gone to prevent
++        // stale counter from blocking allShredsWaiting for new shreds
++        if (Sync_NumShredsRegistered() == 0) {
++            waitingShreds = 0;
++        }
+         chugl_GraphicsShredPerformNextFrameUpdate(SHRED);
+     }
+ }
+@@ -704,6 +741,7 @@ void processAsyncFileDialogResults()
      spinlock::unlock(&file_dialog_lock);
  }
  
@@ -66,7 +107,7 @@ index 1c3c674..fd5ae90 100644
  /* This is the child thread function */
  int OpenFileDialogThread(void* arg)
  {
-@@ -724,6 +738,7 @@ int OpenFileDialogThread(void* arg)
+@@ -724,6 +762,7 @@ int OpenFileDialogThread(void* arg)
      /* returns NULL on cancel */
      return 0;
  }
@@ -74,7 +115,7 @@ index 1c3c674..fd5ae90 100644
  
  // #define thrd_error    0 /**< The requested operation failed */
  // #define thrd_success  1 /**< The requested operation succeeded */
-@@ -751,20 +766,23 @@ Chuck_Object* chugl_create_file_dialog_event(FileDialogType type, Chuck_VM_Shred
+@@ -751,20 +790,23 @@ Chuck_Object* chugl_create_file_dialog_event(FileDialogType type, Chuck_VM_Shred
  
  CK_DLL_SFUN(chugl_open_file_dialog_async)
  {
@@ -102,7 +143,7 @@ index 1c3c674..fd5ae90 100644
      Chuck_String* ck_str_default_path = GET_NEXT_STRING(ARGS);
  
      const char* default_path
-@@ -776,21 +794,14 @@ CK_DLL_SFUN(chugl_open_file_dialog)
+@@ -776,21 +818,14 @@ CK_DLL_SFUN(chugl_open_file_dialog)
      } else {
          RETURN->v_object = NULL;
      }
@@ -128,7 +169,7 @@ index 1c3c674..fd5ae90 100644
      Chuck_String* ck_str_default_path = GET_NEXT_STRING(ARGS);
  
      const char* default_path
-@@ -802,10 +813,14 @@ CK_DLL_SFUN(chugl_save_file_dialog_ex)
+@@ -802,10 +837,14 @@ CK_DLL_SFUN(chugl_save_file_dialog_ex)
      } else {
          RETURN->v_object = NULL;
      }
@@ -143,7 +184,7 @@ index 1c3c674..fd5ae90 100644
      Chuck_String* ck_str_default_path = GET_NEXT_STRING(ARGS);
  
      const char* default_path
-@@ -817,6 +832,7 @@ CK_DLL_SFUN(chugl_select_folder_dialog)
+@@ -817,6 +856,7 @@ CK_DLL_SFUN(chugl_select_folder_dialog)
      } else {
          RETURN->v_object = NULL;
      }
@@ -151,7 +192,7 @@ index 1c3c674..fd5ae90 100644
  }
  
  // ============================================================================
-@@ -846,6 +862,9 @@ CK_DLL_QUERY(ChuGL)
+@@ -846,6 +886,9 @@ CK_DLL_QUERY(ChuGL)
      log_set_level(LOG_WARN); // only log errors and fatal in release mode
  #endif
  
@@ -161,7 +202,7 @@ index 1c3c674..fd5ae90 100644
      // remember
      g_chuglVM  = QUERY->ck_vm(QUERY);
      g_chuglAPI = QUERY->ck_api(QUERY);
-@@ -867,9 +886,11 @@ CK_DLL_QUERY(ChuGL)
+@@ -867,9 +910,11 @@ CK_DLL_QUERY(ChuGL)
      SG_Init(g_chuglAPI);
      CQ_Init();
  
@@ -173,7 +214,7 @@ index 1c3c674..fd5ae90 100644
  
      // initialize ChuGL API ========================================
      { // chugl events
-@@ -943,14 +964,18 @@ CK_DLL_QUERY(ChuGL)
+@@ -943,14 +988,18 @@ CK_DLL_QUERY(ChuGL)
      }
  
      ulib_color_query(QUERY);
@@ -192,7 +233,7 @@ index 1c3c674..fd5ae90 100644
      ulib_camera_query(QUERY);
      ulib_buffer_query(QUERY);
      ulib_geometry_query(QUERY);
-@@ -960,7 +985,9 @@ CK_DLL_QUERY(ChuGL)
+@@ -960,7 +1009,9 @@ CK_DLL_QUERY(ChuGL)
      ulib_pass_query(QUERY);
      ulib_text_query(QUERY);
  
@@ -224,7 +265,7 @@ index 7269768..02dd579 100644
  #include "app.cpp"
  
 diff --git a/src/app.cpp b/src/app.cpp
-index f083176..e600f0a 100644
+index f083176..4079f65 100644
 --- a/src/app.cpp
 +++ b/src/app.cpp
 @@ -30,19 +30,23 @@
@@ -251,7 +292,7 @@ index f083176..e600f0a 100644
  
  #include <nanotime/nanotime.h>
  #include <sokol/sokol_time.h>
-@@ -52,6 +56,16 @@ static_assert(sizeof(u32) == sizeof(b2WorldId), "b2WorldId != u32");
+@@ -52,6 +56,25 @@ static_assert(sizeof(u32) == sizeof(b2WorldId), "b2WorldId != u32");
  
  #ifdef __EMSCRIPTEN__
  #include <emscripten/html5.h>
@@ -265,10 +306,19 @@ index f083176..e600f0a 100644
 +    g_webchugl_pre_frame_fn = fn;
 +    g_webchugl_pre_frame_data = data;
 +}
++
++// Defined in webchugl_main.cpp via EM_JS.
++// Sets canvas aspect ratio (injects <style> tag) and syncs buffer to CSS size.
++extern "C" void _chugl_set_canvas_aspect_ratio(double ar_x, double ar_y,
++                                                int* out_w, int* out_h);
++// DPR correction: reads canvas CSS size * devicePixelRatio, resizes buffer
++// if it differs from cur_w/cur_h, returns final dimensions via out_w/out_h.
++extern "C" void _chugl_sync_canvas_dpr(int cur_w, int cur_h,
++                                        int* out_w, int* out_h);
  #endif
  
  // #include "camera.cpp"
-@@ -63,8 +77,11 @@ static_assert(sizeof(u32) == sizeof(b2WorldId), "b2WorldId != u32");
+@@ -63,8 +86,11 @@ static_assert(sizeof(u32) == sizeof(b2WorldId), "b2WorldId != u32");
  #include "core/hashmap.h"
  #include "core/log.h"
  
@@ -280,7 +330,7 @@ index f083176..e600f0a 100644
  // Usage:
  //  static ImDrawDataSnapshot snapshot; // Important: make persistent accross
  //  frames to reuse buffers. snapshot.SnapUsingSwap(ImGui::GetDrawData(),
-@@ -172,6 +189,7 @@ static WGPUTextureView ImGui_ImplWGPU_GetTextureId(ImTextureID id, void* user)
+@@ -172,6 +198,7 @@ static WGPUTextureView ImGui_ImplWGPU_GetTextureId(ImTextureID id, void* user)
      desc = { tex->gpu_texture, WGPUTextureViewDimension_2D, 0, 1, 0, 1 };
      return cache->textureView(desc);
  }
@@ -288,7 +338,7 @@ index f083176..e600f0a 100644
  
  struct TickStats {
      u64 fc    = 0;
-@@ -294,8 +312,10 @@ struct App {
+@@ -294,8 +321,10 @@ struct App {
      // imgui
      bool imgui_disabled = false;
  
@@ -299,7 +349,7 @@ index f083176..e600f0a 100644
  
      // FreeType
      FT_Library FTLibrary;
-@@ -328,16 +348,12 @@ struct App {
+@@ -328,16 +357,12 @@ struct App {
          // init rendergraph
          app->rendergraph.init();
  
@@ -318,7 +368,7 @@ index f083176..e600f0a 100644
      static void start(App* app)
      {
          ASSERT(app->window == NULL);
-@@ -401,6 +417,7 @@ struct App {
+@@ -401,6 +426,7 @@ struct App {
          // initialize R_Component manager
          Component_Init(&app->gctx);
  
@@ -326,7 +376,7 @@ index f083176..e600f0a 100644
          { // initialize imgui
              // Setup Dear ImGui context
              IMGUI_CHECKVERSION();
-@@ -416,20 +433,17 @@ struct App {
+@@ -416,20 +442,17 @@ struct App {
  
              // load builtin fonts
              io.Fonts->AddFontDefault();
@@ -349,7 +399,7 @@ index f083176..e600f0a 100644
  
          { // set window callbacks
              glfwSetWindowUserPointer(app->window, app);
-@@ -450,6 +464,7 @@ struct App {
+@@ -450,6 +473,7 @@ struct App {
                                //   https://github.com/glfw/glfw/issues/1968)
          }
  
@@ -357,7 +407,7 @@ index f083176..e600f0a 100644
          // Setup ImGui Platform/Renderer backends
          {
              ImGui_ImplGlfw_InitForOther(app->window, true);
-@@ -460,20 +475,22 @@ struct App {
+@@ -460,20 +484,22 @@ struct App {
              init_info.Device             = app->gctx.device;
              init_info.NumFramesInFlight  = 3;
              init_info.RenderTargetFormat = app->gctx.surface_format;
@@ -381,7 +431,7 @@ index f083176..e600f0a 100644
  
          // main loop
          log_trace("entering  main loop");
-@@ -483,12 +500,23 @@ struct App {
+@@ -483,12 +509,23 @@ struct App {
          // instead pass a callback to emscripten_set_main_loop_arg
          emscripten_set_main_loop_arg(
            [](void* runner) {
@@ -411,7 +461,7 @@ index f083176..e600f0a 100644
            },
            app, // user data (void *)
            -1,  // FPS (negative means use browser's requestAnimationFrame)
-@@ -592,12 +620,17 @@ struct App {
+@@ -592,12 +629,17 @@ struct App {
              - exposes a gameloop to chuck, gauranteed to be executed once per
          frame deadlock shouldn't happen because both locks are never held at the
          same time */
@@ -429,7 +479,7 @@ index f083176..e600f0a 100644
              // Rendering
              if (do_ui) {
                  ImGui::Render();
-@@ -605,6 +638,7 @@ struct App {
+@@ -605,6 +647,7 @@ struct App {
                  // copy imgui draw data for rendering later
                  snapshot.SnapUsingSwap(ImGui::GetDrawData(), ImGui::GetTime());
              }
@@ -437,7 +487,7 @@ index f083176..e600f0a 100644
  
              // imgui and window callbacks
              CHUGL_Zero_MouseDeltasAndClickState();
-@@ -620,6 +654,7 @@ struct App {
+@@ -620,6 +663,7 @@ struct App {
                  glfwPollEvents();
              }
  
@@ -445,7 +495,7 @@ index f083176..e600f0a 100644
              { // gamepad
                  for (int gamepad_idx = 0; gamepad_idx <= GLFW_JOYSTICK_LAST;
                       gamepad_idx++) {
-@@ -663,7 +698,9 @@ struct App {
+@@ -663,7 +707,9 @@ struct App {
                      }
                  }
              }
@@ -455,7 +505,7 @@ index f083176..e600f0a 100644
              if (do_ui) {
                  // reset imgui
                  ImGui_ImplWGPU_NewFrame();
-@@ -674,9 +711,11 @@ struct App {
+@@ -674,9 +720,11 @@ struct App {
                  ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(),
                                               ImGuiDockNodeFlags_PassthruCentralNode);
              }
@@ -467,7 +517,7 @@ index f083176..e600f0a 100644
              // physics
              // we intentionally are NOT having a fixed timestep for the sake of
              // simplicity.
-@@ -693,6 +732,7 @@ struct App {
+@@ -693,6 +741,7 @@ struct App {
                  // log_trace("drawing debug");
                  // b2World_Draw(app->b2_world_id, &debug_draw);
              }
@@ -475,7 +525,7 @@ index f083176..e600f0a 100644
          }
  
          // done swapping the double buffer, let chuck know it's good to continue
-@@ -700,7 +740,9 @@ struct App {
+@@ -700,7 +749,9 @@ struct App {
          // GG.nextFrame()
  
          // grabs waitingShredsLock
@@ -486,7 +536,7 @@ index f083176..e600f0a 100644
  
          // ====================
          // end critical section
-@@ -750,6 +792,7 @@ struct App {
+@@ -750,6 +801,7 @@ struct App {
              return;
          }
  
@@ -494,7 +544,7 @@ index f083176..e600f0a 100644
          { // update webcam textures
              size_t webcam_idx = 0;
              R_Webcam* webcam  = NULL;
-@@ -769,6 +812,7 @@ struct App {
+@@ -769,6 +821,7 @@ struct App {
                  }
              }
          }
@@ -502,7 +552,7 @@ index f083176..e600f0a 100644
  
          // get fresh window info
          f32 aspect = (app->window_fb_width > 0 && app->window_fb_height > 0) ?
-@@ -1219,6 +1263,7 @@ struct App {
+@@ -1219,6 +1272,7 @@ struct App {
          // and with imgui pass
          app->rendergraph.executeAndReset(app->gctx.device, app->gctx.commandEncoder);
  
@@ -510,7 +560,7 @@ index f083176..e600f0a 100644
          // imgui render pass
          if (do_ui && !resized_this_frame) {
              WGPURenderPassColorAttachment imgui_color_attachment = {};
-@@ -1244,6 +1289,7 @@ struct App {
+@@ -1244,6 +1298,7 @@ struct App {
              wgpuRenderPassEncoderEnd(render_pass);
              wgpuRenderPassEncoderRelease(render_pass);
          }
@@ -518,7 +568,7 @@ index f083176..e600f0a 100644
  
          GraphicsContext::presentFrame(&app->gctx);
      }
-@@ -1279,7 +1325,9 @@ struct App {
+@@ -1279,7 +1334,9 @@ struct App {
  
          // ChuGL
          // broadcast WindowCloseEvent
@@ -529,7 +579,7 @@ index f083176..e600f0a 100644
          // block closeable
          if (!CHUGL_Window_Closeable()) glfwSetWindowShouldClose(window, GLFW_FALSE);
      }
-@@ -1291,7 +1339,9 @@ struct App {
+@@ -1291,7 +1348,9 @@ struct App {
          // broadcast to chuck
          CHUGL_Window_ContentScale(xscale, yscale);
          // update content scale
@@ -540,33 +590,18 @@ index f083176..e600f0a 100644
      }
  
      static void _keyCallback(GLFWwindow* window, int key, int scancode, int action,
-@@ -1325,6 +1375,25 @@ struct App {
+@@ -1325,6 +1384,10 @@ struct App {
      static void _onFramebufferResize(GLFWwindow* window, int width, int height)
      {
          log_trace("window resized: %d, %d", width, height);
 +#ifdef __EMSCRIPTEN__
-+        // Handle High DPI scaling
-+        {
-+            double dpr = emscripten_get_device_pixel_ratio();
-+            double css_w, css_h;
-+            emscripten_get_element_css_size("#canvas", &css_w, &css_h);
-+            
-+            int target_w = (int)(css_w * dpr);
-+            int target_h = (int)(css_h * dpr);
-+            
-+            // Update canvas size if it doesn't match the target high-DPI size
-+            if (width != target_w || height != target_h) {
-+                emscripten_set_canvas_element_size("#canvas", target_w, target_h);
-+                width = target_w;
-+                height = target_h;
-+                log_info("WebChuGL: Resized canvas to %dx%d (DPR %f)", width, height, dpr);
-+            }
-+        }
++        // DPR correction — canvas buffer must be CSS size * devicePixelRatio
++        _chugl_sync_canvas_dpr(width, height, &width, &height);
 +#endif
  
          App* app              = (App*)glfwGetWindowUserPointer(window);
          app->window_fb_width  = width;
-@@ -1339,7 +1408,9 @@ struct App {
+@@ -1339,7 +1402,9 @@ struct App {
          glfwGetWindowSize(window, &app->window_width, &app->window_height);
          CHUGL_Window_Size(app->window_width, app->window_height, width, height);
          // broadcast to chuck
@@ -577,7 +612,7 @@ index f083176..e600f0a 100644
      }
  
      static void _mouseButtonCallback(GLFWwindow* window, int button, int action,
-@@ -1347,8 +1418,10 @@ struct App {
+@@ -1347,8 +1412,10 @@ struct App {
      {
          // log_debug("mouse button callback");
  
@@ -588,7 +623,7 @@ index f083176..e600f0a 100644
  
          App* app = (App*)glfwGetWindowUserPointer(window);
          UNUSED_VAR(app);
-@@ -1368,8 +1441,10 @@ struct App {
+@@ -1368,8 +1435,10 @@ struct App {
  
      static void _scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
      {
@@ -599,7 +634,7 @@ index f083176..e600f0a 100644
  
          App* app = (App*)glfwGetWindowUserPointer(window);
          UNUSED_VAR(app);
-@@ -1379,8 +1454,10 @@ struct App {
+@@ -1379,8 +1448,10 @@ struct App {
  
      static void _cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
      {
@@ -610,7 +645,43 @@ index f083176..e600f0a 100644
  
          App* app = (App*)glfwGetWindowUserPointer(window);
          UNUSED_VAR(app);
-@@ -1929,11 +2006,13 @@ static void _R_HandleCommand(App* app, SG_Command* command)
+@@ -1760,6 +1831,27 @@ static void _R_HandleCommand(App* app, SG_Command* command)
+             }
+         } break;
+         case SG_COMMAND_WINDOW_SIZE_LIMITS: {
++#ifdef __EMSCRIPTEN__
++            // Emscripten's built-in GLFW has glfwSetWindowSizeLimits and
++            // glfwSetWindowAspectRatio as no-ops. The native path's
++            // glfwSetWindowSize() call would reset the DPR-scaled canvas
++            // buffer to non-DPR dimensions, making the WebGPU surface
++            // permanently stale (the per-frame resize check compares
++            // against glfwGetFramebufferSize which returns the same
++            // non-DPR value, so the mismatch is never detected).
++            {
++                SG_Command_WindowSizeLimits* cmd
++                  = (SG_Command_WindowSizeLimits*)command;
++                const int PRECISION = 10000;
++                double ar_x = cmd->aspect_ratio_x / (double)PRECISION;
++                double ar_y = cmd->aspect_ratio_y / (double)PRECISION;
++
++                _chugl_set_canvas_aspect_ratio(ar_x, ar_y,
++                                               &frame_buffer_width,
++                                               &frame_buffer_height);
++            }
++            break;
++#else
+             SG_Command_WindowSizeLimits* cmd = (SG_Command_WindowSizeLimits*)command;
+             glfwSetWindowSizeLimits(
+               app->window, (cmd->min_width <= 0) ? GLFW_DONT_CARE : cmd->min_width,
+@@ -1797,6 +1889,7 @@ static void _R_HandleCommand(App* app, SG_Command* command)
+ 
+             glfwSetWindowSize(app->window, width, height);
+             break;
++#endif
+         }
+         case SG_COMMAND_WINDOW_POSITION: {
+             SG_Command_WindowPosition* cmd = (SG_Command_WindowPosition*)command;
+@@ -1929,11 +2022,13 @@ static void _R_HandleCommand(App* app, SG_Command* command)
              app->imgui_disabled         = cmd->disabled;
              break;
          }
@@ -624,7 +695,7 @@ index f083176..e600f0a 100644
          // component --------------
          case SG_COMMAND_COMPONENT_UPDATE_NAME: {
              SG_Command_ComponentUpdateName* cmd
-@@ -2391,6 +2470,7 @@ static void _R_HandleCommand(App* app, SG_Command* command)
+@@ -2391,6 +2486,7 @@ static void _R_HandleCommand(App* app, SG_Command* command)
                  R_Scene::markPrimitiveStale(Component_GetScene(mesh->scene_id), mesh);
              }
          } break;
@@ -632,7 +703,7 @@ index f083176..e600f0a 100644
          case SG_COMMAND_VIDEO_UPDATE: {
              SG_Command_VideoUpdate* cmd = (SG_Command_VideoUpdate*)command;
              R_Video* video              = Component_GetVideo(cmd->video_id);
-@@ -2424,6 +2504,7 @@ static void _R_HandleCommand(App* app, SG_Command* command)
+@@ -2424,6 +2520,7 @@ static void _R_HandleCommand(App* app, SG_Command* command)
              SG_Command_WebcamUpdate* cmd = (SG_Command_WebcamUpdate*)command;
              R_Webcam::update(cmd);
          } break;
@@ -1632,3 +1703,240 @@ index c04603c..71c2966 100644
      gameLoopConditionVar.notify_all();
 +#endif
  }
+diff --git a/src/ulib_box2d.cpp b/src/ulib_box2d.cpp
+index 8de4a68..2dc5694 100644
+--- a/src/ulib_box2d.cpp
++++ b/src/ulib_box2d.cpp
+@@ -61,27 +61,126 @@ body_def)
+         if (access_denied) return;                                                     \
+     }
+ 
+-// make sure we can fit b2 ids within a t_CKINT
++// b2WorldId always fits in t_CKINT (4 bytes on all platforms)
+ static_assert(sizeof(void*) == sizeof(t_CKUINT), "pointer size mismatch");
+-static_assert(sizeof(b2WorldId) <= sizeof(t_CKINT), "b2Worldsize mismatch");
++static_assert(sizeof(b2WorldId) <= sizeof(t_CKINT), "b2WorldId size mismatch");
++
++// On desktop (64-bit), b2BodyId/b2ShapeId (8 bytes) fit directly in t_CKINT.
++// On Emscripten (wasm32), t_CKINT is 4 bytes so we use side-table handles.
++#ifndef __EMSCRIPTEN__
++
+ static_assert(sizeof(b2BodyId) <= sizeof(t_CKINT), "b2Body size mismatch");
+ static_assert(sizeof(b2ShapeId) <= sizeof(t_CKINT), "b2Shape size mismatch");
+ 
+-// accessors
+-// custom accessor because size of the b2Id may be less than the corresponding ckobj
+-// member field (e.g. 32 byte b2WorldId is stored in the slot of a 64byte t_CKINT)
+-// TODO today: refactor GET_B2_ID out and replace
+ #define GET_NEXT_B2_ID(type, val)                                                      \
+     type val = (*(type*)ARGS);                                                         \
+-    static_assert(sizeof(type) <= sizeof(t_CKINT), "b2 id size mismatch");             \
+-    GET_NEXT_INT(ARGS); // advance the pointer by amount allocate
++    GET_NEXT_INT(ARGS);
+ 
+ #define GET_B2_ID(type, ptr) (*(type*)ptr)
+ #define RETURN_B2_ID(type, id) *((type*)&(RETURN->v_int)) = (id)
+-
+ #define OBJ_MEMBER_B2_ID(type, ckobj, offset) (*(type*)OBJ_MEMBER_DATA(ckobj, offset))
+-
+ #define B2_ID_TO_CKINT(id) (*(t_CKINT*)&(id))
++// Desktop compatibility aliases for GET/SET split
++#define OBJ_MEMBER_B2_ID_GET(type, ckobj, offset) OBJ_MEMBER_B2_ID(type, ckobj, offset)
++#define OBJ_MEMBER_B2_ID_SET(type, ckobj, offset, id) (OBJ_MEMBER_B2_ID(type, ckobj, offset) = (id))
++
++#else // __EMSCRIPTEN__ — side-table mapping for 8-byte b2 IDs
++
++#include <vector>
++#include <cstdint>
++
++// Side-table keyed by b2 ID's index1 field. This makes alloc() idempotent:
++// the same b2 ID always maps to the same handle, so event callbacks return
++// the same integer that ChucK code stored when the shape/body was created.
++template <typename T>
++struct B2HandleTable {
++    std::vector<T> entries;
++
++    B2HandleTable() {}
++
++    int32_t alloc(T id) {
++        int32_t handle = id.index1;
++        if (handle >= (int32_t)entries.size())
++            entries.resize(handle + 1, T{});
++        entries[handle] = id;
++        return handle;
++    }
++
++    T get(int32_t handle) const {
++        if (handle >= 0 && handle < (int32_t)entries.size())
++            return entries[handle];
++        return T{};
++    }
++
++    void release(int32_t handle) {
++        if (handle >= 0 && handle < (int32_t)entries.size())
++            entries[handle] = T{};
++    }
++
++    void clear() {
++        entries.clear();
++    }
++};
++
++static B2HandleTable<b2BodyId> g_bodyHandles;
++static B2HandleTable<b2ShapeId> g_shapeHandles;
++
++// Template dispatch: select the right table for a given b2 ID type
++template<typename T> B2HandleTable<T>& b2_handle_table();
++template<> inline B2HandleTable<b2BodyId>& b2_handle_table<b2BodyId>() { return g_bodyHandles; }
++template<> inline B2HandleTable<b2ShapeId>& b2_handle_table<b2ShapeId>() { return g_shapeHandles; }
++
++// if constexpr dispatch: types <= sizeof(t_CKINT) (e.g. b2WorldId) use direct
++// type-punning; larger types (b2BodyId, b2ShapeId) route through the side-table.
++template<typename T>
++inline T b2_id_from_args(void* ptr) {
++    if constexpr (sizeof(T) <= sizeof(t_CKINT))
++        return *(T*)ptr;
++    else
++        return b2_handle_table<T>().get((int32_t)(*(t_CKINT*)ptr));
++}
++
++template<typename T>
++inline void b2_id_return(Chuck_DL_Return* ret, T id) {
++    if constexpr (sizeof(T) <= sizeof(t_CKINT))
++        *(T*)&(ret->v_int) = id;
++    else
++        ret->v_int = (t_CKINT)b2_handle_table<T>().alloc(id);
++}
++
++template<typename T>
++inline T b2_id_from_member(void* data) {
++    if constexpr (sizeof(T) <= sizeof(t_CKINT))
++        return *(T*)data;
++    else
++        return b2_handle_table<T>().get((int32_t)(*(t_CKINT*)data));
++}
++
++template<typename T>
++inline void b2_id_to_member(void* data, T id) {
++    if constexpr (sizeof(T) <= sizeof(t_CKINT))
++        *(T*)data = id;
++    else
++        *(t_CKINT*)data = (t_CKINT)b2_handle_table<T>().alloc(id);
++}
++
++template<typename T>
++inline t_CKINT b2_id_to_ckint(T id) {
++    if constexpr (sizeof(T) <= sizeof(t_CKINT))
++        return *(t_CKINT*)&id;
++    else
++        return (t_CKINT)b2_handle_table<T>().alloc(id);
++}
++
++#define GET_B2_ID(type, ptr)       b2_id_from_args<type>(ptr)
++#define RETURN_B2_ID(type, id)     b2_id_return<type>(RETURN, id)
++#define B2_ID_TO_CKINT(id)         b2_id_to_ckint(id)
++#define GET_NEXT_B2_ID(type, val)  type val = b2_id_from_args<type>(ARGS); GET_NEXT_INT(ARGS);
++#define OBJ_MEMBER_B2_ID(type, ckobj, offset) b2_id_from_member<type>(OBJ_MEMBER_DATA(ckobj, offset))
++#define OBJ_MEMBER_B2_ID_GET(type, ckobj, offset) b2_id_from_member<type>(OBJ_MEMBER_DATA(ckobj, offset))
++#define OBJ_MEMBER_B2_ID_SET(type, ckobj, offset, id) b2_id_to_member<type>(OBJ_MEMBER_DATA(ckobj, offset), id)
++
++#endif // __EMSCRIPTEN__
+ 
+ b2BodyType ckint_to_b2BodyType(t_CKINT type)
+ {
+@@ -2547,7 +2646,7 @@ static void b2BodyMoveEvent_to_ckobj(CK_DL_API API, Chuck_Object* ckobj,
+     // convert complex rot to radians
+     OBJ_MEMBER_FLOAT(ckobj, b2BodyMoveEvent_rot_offset)
+       = b2Rot_GetAngle(obj->transform.q);
+-    OBJ_MEMBER_B2_ID(b2BodyId, ckobj, b2BodyMoveEvent_bodyId_offset) = obj->bodyId;
++    OBJ_MEMBER_B2_ID_SET(b2BodyId, ckobj, b2BodyMoveEvent_bodyId_offset, obj->bodyId);
+     OBJ_MEMBER_INT(ckobj, b2BodyMoveEvent_fellAsleep_offset)         = obj->fellAsleep;
+ }
+ 
+@@ -2591,6 +2690,10 @@ CK_DLL_SFUN(b2_DestroyWorld)
+ {
+     ulib_box2d_accessAllowed;
+     b2DestroyWorld(GET_B2_ID(b2WorldId, ARGS));
++#ifdef __EMSCRIPTEN__
++    g_bodyHandles.clear();
++    g_shapeHandles.clear();
++#endif
+ }
+ 
+ CK_DLL_SFUN(b2_CreateBody)
+@@ -2606,7 +2709,15 @@ CK_DLL_SFUN(b2_CreateBody)
+ CK_DLL_SFUN(b2_DestroyBody)
+ {
+     ulib_box2d_accessAllowed;
+-    b2DestroyBody(GET_B2_ID(b2BodyId, ARGS));
++#ifdef __EMSCRIPTEN__
++    int32_t handle = (int32_t)(*(t_CKINT*)ARGS);
++    b2BodyId body_id = g_bodyHandles.get(handle);
++    g_bodyHandles.release(handle);
++    GET_NEXT_INT(ARGS);
++#else
++    b2BodyId body_id = GET_B2_ID(b2BodyId, ARGS);
++#endif
++    b2DestroyBody(body_id);
+ }
+ 
+ CK_DLL_SFUN(b2_MakeBox)
+@@ -3051,8 +3162,6 @@ CK_DLL_SFUN(b2_World_OverlapAABB)
+     b2AABB aabb          = vec4_to_b2AABB(GET_NEXT_VEC4(ARGS));
+     b2QueryFilter filter = ckobj_to_b2QueryFilter(GET_NEXT_OBJECT(ARGS));
+ 
+-    static_assert(sizeof(b2ShapeId) == sizeof(t_CKINT), "b2ShapeId size mismatch");
+-
+     Chuck_Object* overlapping_shapes
+       = chugin_createCkObj(g_chuck_types.int_array, false, SHRED);
+ 
+@@ -3583,7 +3692,7 @@ CK_DLL_CTOR(b2ShapeCastInput_ctor)
+ static void b2RayResult_to_ckobj(Chuck_Object* ckobj, b2RayResult* obj)
+ {
+     CK_DL_API API                                                = g_chuglAPI;
+-    OBJ_MEMBER_B2_ID(b2ShapeId, ckobj, b2RayResult_shape_offset) = obj->shapeId;
++    OBJ_MEMBER_B2_ID_SET(b2ShapeId, ckobj, b2RayResult_shape_offset, obj->shapeId);
+     OBJ_MEMBER_VEC2(ckobj, b2RayResult_point_offset) = { obj->point.x, obj->point.y };
+     OBJ_MEMBER_VEC2(ckobj, b2RayResult_normal_offset)
+       = { obj->normal.x, obj->normal.y };
+@@ -3860,7 +3969,15 @@ CK_DLL_SFUN(b2_CreatePolygonShape)
+ CK_DLL_SFUN(b2_DestroyShape)
+ {
+     ulib_box2d_accessAllowed;
+-    b2DestroyShape(GET_B2_ID(b2ShapeId, ARGS), false);
++#ifdef __EMSCRIPTEN__
++    int32_t handle = (int32_t)(*(t_CKINT*)ARGS);
++    b2ShapeId shape_id = g_shapeHandles.get(handle);
++    g_shapeHandles.release(handle);
++    GET_NEXT_INT(ARGS);
++#else
++    b2ShapeId shape_id = GET_B2_ID(b2ShapeId, ARGS);
++#endif
++    b2DestroyShape(shape_id, false);
+ }
+ 
+ CK_DLL_SFUN(b2_Shape_IsValid)
+@@ -4688,7 +4805,7 @@ CK_DLL_SFUN(b2_Body_get_shapes)
+ 
+     // copy into array
+     for (int i = 0; i < shape_count; i++) {
+-        t_CKINT shape_id = *(t_CKINT*)(shape_id_array + i);
++        t_CKINT shape_id = B2_ID_TO_CKINT(shape_id_array[i]);
+         API->object->array_int_push_back(ck_shape_array, shape_id);
+     }
+ }
+@@ -5149,10 +5266,10 @@ CK_DLL_MFUN(b2_DebugDraw_DrawString)
+ static void b2ContactHitEvent_to_ckobj(CK_DL_API API, Chuck_Object* ckobj,
+                                        b2ContactHitEvent* obj)
+ {
+-    OBJ_MEMBER_B2_ID(b2ShapeId, ckobj, b2ContactHitEvent_shapeIdA_offset)
+-      = obj->shapeIdA;
+-    OBJ_MEMBER_B2_ID(b2ShapeId, ckobj, b2ContactHitEvent_shapeIdB_offset)
+-      = obj->shapeIdB;
++    OBJ_MEMBER_B2_ID_SET(b2ShapeId, ckobj, b2ContactHitEvent_shapeIdA_offset,
++                         obj->shapeIdA);
++    OBJ_MEMBER_B2_ID_SET(b2ShapeId, ckobj, b2ContactHitEvent_shapeIdB_offset,
++                         obj->shapeIdB);
+     OBJ_MEMBER_VEC2(ckobj, b2ContactHitEvent_point_offset)
+       = { obj->point.x, obj->point.y };
+     OBJ_MEMBER_VEC2(ckobj, b2ContactHitEvent_normal_offset)

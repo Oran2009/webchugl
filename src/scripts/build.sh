@@ -1,6 +1,9 @@
 #!/bin/bash
-# Build WebChuGL
+# Build WebChuGL (WASM compilation only)
 # Usage: ./build.sh [--clean] [-j N]
+#
+# This only compiles C++/WASM. To bundle code/packages into bundle.zip,
+# run bundle.sh separately (or use build-and-bundle.sh for both).
 
 set -e
 
@@ -61,27 +64,6 @@ if [ ! -f "$BUILD_DIR/CMakeCache.txt" ]; then
     cd "$SRC_DIR"
 fi
 
-# Copy code directory to build/code/ (preserving structure for /code/main.ck path)
-CODE_DIR="$SRC_DIR/code"
-BUILD_CODE_DIR="$BUILD_DIR/code"
-if [ -d "$CODE_DIR" ]; then
-    rm -rf "$BUILD_CODE_DIR"
-    cp -r "$CODE_DIR" "$BUILD_CODE_DIR"
-    echo "Copied code/ to build/code/"
-fi
-
-# Fetch ChuMP packages if packages.json exists
-PACKAGES_JSON="$CODE_DIR/packages.json"
-BUILD_PACKAGES_DIR="$BUILD_DIR/packages"
-if [ -f "$PACKAGES_JSON" ]; then
-    echo "Fetching ChuMP packages..."
-    python3 "$SCRIPT_DIR/fetch_packages.py" "$PACKAGES_JSON" "$BUILD_PACKAGES_DIR"
-fi
-
-# Create bundle.zip containing code/ and packages/ directories
-echo "Creating bundle.zip..."
-python3 "$SCRIPT_DIR/create_bundle.py" "$BUILD_DIR"
-
 # Build
 echo "Building WASM..."
 cd "$BUILD_DIR"
@@ -89,17 +71,9 @@ cd "$BUILD_DIR"
 
 # Minify JS assets
 echo "Minifying JS..."
-python3 "$SCRIPT_DIR/minify_js.py" "$BUILD_DIR/webchugl/webchugl.js"
-
-# Clean up build artifacts (keep only files needed for web serving)
-echo "Cleaning build directory..."
-cd "$BUILD_DIR"
-# Remove CMake/Make build artifacts
-rm -rf CMakeFiles cmake_install.cmake CMakeCache.txt Makefile freetype_build .ninja_deps .ninja_log build.ninja CPackConfig.cmake CPackSourceConfig.cmake
-# Remove source directories already bundled in bundle.zip
-rm -rf code packages
+python3 "$SCRIPT_DIR/py/minify_js.py" "$BUILD_DIR/webchugl/webchugl.js"
 
 echo ""
 echo "=== Build Complete ==="
-echo "Output: $BUILD_DIR/index.html"
-echo "To serve: ./scripts/dev.sh"
+echo "Output: $BUILD_DIR"
+echo "Next: ./scripts/bundle.sh (to create bundle.zip)"

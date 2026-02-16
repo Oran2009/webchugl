@@ -6,7 +6,7 @@
  *
  */
 
-var CACHE_NAME = 'webchugl-v4';
+var CACHE_NAME = 'webchugl-v5';
 var ASSETS_TO_CACHE = [
     './',
     'index.html',
@@ -58,6 +58,10 @@ self.addEventListener('fetch', function(event) {
 
     // Chrome bug: only-if-cached with mode !== same-origin causes fetch to fail
     if (r.cache === 'only-if-cached' && r.mode !== 'same-origin') return;
+
+    // Don't intercept cross-origin requests (avoids CORS issues with
+    // external APIs like EventSource, CDN resources, etc.)
+    if (new URL(r.url).origin !== self.location.origin) return;
 
     // If coepCredentialless is enabled and this is a no-cors request,
     // strip credentials so cross-origin resources load without CORS headers

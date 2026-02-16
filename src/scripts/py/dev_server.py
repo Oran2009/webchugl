@@ -22,7 +22,7 @@ import urllib.parse
 
 # ── Paths ──────────────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-SRC_DIR = os.path.dirname(SCRIPT_DIR)
+SRC_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 PROJECT_DIR = os.path.dirname(SRC_DIR)
 BUILD_DIR = os.path.join(SRC_DIR, 'build')
 WEB_DIR = os.path.join(SRC_DIR, 'web')

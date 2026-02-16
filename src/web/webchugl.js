@@ -849,6 +849,11 @@ window.initWebChuGLAudio = function(sab, outBufPtr, outWritePosPtr, outReadPosPt
 
         node.connect(ctx.destination);
 
+        // Expose audio context and node so setup.js / Web-ChuGins can
+        // tap into the audio graph (e.g. for recording, analysis, effects).
+        window.audioCtx = ctx;
+        window.audioNode = node;
+
         // Request microphone if ChucK code uses adc
         if (needsMic) {
             navigator.mediaDevices.getUserMedia({ audio: true })

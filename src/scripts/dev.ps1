@@ -14,4 +14,4 @@ Write-Host "Starting WebChuGL dev server..." -ForegroundColor Cyan
 Write-Host "Watching src/code/ and src/web/ for changes" -ForegroundColor Gray
 Write-Host ""
 
-py (Join-Path $ScriptDir "dev_server.py") $Port
+py (Join-Path $ScriptDir "py\dev_server.py") $Port

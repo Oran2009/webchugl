@@ -463,6 +463,57 @@ int main(int argc, char** argv)
 
 // --- EM_JS dispatchers: called from C++ callbacks, dispatch into JS --------
 
+// Enforce canvas aspect ratio via a <style> tag, then sync the canvas buffer
+// to the new CSS display size (with DPR scaling). Called from app.cpp's
+// SG_COMMAND_WINDOW_SIZE_LIMITS handler.
+EM_JS(void, _chugl_set_canvas_aspect_ratio,
+      (double ar_x, double ar_y, int* out_w, int* out_h), {
+    var STYLE_ID = 'chugl-aspect-style';
+    var CANVAS_ID = 'canvas';
+    var s = document.getElementById(STYLE_ID);
+    if (ar_x > 0 && ar_y > 0) {
+        if (!s) {
+            s = document.createElement('style');
+            s.id = STYLE_ID;
+            document.head.appendChild(s);
+        }
+        s.textContent =
+            'body { display:flex; justify-content:center; align-items:center; } ' +
+            '#' + CANVAS_ID + ' { ' +
+            'width: min(100vw, 100vh * ' + ar_x + ' / ' + ar_y + ') !important; ' +
+            'height: min(100vh, 100vw * ' + ar_y + ' / ' + ar_x + ') !important; ' +
+            '}';
+    } else {
+        if (s) s.remove();
+    }
+    // Sync canvas buffer to the (possibly changed) CSS display size
+    var c = document.getElementById(CANVAS_ID);
+    var dpr = devicePixelRatio || 1;
+    var rect = c.getBoundingClientRect();
+    var w = Math.round(rect.width * dpr);
+    var h = Math.round(rect.height * dpr);
+    c.width = w;
+    c.height = h;
+    HEAP32[out_w >> 2] = w;
+    HEAP32[out_h >> 2] = h;
+});
+
+// DPR correction for the canvas buffer. Called from app.cpp's _onFramebufferResize.
+EM_JS(void, _chugl_sync_canvas_dpr,
+      (int cur_w, int cur_h, int* out_w, int* out_h), {
+    var c = document.getElementById('canvas');
+    var dpr = devicePixelRatio || 1;
+    var rect = c.getBoundingClientRect();
+    var w = Math.round(rect.width * dpr);
+    var h = Math.round(rect.height * dpr);
+    if (cur_w !== w || cur_h !== h) {
+        c.width = w;
+        c.height = h;
+    }
+    HEAP32[out_w >> 2] = w;
+    HEAP32[out_h >> 2] = h;
+});
+
 EM_JS(void, _ck_resolve_int, (int id, int val), {
     var cb = Module._ckCallbacks[id];
     if (cb) { cb(val); delete Module._ckCallbacks[id]; }

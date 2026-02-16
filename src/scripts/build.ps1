@@ -1,5 +1,8 @@
-# Build WebChuGL
-# Usage: ./build.ps1 [-Clean]
+# Build WebChuGL (WASM compilation only)
+# Usage: ./build.ps1 [-Clean] [-Jobs N]
+#
+# This only compiles C++/WASM. To bundle code/packages into bundle.zip,
+# run bundle.ps1 separately (or use build-and-bundle.ps1 for both).
 
 param(
     [switch]$Clean,
@@ -28,31 +31,6 @@ if (-not (Test-Path $BuildDir)) {
     New-Item -ItemType Directory -Path $BuildDir | Out-Null
 }
 
-# Copy code directory to build/code/ (preserving structure for /code/main.ck path)
-$CodeDir = Join-Path $SrcDir "code"
-$BuildCodeDir = Join-Path $BuildDir "code"
-if (Test-Path $CodeDir) {
-    if (Test-Path $BuildCodeDir) {
-        Remove-Item -Recurse -Force $BuildCodeDir
-    }
-    Copy-Item $CodeDir $BuildCodeDir -Recurse -Force
-    Write-Host "Copied code/ to build/code/" -ForegroundColor Gray
-}
-
-# Fetch ChuMP packages if packages.json exists
-$PackagesJson = Join-Path $CodeDir "packages.json"
-$BuildPackagesDir = Join-Path $BuildDir "packages"
-if (Test-Path $PackagesJson) {
-    Write-Host "Fetching ChuMP packages..." -ForegroundColor Yellow
-    py (Join-Path $ScriptDir "fetch_packages.py") "$PackagesJson" "$BuildPackagesDir"
-    if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: Package fetch failed" -ForegroundColor Yellow }
-}
-
-# Create bundle.zip containing code/ and packages/ directories
-Write-Host "Creating bundle.zip..." -ForegroundColor Yellow
-py (Join-Path $ScriptDir "create_bundle.py") "$BuildDir"
-if ($LASTEXITCODE -ne 0) { throw "Bundle creation failed" }
-
 # Configure
 $CMakeCacheFile = Join-Path $BuildDir "CMakeCache.txt"
 if (-not (Test-Path $CMakeCacheFile)) {
@@ -80,21 +58,8 @@ try {
 
 # Minify JS assets
 Write-Host "Minifying JS..." -ForegroundColor Gray
-py (Join-Path $ScriptDir "minify_js.py") (Join-Path (Join-Path $BuildDir "webchugl") "webchugl.js")
-
-# Clean up build artifacts (keep only files needed for web serving)
-Write-Host "Cleaning build directory..." -ForegroundColor Gray
-$cleanDirs = @("CMakeFiles", "freetype_build", "code", "packages")
-foreach ($d in $cleanDirs) {
-    $p = Join-Path $BuildDir $d
-    if (Test-Path $p) { Remove-Item -Recurse -Force $p }
-}
-$cleanFiles = @("cmake_install.cmake", "CMakeCache.txt", "Makefile", ".ninja_deps", ".ninja_log", "build.ninja", "CPackConfig.cmake", "CPackSourceConfig.cmake")
-foreach ($f in $cleanFiles) {
-    $p = Join-Path $BuildDir $f
-    if (Test-Path $p) { Remove-Item -Force $p }
-}
+py (Join-Path $ScriptDir "py\minify_js.py") (Join-Path (Join-Path $BuildDir "webchugl") "webchugl.js")
 
 Write-Host "`n=== Build Complete ===" -ForegroundColor Green
-Write-Host "Output: $BuildDir/index.html" -ForegroundColor Gray
-Write-Host "`nTo serve: ./scripts/dev.ps1" -ForegroundColor Cyan
+Write-Host "Output: $BuildDir" -ForegroundColor Gray
+Write-Host "`nNext: ./scripts/bundle.ps1 (to create bundle.zip)" -ForegroundColor Cyan
