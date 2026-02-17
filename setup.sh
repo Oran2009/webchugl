@@ -15,7 +15,7 @@ CHUGL_COMMIT="9d6245a"
 CHUCK_REPO="https://github.com/ccrma/chuck.git"
 CHUCK_COMMIT="60caede9"
 
-EMSDK_VERSION="3.1.61"
+EMSDK_VERSION="4.0.17"
 
 echo "=== WebChuGL Setup ==="
 echo ""
@@ -145,6 +145,35 @@ if [ -f "$CHUCK_PATCH" ]; then
         echo "[chuck] Patch applied successfully"
     fi
     cd "$PROJECT_ROOT"
+fi
+
+# Apply emscripten-glfw patch (contrib.glfw3 port)
+GLFW_PATCH="$PATCH_DIR/emscripten-glfw.patch"
+GLFW_PORT_DIR="$EMSDK_INSTALL/cache/ports/contrib.glfw3"
+if [ -f "$GLFW_PATCH" ]; then
+    # Pre-fetch the port if not already cached
+    if [ ! -d "$GLFW_PORT_DIR" ]; then
+        echo "[emscripten-glfw] Fetching contrib.glfw3 port..."
+        TEMP_C=$(mktemp /tmp/webchugl_fetch_XXXXXX.c)
+        echo "int main(){return 0;}" > "$TEMP_C"
+        "$EMSDK_INSTALL/emcc" --use-port=contrib.glfw3 -c "$TEMP_C" -o "${TEMP_C}.o" 2>/dev/null || true
+        rm -f "$TEMP_C" "${TEMP_C}.o"
+    fi
+
+    if [ -d "$GLFW_PORT_DIR" ]; then
+        GLFW_JS_FILE="$GLFW_PORT_DIR/src/js/lib_emscripten_glfw3.js"
+        if [ -f "$GLFW_JS_FILE" ] && ! grep -q "Re-register MQL with current DPR" "$GLFW_JS_FILE"; then
+            echo "[emscripten-glfw] Applying patch..."
+            cd "$GLFW_PORT_DIR"
+            patch -p1 < "$GLFW_PATCH"
+            echo "[emscripten-glfw] Patch applied successfully"
+            cd "$PROJECT_ROOT"
+        else
+            echo "[emscripten-glfw] Patch already applied"
+        fi
+    else
+        echo "[emscripten-glfw] Warning: Port not found, patch will be applied during build"
+    fi
 fi
 
 # ============================================================================

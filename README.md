@@ -12,12 +12,12 @@
 ## Setup
 
 ```bash
-# Clone and set up dependencies (chuck, chugl, emsdk 3.1.61)
+# Clone and set up dependencies (chuck, chugl, emsdk 4.0.17)
 ./setup.sh        # Unix
 ./setup.ps1       # Windows
 ```
 
-This clones chuck and chugl at pinned commits, installs Emscripten 3.1.61, and applies patches from `patches/`.
+This clones chuck and chugl at pinned commits, installs Emscripten 4.0.17, and applies patches from `patches/`.
 
 ## Build
 

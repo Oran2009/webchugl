@@ -15,7 +15,7 @@ SRC_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$SRC_DIR/build"
 CMAKE_BUILD_DIR="$SRC_DIR/.cmake-build"
 PROJECT_ROOT="$(dirname "$SRC_DIR")"
-EMSDK_DIR="$PROJECT_ROOT/emsdk-3.1.61/install/emscripten"
+EMSDK_DIR="$PROJECT_ROOT/emsdk-4.0.17/install/emscripten"
 
 # Parse arguments
 CLEAN=false
@@ -39,6 +39,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+PATCH_DIR="$PROJECT_ROOT/patches"
+
 echo "=== Building WebChuGL ==="
 
 # Check for emscripten
@@ -50,6 +52,18 @@ fi
 
 EMCMAKE="$EMSDK_DIR/emcmake"
 EMMAKE="$EMSDK_DIR/emmake"
+
+# Ensure emscripten-glfw patch is applied
+GLFW_PATCH="$PATCH_DIR/emscripten-glfw.patch"
+GLFW_JS_FILE="$EMSDK_DIR/cache/ports/contrib.glfw3/src/js/lib_emscripten_glfw3.js"
+if [ -f "$GLFW_PATCH" ] && [ -f "$GLFW_JS_FILE" ]; then
+    if ! grep -q "Re-register MQL with current DPR" "$GLFW_JS_FILE"; then
+        echo "Applying emscripten-glfw patch..."
+        cd "$EMSDK_DIR/cache/ports/contrib.glfw3"
+        patch -p1 < "$GLFW_PATCH"
+        cd "$SRC_DIR"
+    fi
+fi
 
 # Clean if requested
 if [ "$CLEAN" = true ]; then
@@ -65,7 +79,7 @@ mkdir -p "$BUILD_DIR" "$CMAKE_BUILD_DIR"
 if [ ! -f "$CMAKE_BUILD_DIR/CMakeCache.txt" ]; then
     echo "Configuring with CMake..."
     cd "$CMAKE_BUILD_DIR"
-    "$EMCMAKE" cmake "$SRC_DIR"
+    "$EMCMAKE" cmake "$SRC_DIR" -DCMAKE_POLICY_VERSION_MINIMUM="3.5"
     cd "$SRC_DIR"
 fi
 
