@@ -150,6 +150,7 @@ target_compile_definitions(webchugl PRIVATE
 target_compile_options(webchugl PRIVATE
     -fPIC  # Required for -sMAIN_MODULE (dynamic linking)
     -pthread
+    --use-port=contrib.glfw3
     -O2
     -Wno-unused-parameter
     -Wno-sign-compare
@@ -188,7 +189,7 @@ target_link_libraries(webchugl PRIVATE freetype)
 # ===========================================================================
 target_link_options(webchugl PRIVATE
     -sUSE_WEBGPU
-    -sUSE_GLFW=3
+    --use-port=contrib.glfw3
     # -pthread required for ABI compatibility with SIDE_MODULE ChuGins
     -pthread
     -sALLOW_MEMORY_GROWTH

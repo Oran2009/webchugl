@@ -18,11 +18,26 @@ $ScriptDir = $PSScriptRoot
 $SrcDir = Split-Path -Parent $ScriptDir
 $BuildDir = Join-Path $SrcDir "build"
 $CMakeBuildDir = Join-Path $SrcDir ".cmake-build"
-$EmsdkDir = Join-Path (Split-Path -Parent $SrcDir) "emsdk-3.1.61\install\emscripten"
+$EmsdkDir = Join-Path (Split-Path -Parent $SrcDir) "emsdk-4.0.17\install\emscripten"
 $EmCMake = Join-Path $EmsdkDir "emcmake.py"
 $EmMake = Join-Path $EmsdkDir "emmake.py"
 
+$ProjectRoot = Split-Path -Parent $SrcDir
+$PatchDir = Join-Path $ProjectRoot "patches"
+
 Write-Host "=== Building WebChuGL ===" -ForegroundColor Cyan
+
+# Ensure emscripten-glfw patch is applied
+$GlfwPatch = Join-Path $PatchDir "emscripten-glfw.patch"
+$GlfwJsFile = Join-Path $EmsdkDir "cache\ports\contrib.glfw3\src\js\lib_emscripten_glfw3.js"
+if ((Test-Path $GlfwPatch) -and (Test-Path $GlfwJsFile)) {
+    if (-not (Select-String -Path $GlfwJsFile -Pattern "Re-register MQL with current DPR" -Quiet)) {
+        Write-Host "Applying emscripten-glfw patch..." -ForegroundColor Yellow
+        Push-Location (Join-Path $EmsdkDir "cache\ports\contrib.glfw3")
+        patch -p1 -i $GlfwPatch
+        Pop-Location
+    }
+}
 
 # Clean if requested
 if ($Clean) {

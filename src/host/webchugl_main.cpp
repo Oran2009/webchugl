@@ -463,55 +463,53 @@ int main(int argc, char** argv)
 
 // --- EM_JS dispatchers: called from C++ callbacks, dispatch into JS --------
 
-// Enforce canvas aspect ratio via a <style> tag, then sync the canvas buffer
-// to the new CSS display size (with DPR scaling). Called from app.cpp's
-// SG_COMMAND_WINDOW_SIZE_LIMITS handler.
-EM_JS(void, _chugl_set_canvas_aspect_ratio,
-      (double ar_x, double ar_y, int* out_w, int* out_h), {
+// Letterbox setup for contrib.glfw3: overrides the resize observer's computeSize
+// to return shrink-to-fit dimensions, and injects body centering CSS.
+// Called from app.cpp's SG_COMMAND_WINDOW_SIZE_LIMITS handler.
+EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
     var STYLE_ID = 'chugl-aspect-style';
-    var CANVAS_ID = 'canvas';
+    var canvas = document.getElementById('canvas');
+    var hasAspect = (ar_x > 0 && ar_y > 0);
+
+    // Manage centering CSS on body
     var s = document.getElementById(STYLE_ID);
-    if (ar_x > 0 && ar_y > 0) {
+    if (hasAspect) {
         if (!s) {
             s = document.createElement('style');
             s.id = STYLE_ID;
             document.head.appendChild(s);
         }
-        s.textContent =
-            'body { display:flex; justify-content:center; align-items:center; } ' +
-            '#' + CANVAS_ID + ' { ' +
-            'width: min(100vw, 100vh * ' + ar_x + ' / ' + ar_y + ') !important; ' +
-            'height: min(100vh, 100vw * ' + ar_y + ' / ' + ar_x + ') !important; ' +
-            '}';
+        s.textContent = 'body { display:flex; justify-content:center; align-items:center; }';
     } else {
         if (s) s.remove();
     }
-    // Sync canvas buffer to the (possibly changed) CSS display size
-    var c = document.getElementById(CANVAS_ID);
-    var dpr = devicePixelRatio || 1;
-    var rect = c.getBoundingClientRect();
-    var w = Math.round(rect.width * dpr);
-    var h = Math.round(rect.height * dpr);
-    c.width = w;
-    c.height = h;
-    HEAP32[out_w >> 2] = w;
-    HEAP32[out_h >> 2] = h;
-});
 
-// DPR correction for the canvas buffer. Called from app.cpp's _onFramebufferResize.
-EM_JS(void, _chugl_sync_canvas_dpr,
-      (int cur_w, int cur_h, int* out_w, int* out_h), {
-    var c = document.getElementById('canvas');
-    var dpr = devicePixelRatio || 1;
-    var rect = c.getBoundingClientRect();
-    var w = Math.round(rect.width * dpr);
-    var h = Math.round(rect.height * dpr);
-    if (cur_w !== w || cur_h !== h) {
-        c.width = w;
-        c.height = h;
+    // Override contrib.glfw3 resize observer's computeSize so it returns
+    // letterboxed (shrink-to-fit) dimensions instead of full viewport.
+    var glfwWindow = Module['glfwGetWindow'](canvas);
+    if (glfwWindow != null && typeof GLFW3 !== 'undefined') {
+        var ctx = GLFW3.fWindowContexts[glfwWindow];
+        if (ctx && ctx.fCanvasResize) {
+            if (hasAspect) {
+                var ar = ar_x / ar_y;
+                ctx.fCanvasResize.computeSize = function() {
+                    var vw = window.innerWidth;
+                    var vh = window.innerHeight;
+                    if (vw / vh > ar) {
+                        return {width: Math.round(vh * ar), height: vh};
+                    } else {
+                        return {width: vw, height: Math.round(vw / ar)};
+                    }
+                };
+            } else {
+                ctx.fCanvasResize.computeSize = function() {
+                    return {width: window.innerWidth, height: window.innerHeight};
+                };
+            }
+            // Trigger immediate resize with new computeSize
+            window.dispatchEvent(new Event('resize'));
+        }
     }
-    HEAP32[out_w >> 2] = w;
-    HEAP32[out_h >> 2] = h;
 });
 
 EM_JS(void, _ck_resolve_int, (int id, int val), {
@@ -760,33 +758,6 @@ int ck_get_assoc_float_array_value(const char* name, const char* key, int callba
     if (!the_chuck) return 0;
     return the_chuck->vm()->globals_manager()->getGlobalAssociativeFloatArrayValue(
         name, (t_CKINT)callback_id, key, _cb_get_float);
-}
-
-// ---- Gamepad bridge -------------------------------------------------
-
-EMSCRIPTEN_KEEPALIVE
-void ck_gamepad_connect(int gp_id, const char* name)
-{
-    CQ_PushCommand_G2A_GamepadConnect(gp_id, 1, name);
-}
-
-EMSCRIPTEN_KEEPALIVE
-void ck_gamepad_disconnect(int gp_id)
-{
-    CQ_PushCommand_G2A_GamepadConnect(gp_id, 0, "");
-}
-
-EMSCRIPTEN_KEEPALIVE
-void ck_gamepad_state(int gp_id, float* axes, int num_axes,
-                      unsigned char* buttons, int num_buttons)
-{
-    GLFWgamepadstate state;
-    memset(&state, 0, sizeof(state));
-    int axesToCopy = num_axes < 6 ? num_axes : 6;
-    for (int i = 0; i < axesToCopy; i++) state.axes[i] = axes[i];
-    int btnsToCopy = num_buttons < 15 ? num_buttons : 15;
-    for (int i = 0; i < btnsToCopy; i++) state.buttons[i] = buttons[i];
-    CQ_PushCommand_G2A_GamepadState(gp_id, &state);
 }
 
 } // extern "C"

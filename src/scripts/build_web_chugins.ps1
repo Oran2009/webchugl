@@ -14,7 +14,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SrcDir = Split-Path -Parent $ScriptDir
 $ProjectRoot = Split-Path -Parent $SrcDir
 $OutputDir = Join-Path $ProjectRoot "chugins"
-$EmsdkDir = Join-Path $ProjectRoot "emsdk-3.1.61\install\emscripten"
+$EmsdkDir = Join-Path $ProjectRoot "emsdk-4.0.17\install\emscripten"
 $Emcc = Join-Path $EmsdkDir "emcc.py"
 
 # Verify emsdk

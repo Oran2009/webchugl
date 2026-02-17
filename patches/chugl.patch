@@ -265,10 +265,10 @@ index 7269768..02dd579 100644
  #include "app.cpp"
  
 diff --git a/src/app.cpp b/src/app.cpp
-index f083176..4079f65 100644
+index f083176..7a4e6a3 100644
 --- a/src/app.cpp
 +++ b/src/app.cpp
-@@ -30,19 +30,23 @@
+@@ -30,19 +30,24 @@
  #include <stdlib.h>
  #include <time.h>
  
@@ -281,6 +281,7 @@ index f083176..4079f65 100644
  #include <GLFW/glfw3.h>
  #include <chuck/chugin.h>
  #include <glfw3webgpu/glfw3webgpu.h>
++#include <glm/gtc/type_ptr.hpp>
  #include <glm/gtx/string_cast.hpp>
  
 +#ifndef WEBCHUGL_NO_IMGUI
@@ -292,14 +293,22 @@ index f083176..4079f65 100644
  
  #include <nanotime/nanotime.h>
  #include <sokol/sokol_time.h>
-@@ -52,6 +56,25 @@ static_assert(sizeof(u32) == sizeof(b2WorldId), "b2WorldId != u32");
+@@ -52,6 +57,29 @@ static_assert(sizeof(u32) == sizeof(b2WorldId), "b2WorldId != u32");
  
  #ifdef __EMSCRIPTEN__
  #include <emscripten/html5.h>
++#include <emscripten/emscripten.h>
++#ifdef EMSCRIPTEN_USE_PORT_CONTRIB_GLFW3
++#include <GLFW/emscripten_glfw3.h>
++#endif
 +
 +// Pre-frame callback for web builds (used by webchugl_main.cpp to run the VM)
 +static void (*g_webchugl_pre_frame_fn)(void*) = nullptr;
 +static void* g_webchugl_pre_frame_data = nullptr;
++
++// XR: global App pointer for extern "C" XR hooks
++struct App;
++static App* g_xr_app_ptr = nullptr;
 +
 +extern "C" void webchugl_set_pre_frame_callback(void (*fn)(void*), void* data)
 +{
@@ -307,18 +316,14 @@ index f083176..4079f65 100644
 +    g_webchugl_pre_frame_data = data;
 +}
 +
++// Letterbox setup for contrib.glfw3: overrides resize observer's computeSize
++// to return shrink-to-fit dimensions, and injects body centering CSS.
 +// Defined in webchugl_main.cpp via EM_JS.
-+// Sets canvas aspect ratio (injects <style> tag) and syncs buffer to CSS size.
-+extern "C" void _chugl_set_canvas_aspect_ratio(double ar_x, double ar_y,
-+                                                int* out_w, int* out_h);
-+// DPR correction: reads canvas CSS size * devicePixelRatio, resizes buffer
-+// if it differs from cur_w/cur_h, returns final dimensions via out_w/out_h.
-+extern "C" void _chugl_sync_canvas_dpr(int cur_w, int cur_h,
-+                                        int* out_w, int* out_h);
++extern "C" void _chugl_setup_letterbox(double ar_x, double ar_y);
  #endif
  
  // #include "camera.cpp"
-@@ -63,8 +86,11 @@ static_assert(sizeof(u32) == sizeof(b2WorldId), "b2WorldId != u32");
+@@ -63,8 +91,11 @@ static_assert(sizeof(u32) == sizeof(b2WorldId), "b2WorldId != u32");
  #include "core/hashmap.h"
  #include "core/log.h"
  
@@ -330,7 +335,7 @@ index f083176..4079f65 100644
  // Usage:
  //  static ImDrawDataSnapshot snapshot; // Important: make persistent accross
  //  frames to reuse buffers. snapshot.SnapUsingSwap(ImGui::GetDrawData(),
-@@ -172,6 +198,7 @@ static WGPUTextureView ImGui_ImplWGPU_GetTextureId(ImTextureID id, void* user)
+@@ -172,6 +203,7 @@ static WGPUTextureView ImGui_ImplWGPU_GetTextureId(ImTextureID id, void* user)
      desc = { tex->gpu_texture, WGPUTextureViewDimension_2D, 0, 1, 0, 1 };
      return cache->textureView(desc);
  }
@@ -338,7 +343,7 @@ index f083176..4079f65 100644
  
  struct TickStats {
      u64 fc    = 0;
-@@ -294,8 +321,10 @@ struct App {
+@@ -294,8 +326,10 @@ struct App {
      // imgui
      bool imgui_disabled = false;
  
@@ -349,7 +354,7 @@ index f083176..4079f65 100644
  
      // FreeType
      FT_Library FTLibrary;
-@@ -328,16 +357,12 @@ struct App {
+@@ -328,16 +362,12 @@ struct App {
          // init rendergraph
          app->rendergraph.init();
  
@@ -368,7 +373,26 @@ index f083176..4079f65 100644
      static void start(App* app)
      {
          ASSERT(app->window == NULL);
-@@ -401,6 +426,7 @@ struct App {
+@@ -375,6 +405,18 @@ struct App {
+                 glfwTerminate();
+                 return;
+             }
++
++#ifdef EMSCRIPTEN_USE_PORT_CONTRIB_GLFW3
++            // Make canvas fill the browser window and auto-resize
++            emscripten_glfw_make_canvas_resizable(app->window, "window", nullptr);
++
++            // Let browser handle keyboard shortcuts (Ctrl+T, Ctrl+W, etc.)
++            // by returning true (= let browser handle) when Ctrl or Meta is held.
++            emscripten::glfw3::AddBrowserKeyCallback(
++              [](GLFWwindow*, int, int, int, int mods) -> bool {
++                  return (mods & (GLFW_MOD_CONTROL | GLFW_MOD_SUPER)) != 0;
++              });
++#endif
+         }
+ 
+         // init graphics context
+@@ -401,6 +443,7 @@ struct App {
          // initialize R_Component manager
          Component_Init(&app->gctx);
  
@@ -376,7 +400,7 @@ index f083176..4079f65 100644
          { // initialize imgui
              // Setup Dear ImGui context
              IMGUI_CHECKVERSION();
-@@ -416,20 +442,17 @@ struct App {
+@@ -416,20 +459,17 @@ struct App {
  
              // load builtin fonts
              io.Fonts->AddFontDefault();
@@ -399,7 +423,7 @@ index f083176..4079f65 100644
  
          { // set window callbacks
              glfwSetWindowUserPointer(app->window, app);
-@@ -450,6 +473,7 @@ struct App {
+@@ -450,45 +490,59 @@ struct App {
                                //   https://github.com/glfw/glfw/issues/1968)
          }
  
@@ -407,7 +431,10 @@ index f083176..4079f65 100644
          // Setup ImGui Platform/Renderer backends
          {
              ImGui_ImplGlfw_InitForOther(app->window, true);
-@@ -460,20 +484,22 @@ struct App {
+-#ifdef __EMSCRIPTEN__
+-            ImGui_ImplGlfw_InstallEmscriptenCanvasResizeCallback("#canvas");
+-#endif
+             ImGui_ImplWGPU_InitInfo init_info;
              init_info.Device             = app->gctx.device;
              init_info.NumFramesInFlight  = 3;
              init_info.RenderTargetFormat = app->gctx.surface_format;
@@ -431,7 +458,12 @@ index f083176..4079f65 100644
  
          // main loop
          log_trace("entering  main loop");
-@@ -483,12 +509,23 @@ struct App {
+ #ifdef __EMSCRIPTEN__
++        // Store app pointer for XR hooks
++        g_xr_app_ptr = app;
++
+         // https://emscripten.org/docs/api_reference/emscripten.h.html#c.emscripten_set_main_loop_arg
+         // can't have an infinite loop in emscripten
          // instead pass a callback to emscripten_set_main_loop_arg
          emscripten_set_main_loop_arg(
            [](void* runner) {
@@ -461,7 +493,7 @@ index f083176..4079f65 100644
            },
            app, // user data (void *)
            -1,  // FPS (negative means use browser's requestAnimationFrame)
-@@ -592,12 +629,17 @@ struct App {
+@@ -592,12 +646,17 @@ struct App {
              - exposes a gameloop to chuck, gauranteed to be executed once per
          frame deadlock shouldn't happen because both locks are never held at the
          same time */
@@ -479,7 +511,7 @@ index f083176..4079f65 100644
              // Rendering
              if (do_ui) {
                  ImGui::Render();
-@@ -605,6 +647,7 @@ struct App {
+@@ -605,6 +664,7 @@ struct App {
                  // copy imgui draw data for rendering later
                  snapshot.SnapUsingSwap(ImGui::GetDrawData(), ImGui::GetTime());
              }
@@ -487,25 +519,40 @@ index f083176..4079f65 100644
  
              // imgui and window callbacks
              CHUGL_Zero_MouseDeltasAndClickState();
-@@ -620,6 +663,7 @@ struct App {
-                 glfwPollEvents();
-             }
+@@ -636,24 +696,6 @@ struct App {
+                         }
  
-+#ifndef __EMSCRIPTEN__
-             { // gamepad
-                 for (int gamepad_idx = 0; gamepad_idx <= GLFW_JOYSTICK_LAST;
-                      gamepad_idx++) {
-@@ -663,7 +707,9 @@ struct App {
-                     }
+                         CQ_PushCommand_G2A_GamepadState(gamepad_idx, &gp_state);
+-
+-                        { // debug print
+-                          // printf("Gamepad detected: %s\n",
+-                          //        glfwGetGamepadName(gamepad_idx));
+-                          // printf("Buttons state\n");
+-                          // int num_buttons = ARRAY_LENGTH(gp_state.buttons);
+-                          // for (int button_idx = 0; button_idx < num_buttons;
+-                          //      ++button_idx) {
+-                          //     printf("%d: %d\n", button_idx,
+-                          //            gp_state.buttons[button_idx]);
+-                          // }
+-                          // printf("Axes state\n");
+-                          // int num_axes = ARRAY_LENGTH(gp_state.axes);
+-                          // for (int axes_idx = 0; axes_idx < num_axes; ++axes_idx) {
+-                          //     printf("%d: %f\n", axes_idx,
+-                          //     gp_state.axes[axes_idx]);
+-                          // }
+-                        }
+                     } else {
+                         // disconnected
+                         if (was_connected) {
+@@ -664,6 +706,7 @@ struct App {
                  }
              }
-+#endif // __EMSCRIPTEN__ (gamepad)
  
 +#ifndef WEBCHUGL_NO_IMGUI
              if (do_ui) {
                  // reset imgui
                  ImGui_ImplWGPU_NewFrame();
-@@ -674,9 +720,11 @@ struct App {
+@@ -674,9 +717,11 @@ struct App {
                  ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(),
                                               ImGuiDockNodeFlags_PassthruCentralNode);
              }
@@ -517,7 +564,7 @@ index f083176..4079f65 100644
              // physics
              // we intentionally are NOT having a fixed timestep for the sake of
              // simplicity.
-@@ -693,6 +741,7 @@ struct App {
+@@ -693,6 +738,7 @@ struct App {
                  // log_trace("drawing debug");
                  // b2World_Draw(app->b2_world_id, &debug_draw);
              }
@@ -525,7 +572,7 @@ index f083176..4079f65 100644
          }
  
          // done swapping the double buffer, let chuck know it's good to continue
-@@ -700,7 +749,9 @@ struct App {
+@@ -700,7 +746,9 @@ struct App {
          // GG.nextFrame()
  
          // grabs waitingShredsLock
@@ -536,7 +583,7 @@ index f083176..4079f65 100644
  
          // ====================
          // end critical section
-@@ -750,6 +801,7 @@ struct App {
+@@ -750,6 +798,7 @@ struct App {
              return;
          }
  
@@ -544,7 +591,7 @@ index f083176..4079f65 100644
          { // update webcam textures
              size_t webcam_idx = 0;
              R_Webcam* webcam  = NULL;
-@@ -769,6 +821,7 @@ struct App {
+@@ -769,6 +818,7 @@ struct App {
                  }
              }
          }
@@ -552,7 +599,7 @@ index f083176..4079f65 100644
  
          // get fresh window info
          f32 aspect = (app->window_fb_width > 0 && app->window_fb_height > 0) ?
-@@ -1219,6 +1272,7 @@ struct App {
+@@ -1219,6 +1269,7 @@ struct App {
          // and with imgui pass
          app->rendergraph.executeAndReset(app->gctx.device, app->gctx.commandEncoder);
  
@@ -560,7 +607,7 @@ index f083176..4079f65 100644
          // imgui render pass
          if (do_ui && !resized_this_frame) {
              WGPURenderPassColorAttachment imgui_color_attachment = {};
-@@ -1244,6 +1298,7 @@ struct App {
+@@ -1244,6 +1295,7 @@ struct App {
              wgpuRenderPassEncoderEnd(render_pass);
              wgpuRenderPassEncoderRelease(render_pass);
          }
@@ -568,7 +615,7 @@ index f083176..4079f65 100644
  
          GraphicsContext::presentFrame(&app->gctx);
      }
-@@ -1279,7 +1334,9 @@ struct App {
+@@ -1279,7 +1331,9 @@ struct App {
  
          // ChuGL
          // broadcast WindowCloseEvent
@@ -579,7 +626,7 @@ index f083176..4079f65 100644
          // block closeable
          if (!CHUGL_Window_Closeable()) glfwSetWindowShouldClose(window, GLFW_FALSE);
      }
-@@ -1291,7 +1348,9 @@ struct App {
+@@ -1291,7 +1345,9 @@ struct App {
          // broadcast to chuck
          CHUGL_Window_ContentScale(xscale, yscale);
          // update content scale
@@ -590,18 +637,7 @@ index f083176..4079f65 100644
      }
  
      static void _keyCallback(GLFWwindow* window, int key, int scancode, int action,
-@@ -1325,6 +1384,10 @@ struct App {
-     static void _onFramebufferResize(GLFWwindow* window, int width, int height)
-     {
-         log_trace("window resized: %d, %d", width, height);
-+#ifdef __EMSCRIPTEN__
-+        // DPR correction — canvas buffer must be CSS size * devicePixelRatio
-+        _chugl_sync_canvas_dpr(width, height, &width, &height);
-+#endif
- 
-         App* app              = (App*)glfwGetWindowUserPointer(window);
-         app->window_fb_width  = width;
-@@ -1339,7 +1402,9 @@ struct App {
+@@ -1339,7 +1395,9 @@ struct App {
          glfwGetWindowSize(window, &app->window_width, &app->window_height);
          CHUGL_Window_Size(app->window_width, app->window_height, width, height);
          // broadcast to chuck
@@ -612,7 +648,7 @@ index f083176..4079f65 100644
      }
  
      static void _mouseButtonCallback(GLFWwindow* window, int button, int action,
-@@ -1347,8 +1412,10 @@ struct App {
+@@ -1347,8 +1405,10 @@ struct App {
      {
          // log_debug("mouse button callback");
  
@@ -623,7 +659,7 @@ index f083176..4079f65 100644
  
          App* app = (App*)glfwGetWindowUserPointer(window);
          UNUSED_VAR(app);
-@@ -1368,8 +1435,10 @@ struct App {
+@@ -1368,8 +1428,10 @@ struct App {
  
      static void _scrollCallback(GLFWwindow* window, double xoffset, double yoffset)
      {
@@ -634,7 +670,7 @@ index f083176..4079f65 100644
  
          App* app = (App*)glfwGetWindowUserPointer(window);
          UNUSED_VAR(app);
-@@ -1379,8 +1448,10 @@ struct App {
+@@ -1379,8 +1441,10 @@ struct App {
  
      static void _cursorPositionCallback(GLFWwindow* window, double xpos, double ypos)
      {
@@ -645,43 +681,31 @@ index f083176..4079f65 100644
  
          App* app = (App*)glfwGetWindowUserPointer(window);
          UNUSED_VAR(app);
-@@ -1760,6 +1831,27 @@ static void _R_HandleCommand(App* app, SG_Command* command)
-             }
-         } break;
-         case SG_COMMAND_WINDOW_SIZE_LIMITS: {
-+#ifdef __EMSCRIPTEN__
-+            // Emscripten's built-in GLFW has glfwSetWindowSizeLimits and
-+            // glfwSetWindowAspectRatio as no-ops. The native path's
-+            // glfwSetWindowSize() call would reset the DPR-scaled canvas
-+            // buffer to non-DPR dimensions, making the WebGPU surface
-+            // permanently stale (the per-frame resize check compares
-+            // against glfwGetFramebufferSize which returns the same
-+            // non-DPR value, so the mismatch is never detected).
-+            {
-+                SG_Command_WindowSizeLimits* cmd
-+                  = (SG_Command_WindowSizeLimits*)command;
-+                const int PRECISION = 10000;
-+                double ar_x = cmd->aspect_ratio_x / (double)PRECISION;
-+                double ar_y = cmd->aspect_ratio_y / (double)PRECISION;
+@@ -1766,6 +1830,15 @@ static void _R_HandleCommand(App* app, SG_Command* command)
+               (cmd->min_height <= 0) ? GLFW_DONT_CARE : cmd->min_height,
+               (cmd->max_width <= 0) ? GLFW_DONT_CARE : cmd->max_width,
+               (cmd->max_height <= 0) ? GLFW_DONT_CARE : cmd->max_height);
 +
-+                _chugl_set_canvas_aspect_ratio(ar_x, ar_y,
-+                                               &frame_buffer_width,
-+                                               &frame_buffer_height);
-+            }
-+            break;
++#ifdef __EMSCRIPTEN__
++            // On Emscripten, use CSS-based letterboxing instead of
++            // glfwSetWindowAspectRatio (which grows-to-fit rather than
++            // shrinks-to-fit, causing the canvas to exceed viewport bounds).
++            _chugl_setup_letterbox(
++              cmd->aspect_ratio_x > 0 ? cmd->aspect_ratio_x : 0,
++              cmd->aspect_ratio_y > 0 ? cmd->aspect_ratio_y : 0);
 +#else
-             SG_Command_WindowSizeLimits* cmd = (SG_Command_WindowSizeLimits*)command;
-             glfwSetWindowSizeLimits(
-               app->window, (cmd->min_width <= 0) ? GLFW_DONT_CARE : cmd->min_width,
-@@ -1797,6 +1889,7 @@ static void _R_HandleCommand(App* app, SG_Command* command)
+             glfwSetWindowAspectRatio(
+               app->window,
+               (cmd->aspect_ratio_x <= 0) ? GLFW_DONT_CARE : cmd->aspect_ratio_x,
+@@ -1796,6 +1869,7 @@ static void _R_HandleCommand(App* app, SG_Command* command)
+             }
  
              glfwSetWindowSize(app->window, width, height);
-             break;
 +#endif
+             break;
          }
          case SG_COMMAND_WINDOW_POSITION: {
-             SG_Command_WindowPosition* cmd = (SG_Command_WindowPosition*)command;
-@@ -1929,11 +2022,13 @@ static void _R_HandleCommand(App* app, SG_Command* command)
+@@ -1929,11 +2003,13 @@ static void _R_HandleCommand(App* app, SG_Command* command)
              app->imgui_disabled         = cmd->disabled;
              break;
          }
@@ -695,7 +719,7 @@ index f083176..4079f65 100644
          // component --------------
          case SG_COMMAND_COMPONENT_UPDATE_NAME: {
              SG_Command_ComponentUpdateName* cmd
-@@ -2391,6 +2486,7 @@ static void _R_HandleCommand(App* app, SG_Command* command)
+@@ -2391,6 +2467,7 @@ static void _R_HandleCommand(App* app, SG_Command* command)
                  R_Scene::markPrimitiveStale(Component_GetScene(mesh->scene_id), mesh);
              }
          } break;
@@ -703,7 +727,7 @@ index f083176..4079f65 100644
          case SG_COMMAND_VIDEO_UPDATE: {
              SG_Command_VideoUpdate* cmd = (SG_Command_VideoUpdate*)command;
              R_Video* video              = Component_GetVideo(cmd->video_id);
-@@ -2424,6 +2520,7 @@ static void _R_HandleCommand(App* app, SG_Command* command)
+@@ -2424,9 +2501,570 @@ static void _R_HandleCommand(App* app, SG_Command* command)
              SG_Command_WebcamUpdate* cmd = (SG_Command_WebcamUpdate*)command;
              R_Webcam::update(cmd);
          } break;
@@ -711,6 +735,569 @@ index f083176..4079f65 100644
          default: {
              log_error("unhandled command type: %d", command->type);
              ASSERT(false);
+         }
+     }
+ }
++
++// =============================================================================
++// WebXR Entry Points
++// =============================================================================
++#ifdef __EMSCRIPTEN__
++
++// Called once per XR frame, before rendering any eyes.
++// Replicates _mainLoop steps: sync, dt, swap, events, broadcast, command flush,
++// and creates the command encoder (without acquiring a surface texture).
++extern "C" void chugl_xr_frame_begin()
++{
++    App* app = g_xr_app_ptr;
++    if (!app) return;
++
++    // Frame metrics (replicates the emscripten main loop lambda)
++    App::_calculateFPS(app->window, app->show_fps_title);
++    ++app->fc;
++    f64 currentTime = glfwGetTime();
++    if (app->lastTime == 0) app->lastTime = currentTime;
++    app->dt       = currentTime - app->lastTime;
++    app->lastTime = currentTime;
++
++    // --- Replicate _mainLoop steps 1-6 ---
++
++    static u64 xr_prev_lap_time = 0;
++    if (xr_prev_lap_time == 0) xr_prev_lap_time = stm_now();
++
++    Sync_WaitOnUpdateDone();
++
++    u64 dt_ticks = stm_laptime(&xr_prev_lap_time);
++    f64 dt_sec   = stm_sec(dt_ticks);
++    CHUGL_Window_dt(dt_sec);
++
++    {
++        CQ_SwapQueues();
++        CHUGL_Zero_MouseDeltasAndClickState();
++        CHUGL_Kb_ZeroPressedReleased();
++        glfwPollEvents();
++    }
++
++    // Wake shreds waiting on GG.nextFrame()
++    if (app->ckapi && app->ckvm) {
++        Event_Broadcast(CHUGL_EventType::NEXT_FRAME, app->ckapi, app->ckvm);
++    }
++
++#ifndef WEBCHUGL_NO_BOX2D
++    {
++        b2WorldId b2_world_id = *(b2WorldId*)&app->b2_sim_desc.world_id;
++        if (b2World_IsValid(b2_world_id)) {
++            b2World_Step(b2_world_id, app->b2_sim_desc.rate * app->dt,
++                         app->b2_sim_desc.substeps);
++        }
++    }
++#endif
++
++    // Flush command queue
++    {
++        SG_Command* cmd = NULL;
++        while (CQ_ReadCommandQueueIter(&cmd)) _R_HandleCommand(app, cmd);
++        CQ_ReadCommandQueueClear();
++    }
++
++    // Create command encoder (no surface texture for XR)
++    WGPU_RELEASE_RESOURCE(TextureView, app->gctx.backbufferView);
++    WGPU_RELEASE_RESOURCE(CommandEncoder, app->gctx.commandEncoder);
++    WGPUCommandEncoderDescriptor encoderDesc = {};
++    app->gctx.commandEncoder
++      = wgpuDeviceCreateCommandEncoder(app->gctx.device, &encoderDesc);
++
++#ifndef WEBCHUGL_NO_VIDEO
++    {
++        size_t webcam_idx = 0;
++        R_Webcam* webcam  = NULL;
++        while (Component_WebcamIter(&webcam_idx, &webcam)) {
++            R_Webcam::updateTexture(&app->gctx, webcam);
++        }
++    }
++    {
++        size_t video_idx = 0;
++        R_Video* video   = NULL;
++        while (Component_VideoIter(&video_idx, &video)) {
++            if (video->plm) {
++                plm_decode_last_frame_only(video->plm, dt_sec * video->rate);
++            }
++        }
++    }
++#endif
++}
++
++// Render the scene graph to an XR eye texture.
++// Called once per eye per frame, between chugl_xr_frame_begin/end.
++// Replicates the render graph walk from _mainLoop, substituting the XR eye
++// texture for the backbuffer and using XR view/projection matrices.
++extern "C" void chugl_xr_render_eye(WGPUTextureView xr_view,
++                                     WGPUTexture xr_texture,
++                                     int xr_format_int, int fb_width,
++                                     int fb_height, float* view_matrix,
++                                     float* proj_matrix, float* cam_pos)
++{
++    App* app = g_xr_app_ptr;
++    if (!app || !app->gctx.commandEncoder) return;
++
++    WGPUTextureFormat xr_format = (WGPUTextureFormat)xr_format_int;
++    f32 aspect
++      = (fb_width > 0 && fb_height > 0) ? (f32)fb_width / (f32)fb_height : 1.0f;
++
++    // Build XR camera matrices
++    glm::mat4 xr_proj     = glm::make_mat4(proj_matrix);
++    glm::mat4 xr_view_mat = glm::make_mat4(view_matrix);
++    glm::vec3 xr_cam_pos  = glm::vec3(cam_pos[0], cam_pos[1], cam_pos[2]);
++
++    // Walk render graph (mirrors _mainLoop lines 831-1273)
++    R_Pass* root_pass = Component_GetPass(app->root_pass_id);
++    R_Pass* pass      = Component_GetPass(root_pass->sg_pass.next_pass_id);
++
++    char string_buff[128] = {};
++
++    FrameUniforms frameUniforms = {};
++    frameUniforms.time          = app->lastTime;
++    frameUniforms.delta_time    = app->dt;
++    frameUniforms.resolution    = glm::ivec3(fb_width, fb_height, 1);
++    frameUniforms.frame_count   = app->fc;
++    frameUniforms.sample_rate   = app->ck_srate;
++    frameUniforms.mouse         = glm::vec2(0.0f, 0.0f);
++    frameUniforms.mouse_click   = glm::ivec2(0, 0);
++
++    while (pass) {
++        R_Scene* scene   = NULL;
++        R_Camera* camera = NULL;
++
++        switch (pass->sg_pass.pass_type) {
++            case SG_PassType_Render: break;
++            case SG_PassType_Scene: {
++                scene = Component_GetScene(pass->sg_pass.scene_id);
++                if (!scene) break;
++
++                camera = pass->sg_pass.camera_id != 0 ?
++                           Component_GetCamera(pass->sg_pass.camera_id) :
++                           Component_GetCamera(scene->sg_scene_desc.main_camera_id);
++                if (!camera) break;
++                ASSERT(camera->scene_id == scene->id);
++
++                R_Texture* r_tex
++                  = Component_GetTexture(pass->sg_pass.color_target_id);
++
++                // XR: passes targeting backbuffer use XR texture instead
++                WGPUTexture color_target;
++                if (r_tex) {
++                    R_Texture::resize(r_tex, fb_width, fb_height,
++                                      app->gctx.device);
++                    color_target = r_tex->gpu_texture;
++                } else {
++                    color_target = xr_texture;
++                }
++
++                ASSERT(scene && color_target && camera);
++
++                R_Scene::update(scene, &app->gctx, app->fc, &app->frameArena,
++                                &app->rendergraph, &frameUniforms);
++
++                R_Pass::updateScenePass(pass, color_target, app->gctx.device);
++                snprintf(string_buff, sizeof(string_buff),
++                         "XR ScenePass[%d:%s] Scene[%d:%s]", pass->id,
++                         pass->sg_pass.name, scene->id, scene->name);
++                app->rendergraph.addRenderPass(string_buff);
++
++                if (pass->sg_pass.scene_pass_msaa) {
++                    app->rendergraph.renderPassColorTarget(
++                      pass->msaa_color_target, 0);
++                    if (r_tex) {
++                        app->rendergraph.renderPassResolveTarget(color_target,
++                                                                  0);
++                    } else {
++                        app->rendergraph.renderPassResolveTarget(xr_view,
++                                                                  xr_format);
++                    }
++                } else {
++                    if (r_tex) {
++                        app->rendergraph.renderPassColorTarget(color_target, 0);
++                    } else {
++                        app->rendergraph.renderPassColorTarget(xr_view,
++                                                                xr_format);
++                    }
++                }
++
++                WGPUColor clear_color = {
++                    scene->sg_scene_desc.bg_color.r,
++                    scene->sg_scene_desc.bg_color.g,
++                    scene->sg_scene_desc.bg_color.b,
++                    scene->sg_scene_desc.bg_color.a,
++                };
++                app->rendergraph.renderPassColorOp(
++                  clear_color,
++                  pass->sg_pass.color_target_clear_on_load ? WGPULoadOp_Clear :
++                                                             WGPULoadOp_Load,
++                  WGPUStoreOp_Store);
++
++                app->rendergraph.renderPassDepthTarget(pass->depth_texture);
++
++                // Viewport/scissor — use XR texture dims when targeting backbuffer
++                u32 color_width  = r_tex ? wgpuTextureGetWidth(color_target)
++                                         : (u32)fb_width;
++                u32 color_height = r_tex ? wgpuTextureGetHeight(color_target)
++                                         : (u32)fb_height;
++                if (pass->sg_pass.viewport_normalized) {
++                    aspect = app->rendergraph.viewport(
++                      pass->sg_pass.viewport_x * color_width,
++                      pass->sg_pass.viewport_y * color_height,
++                      pass->sg_pass.viewport_w * color_width,
++                      pass->sg_pass.viewport_h * color_height, color_target);
++                } else {
++                    aspect = app->rendergraph.viewport(
++                      pass->sg_pass.viewport_x, pass->sg_pass.viewport_y,
++                      pass->sg_pass.viewport_w, pass->sg_pass.viewport_h,
++                      color_target);
++                }
++                if (pass->sg_pass.scissor_normalized) {
++                    app->rendergraph.scissor(
++                      pass->sg_pass.scissor_x * color_width,
++                      pass->sg_pass.scissor_y * color_height,
++                      pass->sg_pass.scissor_w * color_width,
++                      pass->sg_pass.scissor_h * color_height, color_target);
++                } else {
++                    app->rendergraph.scissor(
++                      pass->sg_pass.scissor_x, pass->sg_pass.scissor_y,
++                      pass->sg_pass.scissor_w, pass->sg_pass.scissor_h,
++                      color_target);
++                }
++
++                G_DrawCallListID dc_list
++                  = app->rendergraph.renderPassAddDrawCallList();
++                _R_RenderScene(app, scene, pass, camera, dc_list);
++            } break;
++            case SG_PassType_Screen: {
++                R_Material* material
++                  = Component_GetMaterial(pass->sg_pass.screen_material_id);
++                R_Shader* screen_shader
++                  = Component_GetShader(material->pso.sg_shader_id);
++                if (!screen_shader) break;
++
++                R_Texture* r_tex
++                  = Component_GetTexture(pass->sg_pass.color_target_id);
++                R_Texture::resize(r_tex, fb_width, fb_height, app->gctx.device);
++
++                WGPUTexture color_target = NULL;
++
++                app->rendergraph.addRenderPass(pass->sg_pass.name);
++                if (r_tex) {
++                    color_target = r_tex->gpu_texture;
++                    app->rendergraph.renderPassColorTarget(r_tex->gpu_texture,
++                                                            0);
++                } else {
++                    color_target = xr_texture;
++                    app->rendergraph.renderPassColorTarget(xr_view, xr_format);
++                }
++
++                app->rendergraph.renderPassColorOp(
++                  WGPUColor{ 0.0f, 0.0f, 0.0f, 1.0f },
++                  pass->sg_pass.color_target_clear_on_load ? WGPULoadOp_Clear :
++                                                             WGPULoadOp_Load,
++                  WGPUStoreOp_Store);
++
++                u32 color_width  = r_tex ? wgpuTextureGetWidth(color_target)
++                                         : (u32)fb_width;
++                u32 color_height = r_tex ? wgpuTextureGetHeight(color_target)
++                                         : (u32)fb_height;
++                if (pass->sg_pass.viewport_normalized) {
++                    aspect = app->rendergraph.viewport(
++                      pass->sg_pass.viewport_x * color_width,
++                      pass->sg_pass.viewport_y * color_height,
++                      pass->sg_pass.viewport_w * color_width,
++                      pass->sg_pass.viewport_h * color_height, color_target);
++                } else {
++                    aspect = app->rendergraph.viewport(
++                      pass->sg_pass.viewport_x, pass->sg_pass.viewport_y,
++                      pass->sg_pass.viewport_w, pass->sg_pass.viewport_h,
++                      color_target);
++                }
++                if (pass->sg_pass.scissor_normalized) {
++                    app->rendergraph.scissor(
++                      pass->sg_pass.scissor_x * color_width,
++                      pass->sg_pass.scissor_y * color_height,
++                      pass->sg_pass.scissor_w * color_width,
++                      pass->sg_pass.scissor_h * color_height, color_target);
++                } else {
++                    app->rendergraph.scissor(
++                      pass->sg_pass.scissor_x, pass->sg_pass.scissor_y,
++                      pass->sg_pass.scissor_w, pass->sg_pass.scissor_h,
++                      color_target);
++                }
++
++                G_DrawCallListID dc_list
++                  = app->rendergraph.renderPassAddDrawCallList();
++
++                const int screen_pass_binding_location = 1;
++                if (material) {
++                    G_DrawCall* d = app->rendergraph.addDraw(dc_list);
++                    R_BindFrameUniforms(pass->frame_uniform_buffer, &app->gctx,
++                                        d, &app->rendergraph, screen_shader,
++                                        NULL);
++                    d->sort_key = G_SortKey::create(
++                      false, G_RenderingLayer_World, material->id, 0, 1);
++                    d->vertex_count   = 3;
++                    d->instance_count = 1;
++                    R_Material::createBindGroupEntries(
++                      material, screen_pass_binding_location,
++                      &app->rendergraph, d, &app->gctx);
++                    d->pipelineDesc(material->pso.sg_shader_id,
++                                    material->pso.cull_mode,
++                                    material->pso.primitive_topology,
++                                    &material->pso.blend_state, false);
++                }
++            } break;
++            case SG_PassType_Compute: {
++                R_Material* compute_material
++                  = Component_GetMaterial(pass->sg_pass.compute_material_id);
++                R_Shader* compute_shader
++                  = Component_GetShader(compute_material->pso.sg_shader_id);
++
++                if (compute_material) {
++                    ASSERT(compute_material->pso.sg_shader_id
++                           == (compute_shader ? compute_shader->id : 0));
++                }
++
++                bool valid_compute_pass = compute_material && compute_shader;
++                if (!valid_compute_pass) break;
++
++                app->rendergraph.addComputePass(
++                  pass->name, compute_shader->compute_shader_module,
++                  pass->sg_pass.compute_workgroup.x,
++                  pass->sg_pass.compute_workgroup.y,
++                  pass->sg_pass.compute_workgroup.z);
++
++                const int compute_pass_binding_location = 0;
++                R_Material::createBindGroupEntries(
++                  compute_material, compute_pass_binding_location,
++                  &app->rendergraph, NULL, &app->gctx);
++            }; break;
++            case SG_PassType_Bloom: {
++                R_Texture* input_texture = Component_GetTexture(
++                  pass->sg_pass.bloom_input_render_texture_id);
++                R_Texture* output_texture = Component_GetTexture(
++                  pass->sg_pass.bloom_output_render_texture_id);
++
++                if (!input_texture || !output_texture) break;
++                if (!input_texture->desc.gen_mips
++                    || !output_texture->desc.gen_mips) {
++                    break;
++                }
++
++                u32 input_width
++                  = wgpuTextureGetWidth(input_texture->gpu_texture);
++                u32 input_height
++                  = wgpuTextureGetHeight(input_texture->gpu_texture);
++                R_Texture::resize(output_texture, input_width, input_height,
++                                  app->gctx.device);
++
++                glm::uvec2 full_res_size
++                  = glm::uvec2(input_width, input_height);
++
++                SG_Sampler bloom_sampler = {
++                    SG_SAMPLER_WRAP_CLAMP_TO_EDGE,
++                    SG_SAMPLER_WRAP_CLAMP_TO_EDGE,
++                    SG_SAMPLER_WRAP_CLAMP_TO_EDGE,
++                    SG_SAMPLER_FILTER_LINEAR,
++                    SG_SAMPLER_FILTER_LINEAR,
++                    SG_SAMPLER_FILTER_LINEAR,
++                };
++
++                u32 bloom_mip_levels
++                  = G_mipLevelsLimit(input_width, input_height, 1);
++                bloom_mip_levels = MIN(bloom_mip_levels,
++                                       pass->sg_pass.bloom_num_blur_levels);
++                if (bloom_mip_levels == 0) break;
++
++                { // downscale
++                    R_Material* bloom_downscale_material
++                      = Component_GetMaterial(
++                        pass->sg_pass.bloom_downsample_material_id);
++                    R_Material::setSamplerBinding(
++                      &app->gctx, bloom_downscale_material, 1, bloom_sampler);
++                    R_Material::setUniformBinding(
++                      &app->gctx, bloom_downscale_material, 3, &full_res_size,
++                      sizeof(full_res_size));
++
++                    for (int i = 0; i < (int)bloom_mip_levels - 1; i++) {
++                        char label[64] = {};
++                        snprintf(label, sizeof(label),
++                                 "bloom downscale to mip level %d", i + 1);
++                        R_Material::bindTexture(
++                          &app->gctx, bloom_downscale_material, 0,
++                          { input_texture->id, i, 1 });
++
++                        app->rendergraph.addRenderPass(label);
++                        app->rendergraph.renderPassColorTarget(
++                          input_texture->gpu_texture, i + 1);
++                        app->rendergraph.renderPassColorOp(
++                          WGPUColor{ 0.0f, 0.0f, 0.0f, 1.0f },
++                          WGPULoadOp_Clear, WGPUStoreOp_Store);
++                        G_DrawCallListID dc_list
++                          = app->rendergraph.renderPassAddDrawCallList();
++
++                        G_DrawCall* d = app->rendergraph.addDraw(dc_list);
++                        d->sort_key = G_SortKey::create(
++                          false, G_RenderingLayer_World,
++                          bloom_downscale_material->id, 0, 1);
++                        d->vertex_count   = 3;
++                        d->instance_count = 1;
++                        R_Material::createBindGroupEntries(
++                          bloom_downscale_material, 0, &app->rendergraph, d,
++                          &app->gctx);
++                        d->pipelineDesc(
++                          bloom_downscale_material->pso.sg_shader_id,
++                          bloom_downscale_material->pso.cull_mode,
++                          bloom_downscale_material->pso.primitive_topology,
++                          &bloom_downscale_material->pso.blend_state, false);
++                    }
++                }
++
++                { // upscale
++                    R_Material* bloom_upscale_material
++                      = Component_GetMaterial(
++                        pass->sg_pass.bloom_upsample_material_id);
++                    R_Material::setSamplerBinding(
++                      &app->gctx, bloom_upscale_material, 1, bloom_sampler);
++                    R_Material::setUniformBinding(
++                      &app->gctx, bloom_upscale_material, 3, &full_res_size,
++                      sizeof(full_res_size));
++
++                    bool first_upsample = true;
++                    for (int i = (int)bloom_mip_levels - 2; i >= 0; i--) {
++                        char label[64] = {};
++                        snprintf(label, sizeof(label),
++                                 "bloom upsample to mip level %d", i);
++                        R_Material::bindTexture(
++                          &app->gctx, bloom_upscale_material, 0,
++                          { first_upsample ? input_texture->id
++                                           : output_texture->id,
++                            i + 1, 1 });
++                        R_Material::bindTexture(&app->gctx,
++                                                bloom_upscale_material, 2,
++                                                { input_texture->id, i, 1 });
++
++                        app->rendergraph.addRenderPass(label);
++                        app->rendergraph.renderPassColorTarget(
++                          output_texture->gpu_texture, i);
++                        app->rendergraph.renderPassColorOp(
++                          WGPUColor{ 0.0f, 0.0f, 0.0f, 1.0f },
++                          WGPULoadOp_Clear, WGPUStoreOp_Store);
++                        G_DrawCallListID dc_list
++                          = app->rendergraph.renderPassAddDrawCallList();
++
++                        G_DrawCall* d = app->rendergraph.addDraw(dc_list);
++                        d->sort_key = G_SortKey::create(
++                          false, G_RenderingLayer_World,
++                          bloom_upscale_material->id, 0, 1);
++                        d->vertex_count   = 3;
++                        d->instance_count = 1;
++                        R_Material::createBindGroupEntries(
++                          bloom_upscale_material, 0, &app->rendergraph, d,
++                          &app->gctx);
++                        d->pipelineDesc(
++                          bloom_upscale_material->pso.sg_shader_id,
++                          bloom_upscale_material->pso.cull_mode,
++                          bloom_upscale_material->pso.primitive_topology,
++                          &bloom_upscale_material->pso.blend_state, false);
++
++                        first_upsample = false;
++                    }
++                }
++            } break;
++            default: ASSERT(false);
++        } // switch (pass type)
++
++        { // write per-frame uniforms — XR overrides camera matrices
++            if (camera) {
++                frameUniforms.projection = xr_proj;
++                frameUniforms.view       = xr_view_mat;
++                frameUniforms.projection_view_inverse_no_translation
++                  = glm::inverse(frameUniforms.projection
++                                 * glm::mat4(glm::mat3(frameUniforms.view)));
++                frameUniforms.camera_pos = xr_cam_pos;
++            } else {
++                FrameUniforms_ZeroCameraFields(&frameUniforms);
++            }
++
++            if (scene) {
++                frameUniforms.ambient_light = scene->sg_scene_desc.ambient_light;
++                frameUniforms.num_lights    = R_Scene::numLights(scene);
++                frameUniforms.background_color = scene->sg_scene_desc.bg_color;
++            } else {
++                FrameUniforms_ZeroLightingFields(&frameUniforms);
++            }
++            wgpuQueueWriteBuffer(app->gctx.queue, pass->frame_uniform_buffer,
++                                 0, &frameUniforms, sizeof(frameUniforms));
++        }
++
++        pass = Component_GetPass(pass->sg_pass.next_pass_id);
++    }
++
++    // Execute all recorded render passes
++    app->rendergraph.executeAndReset(app->gctx.device,
++                                     app->gctx.commandEncoder);
++}
++
++// Called once per XR frame after all eyes are rendered.
++// Finishes the command encoder, submits to the queue (no surface present).
++extern "C" void chugl_xr_frame_end()
++{
++    App* app = g_xr_app_ptr;
++    if (!app || !app->gctx.commandEncoder) return;
++
++    // Submit
++    WGPUCommandBufferDescriptor cmdBufferDescriptor = {};
++    WGPUCommandBuffer command
++      = wgpuCommandEncoderFinish(app->gctx.commandEncoder, &cmdBufferDescriptor);
++    wgpuQueueSubmit(app->gctx.queue, 1, &command);
++
++    // No wgpuSurfacePresent — XR compositor handles presentation
++
++    WGPU_RELEASE_RESOURCE(CommandBuffer, command);
++
++    Arena::clear(&app->gctx.frame_arena);
++    Arena::clear(&app->frameArena);
++}
++
++// Re-registers the emscripten main loop after XR session ends.
++// Resumes normal (non-XR) rendering.
++extern "C" void chugl_restart_emscripten_loop()
++{
++    App* app = g_xr_app_ptr;
++    if (!app) return;
++
++    emscripten_set_main_loop_arg(
++      [](void* runner) {
++          App* app = (App*)runner;
++
++          // Run pre-frame callback (VM advancement on web)
++          if (g_webchugl_pre_frame_fn) {
++              g_webchugl_pre_frame_fn(g_webchugl_pre_frame_data);
++          }
++
++          // Frame metrics
++          App::_calculateFPS(app->window, app->show_fps_title);
++          ++app->fc;
++          f64 currentTime = glfwGetTime();
++          if (app->lastTime == 0) app->lastTime = currentTime;
++          app->dt       = currentTime - app->lastTime;
++          app->lastTime = currentTime;
++
++          App::_mainLoop(app);
++          Arena::clear(&app->frameArena);
++      },
++      app, // user data (void *)
++      -1,  // FPS (negative means use browser's requestAnimationFrame)
++      false // don't simulate infinite loop (we're resuming, not starting)
++    );
++}
++
++#endif // __EMSCRIPTEN__
 diff --git a/src/geometry.cpp b/src/geometry.cpp
 index 93ee476..55e0ea4 100644
 --- a/src/geometry.cpp
@@ -737,10 +1324,10 @@ index 5a767e0..2b29fba 100644
      f32 x, y, z;    // position
      f32 nx, ny, nz; // normal
 diff --git a/src/graphics.cpp b/src/graphics.cpp
-index 09f59d8..4c0783e 100644
+index 09f59d8..608c229 100644
 --- a/src/graphics.cpp
 +++ b/src/graphics.cpp
-@@ -105,14 +105,22 @@ static WGPUAdapter request_adapter(WGPUInstance instance,
+@@ -105,14 +105,24 @@ static WGPUAdapter request_adapter(WGPUInstance instance,
          };
  
      // Call to the WebGPU request adapter procedure
@@ -751,7 +1338,9 @@ index 09f59d8..4c0783e 100644
 +    WGPUAdapter preAdapter = (WGPUAdapter)(uintptr_t)EM_ASM_INT({
 +        var adapter = window._preWebGPUAdapter;
 +        if (!adapter) return 0;
-+        WebGPU.initManagers();
++        // WebGPU.initManagers() is called automatically by Emscripten's
++        // __postset during module initialization — do NOT call it again
++        // here, as it resets all managers (destroying any existing handles).
 +        var handle = WebGPU.mgrAdapter.create(adapter);
 +        window._preWebGPUAdapter = null;
 +        return handle;
@@ -769,7 +1358,7 @@ index 09f59d8..4c0783e 100644
      // In theory we should wait until onAdapterReady has been called, which
      // could take some time (what the 'await' keyword does in the JavaScript
      // code). In practice, we know that when the wgpuInstanceRequestAdapter()
-@@ -120,6 +128,7 @@ static WGPUAdapter request_adapter(WGPUInstance instance,
+@@ -120,6 +130,7 @@ static WGPUAdapter request_adapter(WGPUInstance instance,
      ASSERT(userData.requestEnded);
  
      return userData.adapter;
@@ -777,7 +1366,7 @@ index 09f59d8..4c0783e 100644
  }
  
  /**
-@@ -149,18 +158,28 @@ static WGPUDevice request_device(WGPUAdapter adapter,
+@@ -149,18 +160,28 @@ static WGPUDevice request_device(WGPUAdapter adapter,
          userData.requestEnded = true;
      };
  
@@ -813,28 +1402,16 @@ index 09f59d8..4c0783e 100644
  }
  
  static void on_device_error(WGPUErrorType type, char const* message,
-@@ -295,6 +314,16 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+@@ -295,7 +316,7 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
      log_trace("adapter created");
  
      { // log adapter info
-+#ifdef __EMSCRIPTEN__
-+        WGPUAdapterProperties adapter_info = {};
-+        wgpuAdapterGetProperties(adapter, &adapter_info);
-+        log_info("Adapter vendor ID: %d", adapter_info.vendorID);
-+        log_info("Adapter device ID: %d", adapter_info.deviceID);
-+        log_info("Adapter backend type: %s",
-+                 GraphicsContext_BackendTypeToString(adapter_info.backendType));
-+        log_info("Adapter type: %s",
-+                 GraphicsContext_AdapterTypeToString(adapter_info.adapterType));
-+#else
-         WGPUAdapterInfo adapter_info;
+-        WGPUAdapterInfo adapter_info;
++        WGPUAdapterInfo adapter_info = {};
          wgpuAdapterGetInfo(adapter, &adapter_info);
          log_info("Adapter vendor: %s", adapter_info.vendor);
-@@ -307,11 +336,12 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
-                  GraphicsContext_AdapterTypeToString(adapter_info.adapterType));
-         log_info("Adapter vendor ID: %d", adapter_info.vendorID);
-         log_info("Adapter device ID: %d", adapter_info.deviceID);
-+#endif
+         log_info("Adapter architecture: %s", adapter_info.architecture);
+@@ -310,8 +331,8 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
      }
  
      // set required limits to max supported
@@ -844,7 +1421,7 @@ index 09f59d8..4c0783e 100644
      WGPUSupportedLimits supportedLimits = {};
      bool success = wgpuAdapterGetLimits(adapter, &supportedLimits);
      UNUSED_VAR(success);
-@@ -334,6 +364,16 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+@@ -334,6 +355,16 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
      const u32 requiredFeaturesCount = ARRAY_LENGTH(requiredFeatures);
      log_trace("required features: %d", ARRAY_LENGTH(requiredFeatures));
  #else
@@ -861,7 +1438,7 @@ index 09f59d8..4c0783e 100644
      const u32 requiredFeaturesCount   = 0;
      WGPUFeatureName* requiredFeatures = NULL;
  #endif
-@@ -343,7 +383,9 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+@@ -343,7 +374,9 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
      deviceDescriptor.label                = "ChuGL Device";
      deviceDescriptor.requiredFeatureCount = requiredFeaturesCount;
      deviceDescriptor.requiredFeatures     = requiredFeatures;
@@ -871,7 +1448,7 @@ index 09f59d8..4c0783e 100644
      deviceDescriptor.defaultQueue         = { NULL, "ChuGL queue" };
      deviceDescriptor.deviceLostCallback
        = [](WGPUDeviceLostReason reason, char const* message, void* /* pUserData */) {
-@@ -351,14 +393,20 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+@@ -351,14 +384,20 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
              if (message) log_error(" (%s)", message);
          };
      deviceDescriptor.deviceLostUserdata          = NULL;
@@ -892,7 +1469,7 @@ index 09f59d8..4c0783e 100644
      { // set debug callbacks
        // #if defined(WEBGPU_BACKEND_WGPU)
        //         wgpuSetLogLevel(WGPULogLevel_Warn);
-@@ -378,7 +426,7 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+@@ -378,7 +417,7 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
      // determine swapchain format
      // note: we try to always pick an 8unorm format
      {
@@ -1940,3 +2517,103 @@ index 8de4a68..2dc5694 100644
      OBJ_MEMBER_VEC2(ckobj, b2ContactHitEvent_point_offset)
        = { obj->point.x, obj->point.y };
      OBJ_MEMBER_VEC2(ckobj, b2ContactHitEvent_normal_offset)
+diff --git a/src/vendor/cimgui/imgui/backends/imgui_impl_glfw.cpp b/src/vendor/cimgui/imgui/backends/imgui_impl_glfw.cpp
+index 23b0adb..b80d84d 100755
+--- a/src/vendor/cimgui/imgui/backends/imgui_impl_glfw.cpp
++++ b/src/vendor/cimgui/imgui/backends/imgui_impl_glfw.cpp
+@@ -365,18 +365,13 @@ void ImGui_ImplGlfw_ScrollCallback(GLFWwindow* window, double xoffset, double yo
+     if (bd->PrevUserCallbackScroll != nullptr && ImGui_ImplGlfw_ShouldChainCallback(window))
+         bd->PrevUserCallbackScroll(window, xoffset, yoffset);
+ 
+-#ifdef __EMSCRIPTEN__
+-    // Ignore GLFW events: will be processed in ImGui_ImplEmscripten_WheelCallback().
+-    return;
+-#endif
+-
+     ImGuiIO& io = ImGui::GetIO();
+     io.AddMouseWheelEvent((float)xoffset, (float)yoffset);
+ }
+ 
+ static int ImGui_ImplGlfw_TranslateUntranslatedKey(int key, int scancode)
+ {
+-#if GLFW_HAS_GETKEYNAME && !defined(__EMSCRIPTEN__)
++#if GLFW_HAS_GETKEYNAME
+     // GLFW 3.1+ attempts to "untranslate" keys, which goes the opposite of what every other framework does, making using lettered shortcuts difficult.
+     // (It had reasons to do so: namely GLFW is/was more likely to be used for WASD-type game controls rather than lettered shortcuts, but IHMO the 3.1 change could have been done differently)
+     // See https://github.com/glfw/glfw/issues/1502 for details.
+@@ -387,7 +382,7 @@ static int ImGui_ImplGlfw_TranslateUntranslatedKey(int key, int scancode)
+     GLFWerrorfun prev_error_callback = glfwSetErrorCallback(nullptr);
+     const char* key_name = glfwGetKeyName(key, scancode);
+     glfwSetErrorCallback(prev_error_callback);
+-#if GLFW_HAS_GETERROR && !defined(__EMSCRIPTEN__) // Eat errors (see #5908)
++#if GLFW_HAS_GETERROR // Eat errors (see #5908)
+     (void)glfwGetError(nullptr);
+ #endif
+     if (key_name && key_name[0] != 0 && key_name[1] == 0)
+@@ -495,23 +490,6 @@ void ImGui_ImplGlfw_MonitorCallback(GLFWmonitor*, int)
+     bd->WantUpdateMonitors = true;
+ }
+ 
+-#ifdef __EMSCRIPTEN__
+-static EM_BOOL ImGui_ImplEmscripten_WheelCallback(int, const EmscriptenWheelEvent* ev, void*)
+-{
+-    // Mimic Emscripten_HandleWheel() in SDL.
+-    // Corresponding equivalent in GLFW JS emulation layer has incorrect quantizing preventing small values. See #6096
+-    float multiplier = 0.0f;
+-    if (ev->deltaMode == DOM_DELTA_PIXEL)       { multiplier = 1.0f / 100.0f; } // 100 pixels make up a step.
+-    else if (ev->deltaMode == DOM_DELTA_LINE)   { multiplier = 1.0f / 3.0f; }   // 3 lines make up a step.
+-    else if (ev->deltaMode == DOM_DELTA_PAGE)   { multiplier = 80.0f; }         // A page makes up 80 steps.
+-    float wheel_x = ev->deltaX * -multiplier;
+-    float wheel_y = ev->deltaY * -multiplier;
+-    ImGuiIO& io = ImGui::GetIO();
+-    io.AddMouseWheelEvent(wheel_x, wheel_y);
+-    //IMGUI_DEBUG_LOG("[Emsc] mode %d dx: %.2f, dy: %.2f, dz: %.2f --> feed %.2f %.2f\n", (int)ev->deltaMode, ev->deltaX, ev->deltaY, ev->deltaZ, wheel_x, wheel_y);
+-    return EM_TRUE;
+-}
+-#endif
+ 
+ #ifdef _WIN32
+ static LRESULT CALLBACK ImGui_ImplGlfw_WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+@@ -619,19 +597,14 @@ static bool ImGui_ImplGlfw_Init(GLFWwindow* window, bool install_callbacks, Glfw
+     bd->MouseCursors[ImGuiMouseCursor_NotAllowed] = glfwCreateStandardCursor(GLFW_ARROW_CURSOR);
+ #endif
+     glfwSetErrorCallback(prev_error_callback);
+-#if GLFW_HAS_GETERROR && !defined(__EMSCRIPTEN__) // Eat errors (see #5908)
++#if GLFW_HAS_GETERROR // Eat errors (see #5908)
+     (void)glfwGetError(nullptr);
+ #endif
+ 
+     // Chain GLFW callbacks: our callbacks will call the user's previously installed callbacks, if any.
+     if (install_callbacks)
+         ImGui_ImplGlfw_InstallCallbacks(window);
+-    // Register Emscripten Wheel callback to workaround issue in Emscripten GLFW Emulation (#6096)
+-    // We intentionally do not check 'if (install_callbacks)' here, as some users may set it to false and call GLFW callback themselves.
+-    // FIXME: May break chaining in case user registered their own Emscripten callback?
+-#ifdef __EMSCRIPTEN__
+-    emscripten_set_wheel_callback(EMSCRIPTEN_EVENT_TARGET_DOCUMENT, nullptr, false, ImGui_ImplEmscripten_WheelCallback);
+-#endif
++    // Wheel callback workaround removed: contrib.glfw3 handles wheel events correctly
+ 
+     // Update monitors the first time (note: monitor callback are broken in GLFW 3.2 and earlier, see github.com/glfw/glfw/issues/784)
+     ImGui_ImplGlfw_UpdateMonitors();
+@@ -719,11 +692,7 @@ static void ImGui_ImplGlfw_UpdateMouseData()
+         ImGuiViewport* viewport = platform_io.Viewports[n];
+         GLFWwindow* window = (GLFWwindow*)viewport->PlatformHandle;
+ 
+-#ifdef __EMSCRIPTEN__
+-        const bool is_window_focused = true;
+-#else
+         const bool is_window_focused = glfwGetWindowAttrib(window, GLFW_FOCUSED) != 0;
+-#endif
+         if (is_window_focused)
+         {
+             // (Optional) Set OS mouse position from Dear ImGui if requested (rarely used, only when ImGuiConfigFlags_NavEnableSetMousePos is enabled by user)
+@@ -813,7 +782,7 @@ static void ImGui_ImplGlfw_UpdateGamepads()
+         return;
+ 
+     io.BackendFlags &= ~ImGuiBackendFlags_HasGamepad;
+-#if GLFW_HAS_GAMEPAD_API && !defined(__EMSCRIPTEN__)
++#if GLFW_HAS_GAMEPAD_API
+     GLFWgamepadstate gamepad;
+     if (!glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepad))
+         return;

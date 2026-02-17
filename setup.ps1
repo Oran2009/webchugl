@@ -13,7 +13,7 @@ $CHUGL_COMMIT = "9d6245a"
 $CHUCK_REPO = "https://github.com/ccrma/chuck.git"
 $CHUCK_COMMIT = "60caede9"
 
-$EMSDK_VERSION = "3.1.61"
+$EMSDK_VERSION = "4.0.17"
 
 Write-Host "=== WebChuGL Setup ===" -ForegroundColor Cyan
 Write-Host ""
@@ -155,6 +155,41 @@ if (Test-Path $ChuckPatch) {
         Write-Host "[chuck] Patch applied successfully" -ForegroundColor Green
     }
     Pop-Location
+}
+
+# Apply emscripten-glfw patch (contrib.glfw3 port)
+$GlfwPatch = Join-Path $PatchDir "emscripten-glfw.patch"
+$GlfwPortDir = Join-Path $EmsdkInstall "cache\ports\contrib.glfw3"
+if (Test-Path $GlfwPatch) {
+    # Pre-fetch the port if not already cached
+    if (-not (Test-Path $GlfwPortDir)) {
+        Write-Host "[emscripten-glfw] Fetching contrib.glfw3 port..." -ForegroundColor Yellow
+        $Emcc = Join-Path $EmsdkInstall "emcc.py"
+        $TempC = Join-Path $env:TEMP "webchugl_fetch.c"
+        "int main(){return 0;}" | Out-File -FilePath $TempC -Encoding ascii -NoNewline
+        $env:EMSDK_PYTHON = ""
+        $ErrorActionPreference = "Continue"
+        py $Emcc --use-port=contrib.glfw3 -c $TempC -o ($TempC + ".o") 2>&1 | Out-Null
+        $ErrorActionPreference = "Stop"
+        Remove-Item $TempC -Force -ErrorAction SilentlyContinue
+        Remove-Item ($TempC + ".o") -Force -ErrorAction SilentlyContinue
+    }
+
+    if (Test-Path $GlfwPortDir) {
+        $GlfwJsFile = Join-Path $GlfwPortDir "src\js\lib_emscripten_glfw3.js"
+        $PatchMarker = "Re-register MQL with current DPR"
+        if ((Test-Path $GlfwJsFile) -and -not (Select-String -Path $GlfwJsFile -Pattern $PatchMarker -Quiet)) {
+            Write-Host "[emscripten-glfw] Applying patch..." -ForegroundColor Yellow
+            Push-Location $GlfwPortDir
+            patch -p1 -i $GlfwPatch
+            Pop-Location
+            Write-Host "[emscripten-glfw] Patch applied successfully" -ForegroundColor Green
+        } else {
+            Write-Host "[emscripten-glfw] Patch already applied" -ForegroundColor Green
+        }
+    } else {
+        Write-Host "[emscripten-glfw] Warning: Port not found, patch will be applied during build" -ForegroundColor Yellow
+    }
 }
 
 # ============================================================================

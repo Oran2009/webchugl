@@ -675,78 +675,8 @@ function _initSensors() {
     var accelPending = null;
     var gyroPending = null;
 
-    var _gamepadConnected = {};
-
-    var _gpAxesArr = new Float32Array(6);
-    var _gpAxesBytes = new Uint8Array(_gpAxesArr.buffer); // byte view of same buffer
-    var _gpBtnArr = new Uint8Array(15);
-
-    // Web Standard Gamepad → GLFW button index mapping
-    // Web buttons[6,7] are LT/RT (mapped as axes, not buttons)
-    var _gpBtnMap = [
-        0,  // 0  A
-        1,  // 1  B
-        2,  // 2  X
-        3,  // 3  Y
-        4,  // 4  LB
-        5,  // 5  RB
-        -1, // 6  LT (trigger → axis 4)
-        -1, // 7  RT (trigger → axis 5)
-        6,  // 8  Back
-        7,  // 9  Start
-        9,  // 10 Left Thumb
-        10, // 11 Right Thumb
-        11, // 12 DPad Up
-        13, // 13 DPad Down
-        14, // 14 DPad Left
-        12, // 15 DPad Right
-        8   // 16 Guide
-    ];
-
-    function _pollGamepads() {
-        var gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-        for (var i = 0; i < gamepads.length; i++) {
-            var gp = gamepads[i];
-            if (!gp) {
-                // Disconnected
-                if (_gamepadConnected[i]) {
-                    _module.ccall('ck_gamepad_disconnect', null, ['number'], [i]);
-                    delete _gamepadConnected[i];
-                }
-                continue;
-            }
-
-            // Newly connected
-            if (!_gamepadConnected[i]) {
-                _module.ccall('ck_gamepad_connect', null,
-                    ['number', 'string'], [i, gp.id]);
-                _gamepadConnected[i] = true;
-            }
-
-            // Map axes: Web axes[0-3] → GLFW axes[0-3]
-            // Web buttons[6].value → GLFW axis 4 (LT), buttons[7].value → axis 5 (RT)
-            // GLFW triggers: [-1, 1], Web triggers: [0, 1]
-            _gpAxesArr[0] = gp.axes[0] || 0;
-            _gpAxesArr[1] = gp.axes[1] || 0;
-            _gpAxesArr[2] = gp.axes[2] || 0;
-            _gpAxesArr[3] = gp.axes[3] || 0;
-            _gpAxesArr[4] = gp.buttons[6] ? gp.buttons[6].value * 2 - 1 : -1;
-            _gpAxesArr[5] = gp.buttons[7] ? gp.buttons[7].value * 2 - 1 : -1;
-
-            // Map buttons: Web → GLFW layout
-            _gpBtnArr.fill(0);
-            for (var b = 0; b < gp.buttons.length && b < _gpBtnMap.length; b++) {
-                var mapped = _gpBtnMap[b];
-                if (mapped >= 0 && mapped < 15) {
-                    _gpBtnArr[mapped] = gp.buttons[b].pressed ? 1 : 0;
-                }
-            }
-
-            _module.ccall('ck_gamepad_state', null,
-                ['number', 'array', 'number', 'array', 'number'],
-                [i, _gpAxesBytes, 6, _gpBtnArr, 15]);
-        }
-    }
+    // Gamepad/joystick input is now handled natively by emscripten-glfw's
+    // built-in joystick support (polled via glfwPollEvents in the render loop).
 
     function flushSensors() {
         if (accelPending) {
@@ -763,7 +693,6 @@ function _initSensors() {
             CK.broadcastEvent('_gyroReading');
             gyroPending = null;
         }
-        _pollGamepads();
         requestAnimationFrame(flushSensors);
     }
     requestAnimationFrame(flushSensors);
