@@ -1,5 +1,6 @@
 # Build directories
 src/build/
+src/.cmake-build/
 src/host-web/
 src/code/
 
