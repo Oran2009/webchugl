@@ -8,14 +8,6 @@
 (function() {
     if (!('serviceWorker' in navigator)) return;
 
-    // Tell active SW to use credentialless COEP (allows cross-origin CDN resources)
-    if (navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({
-            type: 'coepCredentialless',
-            value: true
-        });
-    }
-
     // Already cross-origin isolated — SW is working, nothing to do
     if (window.crossOriginIsolated) {
         sessionStorage.removeItem('webchugl-sw-reload');
@@ -28,26 +20,31 @@
         return;
     }
 
-    // Safety net: prevent infinite reload if SW can't provide cross-origin isolation
-    if (sessionStorage.getItem('webchugl-sw-reload')) {
-        console.warn('[WebChuGL] Page reloaded but crossOriginIsolated is still false.');
+    // Safety net: prevent infinite reload loops
+    var reloadCount = parseInt(sessionStorage.getItem('webchugl-sw-reload') || '0', 10);
+    if (reloadCount >= 3) {
+        console.warn('[WebChuGL] crossOriginIsolated is still false after ' + reloadCount + ' reloads. Giving up.');
+        sessionStorage.removeItem('webchugl-sw-reload');
         return;
     }
 
-    navigator.serviceWorker.register('sw.js').then(function(registration) {
-        // Case 1: New or updated SW being installed — reload to pick up headers
-        registration.addEventListener('updatefound', function() {
-            sessionStorage.setItem('webchugl-sw-reload', '1');
-            location.reload();
-        });
+    function doReload() {
+        sessionStorage.setItem('webchugl-sw-reload', String(reloadCount + 1));
+        location.reload();
+    }
 
-        // Case 2: SW is active but not controlling this page (hard refresh recovery).
-        // Hard refresh bypasses the SW fetch handler for the navigation request,
-        // so the page loads without COOP/COEP headers. A normal reload recovers.
+    navigator.serviceWorker.register('sw.js').then(function(registration) {
+        // Hard refresh recovery: SW is active but not controlling this page
+        // (hard refresh sets controller to null). A normal reload will go
+        // through the active SW which injects COOP/COEP headers.
         if (registration.active && !navigator.serviceWorker.controller) {
-            sessionStorage.setItem('webchugl-sw-reload', '1');
-            location.reload();
+            doReload();
+            return;
         }
+
+        // First visit / SW update: SW is installing or waiting.
+        // Wait for it to activate and claim this client, then reload.
+        navigator.serviceWorker.addEventListener('controllerchange', doReload);
     });
 })();
 

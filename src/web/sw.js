@@ -6,7 +6,7 @@
  *
  */
 
-var CACHE_NAME = 'webchugl-v5';
+var CACHE_NAME = 'webchugl-v6';
 var ASSETS_TO_CACHE = [
     './',
     'index.html',
@@ -20,8 +20,6 @@ var ASSETS_TO_CACHE = [
     'webchugl/chugl_logo_light.png',
     'webchugl/chugl_logo_dark.png'
 ];
-
-var coepCredentialless = false;
 
 // ── Install: pre-cache app assets ────────────────────────────────────
 self.addEventListener('install', function(event) {
@@ -63,19 +61,31 @@ self.addEventListener('fetch', function(event) {
     // external APIs like EventSource, CDN resources, etc.)
     if (new URL(r.url).origin !== self.location.origin) return;
 
-    // If coepCredentialless is enabled and this is a no-cors request,
-    // strip credentials so cross-origin resources load without CORS headers
-    var request = (coepCredentialless && r.mode === 'no-cors')
+    // Strip credentials on no-cors requests so cross-origin resources
+    // load without CORS headers under credentialless COEP
+    var request = (r.mode === 'no-cors')
         ? new Request(r, { credentials: 'omit' })
         : r;
 
     event.respondWith(
         caches.match(event.request).then(function(cached) {
-            var fetchPromise = fetch(request).then(function(response) {
-                // Opaque responses (status 0) can't be modified — pass through
+            if (cached) {
+                // Serve from cache immediately (with COI headers).
+                // Also update the cache in the background (stale-while-revalidate).
+                fetch(request).then(function(response) {
+                    if (response.ok && new URL(response.url).origin === self.location.origin) {
+                        caches.open(CACHE_NAME).then(function(cache) {
+                            cache.put(event.request, response);
+                        });
+                    }
+                }).catch(function() {});
+                return addCoiHeaders(cached);
+            }
+
+            // No cache — go to network
+            return fetch(request).then(function(response) {
                 if (response.status === 0) return response;
 
-                // Cache successful same-origin responses
                 if (response.ok && new URL(response.url).origin === self.location.origin) {
                     var clone = response.clone();
                     caches.open(CACHE_NAME).then(function(cache) {
@@ -83,29 +93,9 @@ self.addEventListener('fetch', function(event) {
                     });
                 }
                 return addCoiHeaders(response);
-            }).catch(function() {
-                // Network failure — return cached version with headers if available
-                return cached ? addCoiHeaders(cached) : undefined;
             });
-
-            return cached ? addCoiHeaders(cached) : fetchPromise;
         })
     );
-});
-
-// ── Message handler ──────────────────────────────────────────────────
-self.addEventListener('message', function(event) {
-    if (!event.data) return;
-
-    if (event.data.type === 'deregister') {
-        self.registration.unregister().then(function() {
-            return self.clients.matchAll();
-        }).then(function(clients) {
-            clients.forEach(function(client) { client.navigate(client.url); });
-        });
-    } else if (event.data.type === 'coepCredentialless') {
-        coepCredentialless = event.data.value;
-    }
 });
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -117,8 +107,7 @@ function addCoiHeaders(response) {
 
     var headers = new Headers(response.headers);
     headers.set('Cross-Origin-Opener-Policy', 'same-origin');
-    headers.set('Cross-Origin-Embedder-Policy',
-        coepCredentialless ? 'credentialless' : 'require-corp');
+    headers.set('Cross-Origin-Embedder-Policy', 'credentialless');
 
     return new Response(response.body, {
         status: response.status,
