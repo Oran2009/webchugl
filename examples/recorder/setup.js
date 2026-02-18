@@ -48,9 +48,9 @@
     // ── Wait for audio system to be ready ─────────────────────────────
     function waitForAudio(callback) {
         var check = setInterval(function() {
-            if (window.audioCtx && window.audioNode) {
+            if (window.WebChuGL.audioCtx && window.WebChuGL.audioNode) {
                 clearInterval(check);
-                callback(window.audioCtx, window.audioNode);
+                callback(window.WebChuGL.audioCtx, window.WebChuGL.audioNode);
             }
         }, 100);
     }

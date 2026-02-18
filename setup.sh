@@ -151,13 +151,21 @@ fi
 GLFW_PATCH="$PATCH_DIR/emscripten-glfw.patch"
 GLFW_PORT_DIR="$EMSDK_INSTALL/cache/ports/contrib.glfw3"
 if [ -f "$GLFW_PATCH" ]; then
-    # Pre-fetch the port if not already cached
+    # Pre-fetch the port if not already cached (use curl to avoid potential SSL issues)
     if [ ! -d "$GLFW_PORT_DIR" ]; then
-        echo "[emscripten-glfw] Fetching contrib.glfw3 port..."
-        TEMP_C=$(mktemp /tmp/webchugl_fetch_XXXXXX.c)
-        echo "int main(){return 0;}" > "$TEMP_C"
-        "$EMSDK_INSTALL/emcc" --use-port=contrib.glfw3 -c "$TEMP_C" -o "${TEMP_C}.o" 2>/dev/null || true
-        rm -f "$TEMP_C" "${TEMP_C}.o"
+        GLFW_PORT_URL="https://github.com/pongasoft/emscripten-glfw/releases/download/v3.4.0.20250927/emscripten-glfw3-3.4.0.20250927.zip"
+        GLFW_PORT_ZIP="$EMSDK_INSTALL/cache/ports/contrib.glfw3.zip"
+        CACHE_PORTS_DIR="$EMSDK_INSTALL/cache/ports"
+
+        echo "[emscripten-glfw] Downloading contrib.glfw3 port..."
+        mkdir -p "$CACHE_PORTS_DIR"
+        curl -L -o "$GLFW_PORT_ZIP" "$GLFW_PORT_URL"
+
+        echo "[emscripten-glfw] Extracting..."
+        mkdir -p "$GLFW_PORT_DIR"
+        unzip -q -o "$GLFW_PORT_ZIP" -d "$GLFW_PORT_DIR"
+        printf '%s' "$GLFW_PORT_URL" > "$GLFW_PORT_DIR/.emscripten_url"
+        echo "[emscripten-glfw] Port cached successfully"
     fi
 
     if [ -d "$GLFW_PORT_DIR" ]; then

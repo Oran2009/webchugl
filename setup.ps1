@@ -161,18 +161,20 @@ if (Test-Path $ChuckPatch) {
 $GlfwPatch = Join-Path $PatchDir "emscripten-glfw.patch"
 $GlfwPortDir = Join-Path $EmsdkInstall "cache\ports\contrib.glfw3"
 if (Test-Path $GlfwPatch) {
-    # Pre-fetch the port if not already cached
+    # Pre-fetch the port if not already cached (use curl to avoid MSYS2 Python SSL issues)
     if (-not (Test-Path $GlfwPortDir)) {
-        Write-Host "[emscripten-glfw] Fetching contrib.glfw3 port..." -ForegroundColor Yellow
-        $Emcc = Join-Path $EmsdkInstall "emcc.py"
-        $TempC = Join-Path $env:TEMP "webchugl_fetch.c"
-        "int main(){return 0;}" | Out-File -FilePath $TempC -Encoding ascii -NoNewline
-        $env:EMSDK_PYTHON = ""
-        $ErrorActionPreference = "Continue"
-        py $Emcc --use-port=contrib.glfw3 -c $TempC -o ($TempC + ".o") 2>&1 | Out-Null
-        $ErrorActionPreference = "Stop"
-        Remove-Item $TempC -Force -ErrorAction SilentlyContinue
-        Remove-Item ($TempC + ".o") -Force -ErrorAction SilentlyContinue
+        $GlfwPortUrl = "https://github.com/pongasoft/emscripten-glfw/releases/download/v3.4.0.20250927/emscripten-glfw3-3.4.0.20250927.zip"
+        $GlfwPortZip = Join-Path $EmsdkInstall "cache\ports\contrib.glfw3.zip"
+        $CachePortsDir = Join-Path $EmsdkInstall "cache\ports"
+
+        Write-Host "[emscripten-glfw] Downloading contrib.glfw3 port..." -ForegroundColor Yellow
+        New-Item -ItemType Directory -Path $CachePortsDir -Force | Out-Null
+        curl -L -o $GlfwPortZip $GlfwPortUrl
+
+        Write-Host "[emscripten-glfw] Extracting..." -ForegroundColor Yellow
+        Expand-Archive -Path $GlfwPortZip -DestinationPath $GlfwPortDir -Force
+        $GlfwPortUrl | Out-File -FilePath (Join-Path $GlfwPortDir ".emscripten_url") -Encoding ascii -NoNewline
+        Write-Host "[emscripten-glfw] Port cached successfully" -ForegroundColor Green
     }
 
     if (Test-Path $GlfwPortDir) {

@@ -244,8 +244,8 @@ static bool g_needsMicrophone = false;
 void initAudio()
 {
     EM_ASM({
-        if (typeof window.initWebChuGLAudio === 'function') {
-            window.initWebChuGLAudio(
+        if (typeof window.WebChuGL._initAudio === 'function') {
+            window.WebChuGL._initAudio(
                 Module.wasmMemory.buffer,  // SharedArrayBuffer
                 $0, $1, $2,  // output: buffer ptr, writePos ptr, readPos ptr
                 $3, $4, $5,  // input: buffer ptr, writePos ptr, readPos ptr
@@ -253,7 +253,7 @@ void initAudio()
                 $7           // needsMic
             );
         } else {
-            console.error('[WebChuGL] initWebChuGLAudio not found');
+            console.error('[WebChuGL] WebChuGL._initAudio not found');
         }
     },
     (int)(uintptr_t)g_audioRingBuffer,
@@ -345,7 +345,8 @@ int main(int argc, char** argv)
     // Note: web chugins (for webchugl) require SIDE_MODULE=1 and -pthread
     {
         int chuginCount = EM_ASM_INT({
-            return window.ChuginLoader ? window.ChuginLoader.getPendingCount() : 0;
+            var c = window.WebChuGL.chugins;
+            return c ? c.pendingChugins.length : 0;
         });
 
         if (chuginCount > 0) {
@@ -354,7 +355,7 @@ int main(int argc, char** argv)
             for (int i = 0; i < chuginCount; i++) {
                 // Get the filesystem path from JS
                 char* path = (char*)EM_ASM_PTR({
-                    var paths = window.ChuginLoader.pendingChugins;
+                    var paths = window.WebChuGL.chugins.pendingChugins;
                     var p = paths[$0];
                     var len = lengthBytesUTF8(p) + 1;
                     var ptr = _malloc(len);
@@ -398,7 +399,7 @@ int main(int argc, char** argv)
             }
 
             // Clear pending list
-            EM_ASM({ window.ChuginLoader.pendingChugins = []; });
+            EM_ASM({ window.WebChuGL.chugins.pendingChugins = []; });
         }
     }
 

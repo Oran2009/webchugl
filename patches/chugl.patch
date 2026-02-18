@@ -1324,25 +1324,22 @@ index 5a767e0..2b29fba 100644
      f32 x, y, z;    // position
      f32 nx, ny, nz; // normal
 diff --git a/src/graphics.cpp b/src/graphics.cpp
-index 09f59d8..608c229 100644
+index 09f59d8..d52e3cf 100644
 --- a/src/graphics.cpp
 +++ b/src/graphics.cpp
-@@ -105,14 +105,24 @@ static WGPUAdapter request_adapter(WGPUInstance instance,
+@@ -105,14 +105,21 @@ static WGPUAdapter request_adapter(WGPUInstance instance,
          };
  
      // Call to the WebGPU request adapter procedure
 +#ifdef __EMSCRIPTEN__
-+    // On Emscripten, adapter was pre-created in JS before main() started
-+    // (see shell.html). This avoids ASYNCIFY, which is incompatible with
-+    // MAIN_MODULE due to ASYNCIFY forcing DYNCALLS=1.
++    // On Emscripten, adapter was pre-created in JS before main() started.
++    // ASYNCIFY is incompatible with MAIN_MODULE (forces DYNCALLS=1), so
++    // the host pre-creates WebGPU objects and stores them on Module.
 +    WGPUAdapter preAdapter = (WGPUAdapter)(uintptr_t)EM_ASM_INT({
-+        var adapter = window._preWebGPUAdapter;
++        var adapter = Module._preAdapter;
 +        if (!adapter) return 0;
-+        // WebGPU.initManagers() is called automatically by Emscripten's
-+        // __postset during module initialization — do NOT call it again
-+        // here, as it resets all managers (destroying any existing handles).
 +        var handle = WebGPU.mgrAdapter.create(adapter);
-+        window._preWebGPUAdapter = null;
++        delete Module._preAdapter;
 +        return handle;
 +    });
 +    return preAdapter;
@@ -1358,7 +1355,7 @@ index 09f59d8..608c229 100644
      // In theory we should wait until onAdapterReady has been called, which
      // could take some time (what the 'await' keyword does in the JavaScript
      // code). In practice, we know that when the wgpuInstanceRequestAdapter()
-@@ -120,6 +130,7 @@ static WGPUAdapter request_adapter(WGPUInstance instance,
+@@ -120,6 +127,7 @@ static WGPUAdapter request_adapter(WGPUInstance instance,
      ASSERT(userData.requestEnded);
  
      return userData.adapter;
@@ -1366,22 +1363,18 @@ index 09f59d8..608c229 100644
  }
  
  /**
-@@ -149,18 +160,28 @@ static WGPUDevice request_device(WGPUAdapter adapter,
+@@ -149,18 +157,24 @@ static WGPUDevice request_device(WGPUAdapter adapter,
          userData.requestEnded = true;
      };
  
 +#ifdef __EMSCRIPTEN__
 +    // On Emscripten, device was pre-created in JS before main() started.
-+    // This avoids ASYNCIFY, which is incompatible with MAIN_MODULE
-+    // due to ASYNCIFY forcing DYNCALLS=1.
 +    WGPUDevice preDevice = (WGPUDevice)(uintptr_t)EM_ASM_INT({
-+        var device = window._preWebGPUDevice;
++        var device = Module._preDevice;
 +        if (!device) return 0;
-+        // Register queue first, then device with queueId in wrapper
-+        // (wgpuDeviceGetQueue looks up objects[deviceId].queueId)
 +        var queueId = WebGPU.mgrQueue.create(device.queue);
 +        var handle = WebGPU.mgrDevice.create(device, { queueId: queueId });
-+        window._preWebGPUDevice = null;
++        delete Module._preDevice;
 +        return handle;
 +    });
 +    return preDevice;
@@ -1402,7 +1395,7 @@ index 09f59d8..608c229 100644
  }
  
  static void on_device_error(WGPUErrorType type, char const* message,
-@@ -295,7 +316,7 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+@@ -295,7 +309,7 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
      log_trace("adapter created");
  
      { // log adapter info
@@ -1411,7 +1404,7 @@ index 09f59d8..608c229 100644
          wgpuAdapterGetInfo(adapter, &adapter_info);
          log_info("Adapter vendor: %s", adapter_info.vendor);
          log_info("Adapter architecture: %s", adapter_info.architecture);
-@@ -310,8 +331,8 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+@@ -310,8 +324,8 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
      }
  
      // set required limits to max supported
@@ -1421,7 +1414,7 @@ index 09f59d8..608c229 100644
      WGPUSupportedLimits supportedLimits = {};
      bool success = wgpuAdapterGetLimits(adapter, &supportedLimits);
      UNUSED_VAR(success);
-@@ -334,6 +355,16 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+@@ -334,6 +348,16 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
      const u32 requiredFeaturesCount = ARRAY_LENGTH(requiredFeatures);
      log_trace("required features: %d", ARRAY_LENGTH(requiredFeatures));
  #else
@@ -1438,7 +1431,7 @@ index 09f59d8..608c229 100644
      const u32 requiredFeaturesCount   = 0;
      WGPUFeatureName* requiredFeatures = NULL;
  #endif
-@@ -343,7 +374,9 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+@@ -343,7 +367,9 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
      deviceDescriptor.label                = "ChuGL Device";
      deviceDescriptor.requiredFeatureCount = requiredFeaturesCount;
      deviceDescriptor.requiredFeatures     = requiredFeatures;
@@ -1448,7 +1441,7 @@ index 09f59d8..608c229 100644
      deviceDescriptor.defaultQueue         = { NULL, "ChuGL queue" };
      deviceDescriptor.deviceLostCallback
        = [](WGPUDeviceLostReason reason, char const* message, void* /* pUserData */) {
-@@ -351,14 +384,20 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+@@ -351,14 +377,20 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
              if (message) log_error(" (%s)", message);
          };
      deviceDescriptor.deviceLostUserdata          = NULL;
@@ -1469,7 +1462,7 @@ index 09f59d8..608c229 100644
      { // set debug callbacks
        // #if defined(WEBGPU_BACKEND_WGPU)
        //         wgpuSetLogLevel(WGPULogLevel_Warn);
-@@ -378,7 +417,7 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
+@@ -378,7 +410,7 @@ bool GraphicsContext::init(GraphicsContext* context, GLFWwindow* window)
      // determine swapchain format
      // note: we try to always pick an 8unorm format
      {
