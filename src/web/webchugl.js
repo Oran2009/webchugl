@@ -112,6 +112,9 @@ function _audioBufferToWav(audioBuffer) {
 // WebChuGL Namespace
 // ============================================================================
 
+// Audio config set via CK.configure() before module loads (JS API override)
+var _userAudioConfig = null;
+
 window.WebChuGL = {
     module:   null,  // Emscripten module instance (set during init)
     audioCtx: null,  // AudioContext (set during audio init)
@@ -168,10 +171,10 @@ window.WebChuGL = {
 
     _initAudio: function(sab, outBufPtr, outWritePosPtr, outReadPosPtr,
                          inBufPtr, inWritePosPtr, inReadPosPtr,
-                         capacity, needsMic) {
+                         capacity, needsMic, sampleRate, outChannels, inChannels) {
         var ctx;
         try {
-            ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
+            ctx = new AudioContext({ sampleRate: sampleRate, latencyHint: 'interactive' });
         } catch (e) {
             console.error('[WebChuGL] Failed to create AudioContext: ' + e.message);
             return;
@@ -181,7 +184,9 @@ window.WebChuGL = {
             var node = new AudioWorkletNode(ctx, 'chuck-processor', {
                 numberOfInputs: 1,
                 numberOfOutputs: 1,
-                outputChannelCount: [2]
+                outputChannelCount: [outChannels],
+                channelCount: inChannels,
+                channelCountMode: 'explicit'
             });
 
             node.port.postMessage({
@@ -192,7 +197,9 @@ window.WebChuGL = {
                 inBufOffset: inBufPtr,
                 inWritePosOffset: inWritePosPtr,
                 inReadPosOffset: inReadPosPtr,
-                capacity: capacity
+                capacity: capacity,
+                outChannels: outChannels,
+                inChannels: inChannels
             });
 
             node.connect(ctx.destination);
@@ -248,10 +255,34 @@ function _setProgress(pct) {
 // All runtime code (CK bridge, sensors, etc.) accesses Emscripten through this.
 var _module = null;
 
+// ── Resolve audio config: URL params < JS API (WebChuGL.configure()) ─────
+// URL params: ?srate=44100&out=4&in=1
+var _audioConfig = (function() {
+    var defaults = { sampleRate: 48000, outChannels: 2, inChannels: 2 };
+    var params = new URLSearchParams(window.location.search);
+    var sr = parseInt(params.get('srate'), 10);
+    var out = parseInt(params.get('out'), 10);
+    var inp = parseInt(params.get('in'), 10);
+    if (sr > 0) defaults.sampleRate = sr;
+    if (out > 0) defaults.outChannels = out;
+    if (inp > 0) defaults.inChannels = inp;
+    // JS API (CK.configure()) overrides URL params
+    var uc = _userAudioConfig;
+    if (uc) {
+        if (uc.sampleRate > 0) defaults.sampleRate = uc.sampleRate;
+        if (uc.outputChannels > 0) defaults.outChannels = uc.outputChannels;
+        if (uc.inputChannels > 0) defaults.inChannels = uc.inputChannels;
+    }
+    return defaults;
+})();
+
 // Config object passed to the factory. This becomes Module inside the factory
 // closure, so properties set here are accessible from C++ via EM_ASM.
 var _moduleConfig = {
     noInitialRun: true,
+
+    // Audio config read by C++ main() via EM_ASM
+    _audioConfig: _audioConfig,
 
     canvas: (function() {
         var canvas = document.getElementById('canvas');
@@ -451,6 +482,18 @@ function _ckGet(func, types, args) {
 
 window.CK = {
 
+    // ── Audio Configuration ────────────────────────────────────────────
+    // Configure audio before the module loads. Values set here override
+    // URL query parameters (?srate=44100&out=4&in=1).
+    // Must be called before the page finishes loading (e.g. in setup.js).
+    //   CK.configure({ sampleRate: 44100, outputChannels: 4, inputChannels: 1 });
+    configure: function(opts) {
+        if (!_userAudioConfig) _userAudioConfig = {};
+        if (opts.sampleRate) _userAudioConfig.sampleRate = opts.sampleRate;
+        if (opts.outputChannels) _userAudioConfig.outputChannels = opts.outputChannels;
+        if (opts.inputChannels) _userAudioConfig.inputChannels = opts.inputChannels;
+    },
+
     // Promise that resolves when the CK bridge is ready to use.
     // All methods below auto-queue if called before ready, but this is
     // available for code that wants to explicitly wait:
@@ -584,7 +627,8 @@ window.CK = {
                 return response.arrayBuffer();
             })
             .then(function(arrayBuffer) {
-                var audioCtx = new OfflineAudioContext(1, 1, 48000);
+                var sr = (window.WebChuGL.audioCtx && window.WebChuGL.audioCtx.sampleRate) || 48000;
+                var audioCtx = new OfflineAudioContext(1, 1, sr);
                 return audioCtx.decodeAudioData(arrayBuffer);
             })
             .then(function(audioBuffer) {

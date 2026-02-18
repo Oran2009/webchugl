@@ -9,7 +9,8 @@
   Uses atomic read/write positions. Global variables are automatically shared
   between main thread and Audio Worklet via Emscripten's SharedArrayBuffer.
 
-  Buffer format: Interleaved stereo [L0, R0, L1, R1, ...]
+  Buffer format: Interleaved N-channel [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ...]
+  Call initRingBuffers(outChannels, inChannels) before use.
 -----------------------------------------------------------------------------*/
 #pragma once
 
@@ -20,80 +21,93 @@
 // ~170ms at 48kHz, large enough for variable FPS jitter
 static const uint32_t RING_CAPACITY = 8192;
 
+// Channel counts (set by initRingBuffers)
+static uint32_t g_outChannels = 2;
+static uint32_t g_inChannels = 2;
+
 // ============================================================================
 // OUTPUT Ring Buffer (Main thread -> Audio Worklet)
 // ============================================================================
 
-// Ring buffer storage (stereo interleaved: L0,R0,L1,R1,...)
-static float g_audioRingBuffer[RING_CAPACITY * 2];
-
-// Read/write positions (in samples, not bytes)
+static float* g_audioRingBuffer = nullptr;
 static std::atomic<uint32_t> g_ringWritePos{0};
 static std::atomic<uint32_t> g_ringReadPos{0};
 
-// Returns number of samples available to write
+// ============================================================================
+// INPUT Ring Buffer (Audio Worklet -> Main thread) for microphone
+// ============================================================================
+
+static float* g_inputRingBuffer = nullptr;
+static std::atomic<uint32_t> g_inputRingWritePos{0};
+static std::atomic<uint32_t> g_inputRingReadPos{0};
+
+// ============================================================================
+// Initialization
+// ============================================================================
+
+// Allocate ring buffers. Must be called once before any read/write operations.
+inline void initRingBuffers(uint32_t outChannels, uint32_t inChannels) {
+    g_outChannels = outChannels;
+    g_inChannels = inChannels;
+    g_audioRingBuffer = new float[RING_CAPACITY * outChannels]();
+    g_inputRingBuffer = new float[RING_CAPACITY * inChannels]();
+}
+
+// ============================================================================
+// OUTPUT Ring Buffer Operations
+// ============================================================================
+
 inline uint32_t ringAvailableToWrite() {
     uint32_t writePos = g_ringWritePos.load(std::memory_order_relaxed);
     uint32_t readPos = g_ringReadPos.load(std::memory_order_acquire);
     return RING_CAPACITY - (writePos - readPos);
 }
 
-// Write interleaved stereo samples to ring buffer
-// data: array of interleaved samples [L0,R0,L1,R1,...] of length samples*2
-// samples: number of stereo sample pairs to write
+// Write interleaved samples to output ring buffer
+// data: interleaved samples, length = samples * g_outChannels
 inline void ringWrite(const float* data, int samples) {
     uint32_t writePos = g_ringWritePos.load(std::memory_order_relaxed);
+    uint32_t nc = g_outChannels;
 
     for (int i = 0; i < samples; i++) {
-        uint32_t idx = ((writePos + i) % RING_CAPACITY) * 2;
-        g_audioRingBuffer[idx] = data[i * 2];       // Left
-        g_audioRingBuffer[idx + 1] = data[i * 2 + 1]; // Right
+        uint32_t idx = ((writePos + i) % RING_CAPACITY) * nc;
+        uint32_t srcIdx = i * nc;
+        for (uint32_t ch = 0; ch < nc; ch++) {
+            g_audioRingBuffer[idx + ch] = data[srcIdx + ch];
+        }
     }
 
     g_ringWritePos.store(writePos + samples, std::memory_order_release);
 }
 
 // ============================================================================
-// INPUT Ring Buffer (Audio Worklet -> Main thread) for microphone
+// INPUT Ring Buffer Operations
 // ============================================================================
 
-// Input ring buffer storage (stereo interleaved)
-static float g_inputRingBuffer[RING_CAPACITY * 2];
-
-// Read/write positions for input
-static std::atomic<uint32_t> g_inputRingWritePos{0};
-static std::atomic<uint32_t> g_inputRingReadPos{0};
-
-// Returns number of input samples available to read
 inline uint32_t inputRingAvailableToRead() {
     uint32_t writePos = g_inputRingWritePos.load(std::memory_order_acquire);
     uint32_t readPos = g_inputRingReadPos.load(std::memory_order_relaxed);
     return writePos - readPos;
 }
 
-// Read planar stereo samples from input ring buffer for ChucK
-// outBuffer: planar format [L0,L1,...,Ln,R0,R1,...,Rn]
-// samples: max number of samples per channel to read
-// Returns: total floats written to outBuffer (samplesRead * NUM_CHANNELS)
+// Read from input ring buffer, converting interleaved → planar for ChucK
+// outBuffer: planar [ch0_s0..ch0_sN, ch1_s0..ch1_sN, ...]
+// Returns: total floats written (samplesRead * g_inChannels)
 inline int inputRingRead(float* outBuffer, int samples) {
     uint32_t available = inputRingAvailableToRead();
-    if (available == 0) {
-        return 0;
-    }
-
-    if ((uint32_t)samples > available) {
-        samples = available;
-    }
+    if (available == 0) return 0;
+    if ((uint32_t)samples > available) samples = available;
 
     uint32_t readPos = g_inputRingReadPos.load(std::memory_order_relaxed);
+    uint32_t nc = g_inChannels;
 
-    // Convert from interleaved [L0,R0,L1,R1,...] to planar [L0..Ln, R0..Rn]
     for (int i = 0; i < samples; i++) {
-        uint32_t idx = ((readPos + i) % RING_CAPACITY) * 2;
-        outBuffer[i] = g_inputRingBuffer[idx];           // Left channel
-        outBuffer[samples + i] = g_inputRingBuffer[idx + 1]; // Right channel
+        uint32_t idx = ((readPos + i) % RING_CAPACITY) * nc;
+        for (uint32_t ch = 0; ch < nc; ch++) {
+            outBuffer[ch * samples + i] = g_inputRingBuffer[idx + ch];
+        }
     }
 
     g_inputRingReadPos.store(readPos + samples, std::memory_order_release);
-    return samples * 2;  // Return total SAMPLE values written
+    return samples * nc;
 }

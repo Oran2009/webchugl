@@ -7,8 +7,8 @@
   via SharedArrayBuffer ring buffers (see audio_ring_buffer.h and
   audio-worklet-processor.js).
 
-  Ring buffer format: Interleaved stereo [L0, R0, L1, R1, ...]
-  ChucK VM format: Planar [L0, L1, ..., Ln, R0, R1, ..., Rn]
+  Ring buffer format: Interleaved N-channel [ch0_s0, ch1_s0, ..., chN_s0, ...]
+  ChucK VM format: Planar [ch0_s0, ch0_s1, ..., ch1_s0, ch1_s1, ...]
 -----------------------------------------------------------------------------*/
 #include "chuck.h"
 #include "chuck_globals.h"
@@ -230,10 +230,12 @@ public class Gyro extends Event {
 }
 )CK";
 
-// Audio
-static const int NUM_CHANNELS = 2;
-static const double SAMPLE_RATE = 48000.0;
-static const int MAX_SAMPLES_PER_CALL = 4800;
+// Audio defaults — overridden by Module._audioConfig (set from URL params / JS API).
+// These are the single source of truth, passed to JS at init time.
+static int g_sampleRate = 48000;
+static int g_numOutputChannels = 2;
+static int g_numInputChannels = 2;
+static int g_maxSamplesPerCall = 4800;  // derived: g_sampleRate / 10 (100ms cap)
 
 static std::chrono::high_resolution_clock::time_point g_lastAudioTime;
 
@@ -250,7 +252,10 @@ void initAudio()
                 $0, $1, $2,  // output: buffer ptr, writePos ptr, readPos ptr
                 $3, $4, $5,  // input: buffer ptr, writePos ptr, readPos ptr
                 $6,          // capacity
-                $7           // needsMic
+                $7,          // needsMic
+                $8,          // sampleRate
+                $9,          // outChannels
+                $10          // inChannels
             );
         } else {
             console.error('[WebChuGL] WebChuGL._initAudio not found');
@@ -263,7 +268,10 @@ void initAudio()
     (int)(uintptr_t)&g_inputRingWritePos,
     (int)(uintptr_t)&g_inputRingReadPos,
     (int)RING_CAPACITY,
-    g_needsMicrophone ? 1 : 0);
+    g_needsMicrophone ? 1 : 0,
+    g_sampleRate,
+    g_numOutputChannels,
+    g_numInputChannels);
 }
 
 // Pre-frame callback: advances the ChucK VM based on elapsed time
@@ -274,24 +282,35 @@ static void run_vm_frame(void* data)
 
     auto now = std::chrono::high_resolution_clock::now();
     double elapsedSeconds = std::chrono::duration<double>(now - g_lastAudioTime).count();
-    int samplesToGenerate = (int)(elapsedSeconds * SAMPLE_RATE + 0.5);
+    int samplesToGenerate = (int)(elapsedSeconds * g_sampleRate + 0.5);
     g_lastAudioTime = now;
 
-    if (samplesToGenerate > MAX_SAMPLES_PER_CALL) {
-        samplesToGenerate = MAX_SAMPLES_PER_CALL;
+    if (samplesToGenerate > g_maxSamplesPerCall) {
+        samplesToGenerate = g_maxSamplesPerCall;
     }
 
     if (samplesToGenerate >= 1) {
-        // Planar buffers: [L0..Ln, R0..Rn]
-        static SAMPLE inBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
-        static SAMPLE outBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
-        static float floatBuffer[MAX_SAMPLES_PER_CALL * 2];
-        static float floatInBuffer[MAX_SAMPLES_PER_CALL * NUM_CHANNELS];
+        int outCh = g_numOutputChannels;
+        int inCh = g_numInputChannels;
+        int maxCh = outCh > inCh ? outCh : inCh;
+        int maxSPC = g_maxSamplesPerCall;
+
+        // Planar buffers for ChucK: [ch0_s0..ch0_sN, ch1_s0..ch1_sN, ...]
+        static SAMPLE* inBuffer = nullptr;
+        static SAMPLE* outBuffer = nullptr;
+        static float* floatBuffer = nullptr;
+        static float* floatInBuffer = nullptr;
+        if (!inBuffer) {
+            inBuffer = new SAMPLE[maxSPC * maxCh]();
+            outBuffer = new SAMPLE[maxSPC * maxCh]();
+            floatBuffer = new float[maxSPC * maxCh]();
+            floatInBuffer = new float[maxSPC * maxCh]();
+        }
 
         // Read mic input from input ring buffer (planar format)
         int inputFloatsWritten = inputRingRead(floatInBuffer, samplesToGenerate);
         // Convert float to SAMPLE and zero-fill if not enough
-        for (int i = 0; i < samplesToGenerate * NUM_CHANNELS; i++) {
+        for (int i = 0; i < samplesToGenerate * inCh; i++) {
             inBuffer[i] = (i < inputFloatsWritten) ? (SAMPLE)floatInBuffer[i] : 0;
         }
 
@@ -303,8 +322,9 @@ static void run_vm_frame(void* data)
         if (available >= (uint32_t)samplesToGenerate) {
             // Convert from planar SAMPLE to interleaved float for ring buffer
             for (int i = 0; i < samplesToGenerate; i++) {
-                floatBuffer[i * 2] = (float)outBuffer[i];                      // Left
-                floatBuffer[i * 2 + 1] = (float)outBuffer[samplesToGenerate + i]; // Right
+                for (int ch = 0; ch < outCh; ch++) {
+                    floatBuffer[i * outCh + ch] = (float)outBuffer[ch * samplesToGenerate + i];
+                }
             }
             ringWrite(floatBuffer, samplesToGenerate);
         }
@@ -318,11 +338,29 @@ int main(int argc, char** argv)
 
     printf("[WebChuGL] Initializing...\n");
 
+    // Read audio config from Module._audioConfig (set by JS from URL params / API)
+    g_sampleRate = EM_ASM_INT({
+        var c = Module._audioConfig;
+        return (c && c.sampleRate) ? c.sampleRate : 48000;
+    });
+    g_numOutputChannels = EM_ASM_INT({
+        var c = Module._audioConfig;
+        return (c && c.outChannels) ? c.outChannels : 2;
+    });
+    g_numInputChannels = EM_ASM_INT({
+        var c = Module._audioConfig;
+        return (c && c.inChannels) ? c.inChannels : 2;
+    });
+    g_maxSamplesPerCall = g_sampleRate / 10;  // 100ms cap
+
+    printf("[WebChuGL] Audio config: %d Hz, %d out, %d in\n",
+           g_sampleRate, g_numOutputChannels, g_numInputChannels);
+
     the_chuck = new ChucK();
 
-    the_chuck->setParam(CHUCK_PARAM_SAMPLE_RATE, (t_CKINT)48000);
-    the_chuck->setParam(CHUCK_PARAM_INPUT_CHANNELS, (t_CKINT)NUM_CHANNELS);
-    the_chuck->setParam(CHUCK_PARAM_OUTPUT_CHANNELS, (t_CKINT)NUM_CHANNELS);
+    the_chuck->setParam(CHUCK_PARAM_SAMPLE_RATE, (t_CKINT)g_sampleRate);
+    the_chuck->setParam(CHUCK_PARAM_INPUT_CHANNELS, (t_CKINT)g_numInputChannels);
+    the_chuck->setParam(CHUCK_PARAM_OUTPUT_CHANNELS, (t_CKINT)g_numOutputChannels);
     the_chuck->setParam(CHUCK_PARAM_VM_HALT, (t_CKINT)0);
     the_chuck->setParam(CHUCK_PARAM_CHUGIN_ENABLE, (t_CKINT)1);
     the_chuck->setParam(CHUCK_PARAM_WORKING_DIRECTORY, "/code");
@@ -422,8 +460,9 @@ int main(int argc, char** argv)
 
     // Run VM briefly to execute initial setup code before GG.nextFrame()
     {
-        static SAMPLE initBuffer[256 * NUM_CHANNELS];
+        SAMPLE* initBuffer = new SAMPLE[256 * g_numOutputChannels]();
         the_chuck->run(nullptr, initBuffer, 256);
+        delete[] initBuffer;
     }
 
     // Check if adc is used
@@ -447,6 +486,7 @@ int main(int argc, char** argv)
     }
 
     g_lastAudioTime = std::chrono::high_resolution_clock::now();
+    initRingBuffers(g_numOutputChannels, g_numInputChannels);
     initAudio();
 
     webchugl_set_pre_frame_callback(run_vm_frame, the_chuck);
