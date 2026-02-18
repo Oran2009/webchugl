@@ -1,0 +1,16 @@
+{
+    "source": {
+        "include": ["src/web/webchugl-esm.js"]
+    },
+    "opts": {
+        "template": "./jsdoc-template",
+        "destination": "web/docs/"
+    },
+    "plugins": ["plugins/markdown"],
+    "templates": {
+        "default": {
+            "includeDate": false,
+            "outputSourceFiles": false
+        }
+    }
+}

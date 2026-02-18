@@ -1,9 +1,6 @@
 #!/bin/bash
-# Build WebChuGL (WASM compilation only)
+# Build WebChuGL (WASM compilation)
 # Usage: ./build.sh [--clean] [-j N]
-#
-# This only compiles C++/WASM. To bundle code/packages into bundle.zip,
-# run bundle.sh separately (or use build-and-bundle.sh for both).
 #
 # CMake builds in src/.cmake-build/ (outside build/) so that build/
 # contains only web-deployable files.
@@ -102,11 +99,12 @@ if [ -d "$CMAKE_BUILD_DIR/webchugl" ]; then
     cp -r "$CMAKE_BUILD_DIR/webchugl/"* "$BUILD_DIR/webchugl/"
 fi
 
-# Minify JS assets
-echo "Minifying JS..."
-python3 "$SCRIPT_DIR/py/minify_js.py" "$BUILD_DIR/webchugl/webchugl.js"
+# Copy ESM entry point to dist/ (for npm publishing)
+echo "Preparing npm dist..."
+DIST_DIR="$PROJECT_ROOT/dist"
+mkdir -p "$DIST_DIR"
+cp "$SRC_DIR/web/webchugl-esm.js" "$DIST_DIR/webchugl-esm.js"
 
 echo ""
 echo "=== Build Complete ==="
 echo "Output: $BUILD_DIR"
-echo "Next: ./scripts/bundle.sh (to create bundle.zip)"

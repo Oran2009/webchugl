@@ -114,7 +114,33 @@
         document.addEventListener('touchstart', hideAudioHint, { once: true });
     </script>
     <!-- {{{ SCRIPT }}} -->
-    <script src="webchugl/index.js"></script>
-    <script src="webchugl/webchugl.js"></script>
+    <script type="module">
+        import ChuGL from './webchugl/webchugl-esm.js';
+
+        var ck = await ChuGL.init({
+            canvas: document.getElementById('canvas'),
+            whereIsChuGL: './webchugl/',
+            onProgress: function(pct) {
+                var el = document.getElementById('progress-fill');
+                if (el) el.style.width = Math.round(pct) + '%';
+            },
+            onError: function(msg) {
+                console.error('[WebChuGL] ' + msg);
+                var pb = document.getElementById('progress-bar');
+                if (pb) pb.style.display = 'none';
+                var errEl = document.getElementById('error-text');
+                if (errEl) {
+                    errEl.textContent = msg;
+                    errEl.style.display = 'block';
+                }
+            },
+        });
+
+        await ck.runZip('./bundle.zip');
+
+        var ls = document.getElementById('loading-screen');
+        if (ls) ls.classList.add('hidden');
+        document.getElementById('canvas').focus();
+    </script>
 </body>
 </html>

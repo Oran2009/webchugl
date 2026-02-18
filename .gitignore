@@ -3,6 +3,7 @@ src/build/
 src/.cmake-build/
 src/host-web/
 src/code/
+dist/
 
 # CMake generated
 CMakeCache.txt
@@ -36,6 +37,7 @@ nul
 *.log
 
 __pycache__/
+node_modules/
 
 # Dependencies (cloned by setup script, patches stored in patches/)
 chuck/

@@ -2,7 +2,7 @@
 
 [ChuGL](https://github.com/ccrma/chugl) compiled to WebAssembly via Emscripten. Runs [ChucK](https://chuck.stanford.edu/) programs with real-time graphics and audio in the browser using WebGPU and Web Audio.
 
-## Requirements (for now)
+## Requirements
 
 - Python 3
 - Git
@@ -12,16 +12,12 @@
 ## Setup
 
 ```bash
-# Clone and set up dependencies (chuck, chugl, emsdk 4.0.17)
+# Clone and set up dependencies (chuck, chugl, emsdk)
 ./setup.sh        # Unix
 ./setup.ps1       # Windows
 ```
 
-This clones chuck and chugl at pinned commits, installs Emscripten 4.0.17, and applies patches from `patches/`.
-
 ## Build
-
-Place your ChucK program at `src/code/main.ck`, then:
 
 ```bash
 cd src/scripts
@@ -29,82 +25,146 @@ cd src/scripts
 ./build.ps1       # Windows
 ```
 
-The build script:
-1. Copies `src/code/` to the build directory
-2. Fetches any ChuMP packages listed in `src/code/packages.json`
-3. Creates `bundle.zip` (code + packages, loaded at runtime via JSZip)
-4. Compiles WebChuGL with Emscripten
+Output goes to `src/build/`. The `webchugl/` subdirectory contains the runtime assets.
 
-Output goes to `src/build/`.
+## Usage (ESM)
 
-## Serve
+Import from CDN (no build step required):
 
-```bash
-python src/scripts/dev_server.py
-# Open http://localhost:8080
+```html
+<canvas id="canvas"></canvas>
+<script type="module">
+    import ChuGL from 'https://cdn.jsdelivr.net/npm/webchugl/+esm';
+
+    var ck = await ChuGL.init({
+        canvas: document.getElementById('canvas'),
+    });
+
+    // Run ChucK code directly
+    ck.runCode('SinOsc s => dac; while(true) GG.nextFrame() => now;');
+
+    // Or run a .ck file (fetched automatically)
+    await ck.runFile('./main.ck');
+</script>
 ```
 
-Requires a browser with WebGPU support (Chrome, Edge).
+Or import from a self-hosted build:
 
-## ChuGins
+```js
+import ChuGL from './webchugl/webchugl-esm.js';
 
-Pre-built `.chug.wasm` files for select web-compatible ChuGins are available in `chugins/`. To use a ChuGin, copy its `.chug.wasm` into `src/code/` before building.
+var ck = await ChuGL.init({
+    canvas: document.getElementById('canvas'),
+    whereIsChuGL: './webchugl/',
+});
 
-To rebuild ChuGins from source (requires the [chugins repo](https://github.com/ccrma/chugins)):
+await ck.runFile('./main.ck');
+```
+
+### JS ↔ ChucK Communication
+
+```js
+// Set global variables
+ck.setFloat('speed', 2.5);
+ck.setInt('mode', 1);
+ck.setString('name', 'hello');
+
+// Get global variables
+var val = await ck.getFloat('speed');
+
+// Events
+ck.signalEvent('reset');
+ck.broadcastEvent('reset');
+ck.listenForEvent('beat', function() { console.log('beat!'); });
+
+// Arrays
+ck.setFloatArray('data', [1.0, 2.0, 3.0]);
+var arr = await ck.getFloatArray('data');
+```
+
+### Loading ChuGins
+
+```js
+// At init time (loaded before VM starts)
+var ck = await ChuGL.init({
+    canvas: myCanvas,
+    whereIsChuGL: './webchugl/',
+    chugins: ['./chugins/Bitcrusher.chug.wasm'],
+});
+
+// Or after init
+await ck.loadChugin('./chugins/NHHall.chug.wasm');
+ck.runCode('NHHall rev => dac;');
+```
+
+### Loading ChuMP Packages
+
+```js
+await ck.loadPackage('ChuGUI');                    // latest from registry
+await ck.loadPackage('ChuGUI', '0.1.3');           // specific version
+await ck.loadPackage('Custom', '1.0', 'https://example.com/custom.zip');  // direct URL
+
+ck.runCode('@import ChuGUI; // ...');
+```
+
+### Other APIs
+
+```js
+// Write files to the virtual filesystem
+ck.createFile('/audio/sample.wav', arrayBuffer);
+
+// Fetch and decode audio to WAV in VFS
+await ck.loadAudio('https://example.com/sound.mp3', '/audio/sound.wav');
+
+// MIDI (Web MIDI API)
+var access = await navigator.requestMIDIAccess();
+ck.initMidi(access);
+
+// Persistent storage (IndexedDB)
+await ck.save('key', value);
+var val = await ck.load('key');
+
+// Audio access
+ck.audioContext;  // AudioContext
+ck.audioNode;     // AudioWorkletNode
+```
+
+## Examples
+
+Each example in the `examples/` directory is a self-contained project with an `index.html` and `index.js`:
+
+- **Date the Dobots** — A full ChuGL game running via `runZip`
+- **Drum Machine** — Step-sequenced drum machine with HTML UI
+- **HTML UI** — HTML controls driving ChucK synth parameters
+- **Recorder** — Record audio output to WAV
+- **Data Sonification** — Fetch and sonify JSON data
+- **Web Data** — Live earthquake visualization from USGS
+- **MIDI** — Real-time MIDI controller input
+- **Speech Recognition** — Voice-controlled ChucK programs
+- **MediaPipe** — Hand tracking drives audio and visuals
+- **Gamepad** — Gamepad/joystick input
+- **Drag & Drop** — Drag audio files into ChucK
+- **Plugins** — Dynamic ChuGin and ChuMP loading
+
+## Building ChuGins
+
+Pre-built `.chug.wasm` files are available in `chugins/`. To rebuild from source (requires the [chugins repo](https://github.com/ccrma/chugins)):
 
 ```bash
 cd src/scripts
-./build_web_chugins.sh /path/to/chugins    # Unix (emcc must be on PATH)
+./build_web_chugins.sh /path/to/chugins    # Unix
 ./build_web_chugins.ps1 -ChuginsDir /path/to/chugins  # Windows
 ```
 
-## HTML Integration
+## Cross-Origin Isolation
 
-### ChucK side
+WebChuGL requires `SharedArrayBuffer` for audio, which needs cross-origin isolation. Options:
 
-Declare global variables and events in your `.ck` file:
-
-```chuck
-global float speed;
-global int mode;
-global Event reset;
-
-spork ~ fun void listener() {
-    while (true) {
-        reset => now;
-        // handle reset
-    }
-};
-
-while (true) {
-    GG.nextFrame() => now;
-    // use speed, mode, etc.
-}
-```
-
-### JS side
-
-```js
-CK.setFloat('speed', 2.5);       // set a global float
-CK.setInt('mode', 1);            // set a global int
-CK.setString('name', 'hello');   // set a global string
-CK.signalEvent('reset');         // wake one shred waiting on the event
-CK.broadcastEvent('reset');      // wake all shreds waiting on the event
-```
-
-### Example
-
-```html
-<input type="range" id="speed-slider" min="0" max="10" step="0.1" value="1">
-<script>
-document.getElementById('speed-slider').addEventListener('input', function(e) {
-    CK.setFloat('speed', parseFloat(e.target.value));
-});
-</script>
-```
+1. **Service worker** (default): WebChuGL registers `sw.js` which injects COOP/COEP headers. Just serve with any HTTP server.
+2. **Server headers**: Set `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless`, then pass `serviceWorker: false` in init config.
 
 ## Architecture
 
 - **Audio** passes through a `SharedArrayBuffer` to a JS `AudioWorkletProcessor` on the audio thread
 - **Graphics** uses WebGPU via ChuGL's rendering pipeline
-- **ChuGins** are loaded via `dlopen()` (`-sMAIN_MODULE=1` / `-sSIDE_MODULE=1`) (ChuGins need to be compiled with `-sSIDE_MODULE=1` and `-pthread`)
+- **ChuGins** are loaded via `dlopen()` (`-sMAIN_MODULE=1` / `-sSIDE_MODULE=1`)

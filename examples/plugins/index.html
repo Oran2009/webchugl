@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChuGin &amp; Package Loading - WebChuGL</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; }
+        body { font: 14px/1.5 monospace; background: #111; color: #ccc; padding: 20px; }
+        h1 { font-size: 18px; color: #fff; margin-bottom: 16px; }
+        h2 { font-size: 14px; color: #aaa; margin: 20px 0 8px; }
+        canvas { width: 100%; height: 200px; display: block; background: #000; border-radius: 4px; }
+        .section { background: #1a1a1a; padding: 16px; border-radius: 6px; margin-bottom: 12px; }
+        button { font: 13px monospace; background: #333; color: #fff; border: 1px solid #555;
+                 padding: 6px 14px; border-radius: 4px; cursor: pointer; margin: 4px 4px 4px 0; }
+        button:hover { background: #444; }
+        button:disabled { opacity: 0.4; cursor: default; }
+        #log { background: #0a0a0a; padding: 10px; border-radius: 4px; max-height: 300px;
+               overflow-y: auto; font-size: 12px; white-space: pre-wrap; margin-top: 12px; }
+        .log-ok { color: #4f4; }
+        .log-err { color: #f44; }
+        .log-info { color: #aaa; }
+        select { font: 13px monospace; background: #222; color: #fff; border: 1px solid #555;
+                 padding: 4px 8px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>ChuGin &amp; Package Loading</h1>
+
+    <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+
+    <div class="section">
+        <h2>Load ChuGin from URL</h2>
+        <select id="chugin-select">
+            <option value="/chugins/Bitcrusher.chug.wasm">Bitcrusher</option>
+            <option value="/chugins/NHHall.chug.wasm">NHHall</option>
+            <option value="/chugins/Overdrive.chug.wasm">Overdrive</option>
+            <option value="/chugins/WPDiodeLadder.chug.wasm">WPDiodeLadder</option>
+            <option value="/chugins/GVerb.chug.wasm">GVerb</option>
+            <option value="/chugins/FoldbackSaturator.chug.wasm">FoldbackSaturator</option>
+        </select>
+        <button id="btn-load-url">Load from URL</button>
+        <button id="btn-test" disabled>Test loaded ChuGin</button>
+    </div>
+
+    <div class="section">
+        <h2>Load ChuMP Package</h2>
+        <input id="pkg-name" placeholder="Package name" value="ChuGUI"
+            style="font:13px monospace;background:#222;color:#fff;border:1px solid #555;padding:4px 8px;border-radius:4px;">
+        <button id="btn-load-pkg">Load from registry</button>
+    </div>
+
+    <div id="log"></div>
+
+    <script type="module" src="./index.js"></script>
+</body>
+</html>

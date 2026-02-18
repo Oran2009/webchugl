@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Recorder - WebChuGL</title>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; }
+        canvas { width: 100%; height: 100%; display: block; outline: none; }
+
+        #rec-panel {
+            position: fixed; top: 10px; right: 10px; z-index: 50;
+            background: rgba(15,15,25,0.92); border-radius: 8px; padding: 10px 14px;
+            font: 12px monospace; color: #ccc; display: flex; align-items: center; gap: 8px;
+            flex-wrap: wrap; box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+        }
+        #rec-btn, #rec-stop {
+            padding: 5px 12px; border: 1px solid #555; border-radius: 4px;
+            font: 12px monospace; cursor: pointer; background: #222; color: #ccc;
+        }
+        #rec-btn:hover:not(:disabled) { background: #600; color: #faa; border-color: #a44; }
+        #rec-stop:hover:not(:disabled) { background: #333; }
+        #rec-btn:disabled, #rec-stop:disabled { opacity: 0.4; cursor: default; }
+        #rec-btn.recording { background: #b00; color: #fff; border-color: #f44; }
+        #rec-timer { color: #888; min-width: 48px; }
+        #rec-downloads { width: 100%; }
+        #rec-downloads a { display: block; color: #4af; font-size: 11px; margin-top: 4px; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+
+    <div id="rec-panel">
+        <button id="rec-btn">Record</button>
+        <button id="rec-stop" disabled>Stop</button>
+        <span id="rec-timer">0.0s</span>
+        <div id="rec-downloads"></div>
+    </div>
+
+    <script type="module" src="./index.js"></script>
+</body>
+</html>

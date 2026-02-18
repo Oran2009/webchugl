@@ -1,8 +1,5 @@
-# Build WebChuGL (WASM compilation only)
+# Build WebChuGL (WASM compilation)
 # Usage: ./build.ps1 [-Clean] [-Jobs N]
-#
-# This only compiles C++/WASM. To bundle code/packages into bundle.zip,
-# run bundle.ps1 separately (or use build-and-bundle.ps1 for both).
 #
 # CMake builds in src/.cmake-build/ (outside build/) so that build/
 # contains only web-deployable files.
@@ -100,10 +97,13 @@ if (Test-Path $CMakeWebchuglDir) {
     Copy-Item (Join-Path $CMakeWebchuglDir "*") $BuildWebchuglDir -Recurse -Force
 }
 
-# Minify JS assets
-Write-Host "Minifying JS..." -ForegroundColor Gray
-py (Join-Path $ScriptDir "py\minify_js.py") (Join-Path $BuildWebchuglDir "webchugl.js")
+# Copy ESM entry point to dist/ (for npm publishing)
+Write-Host "Preparing npm dist..." -ForegroundColor Gray
+$DistDir = Join-Path $ProjectRoot "dist"
+if (-not (Test-Path $DistDir)) {
+    New-Item -ItemType Directory -Path $DistDir | Out-Null
+}
+Copy-Item (Join-Path $SrcDir "web\webchugl-esm.js") (Join-Path $DistDir "webchugl-esm.js") -Force
 
 Write-Host "`n=== Build Complete ===" -ForegroundColor Green
 Write-Host "Output: $BuildDir" -ForegroundColor Gray
-Write-Host "`nNext: ./scripts/bundle.ps1 (to create bundle.zip)" -ForegroundColor Cyan

@@ -245,6 +245,9 @@ add_custom_command(TARGET webchugl POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_SOURCE_DIR}/web/chugl_logo_dark.png
         ${CMAKE_CURRENT_BINARY_DIR}/webchugl/chugl_logo_dark.png
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_CURRENT_SOURCE_DIR}/web/webchugl-esm.js
+        ${CMAKE_CURRENT_BINARY_DIR}/webchugl/webchugl-esm.js
     # Copy root-level files
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_SOURCE_DIR}/web/sw.js

@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebChuGL</title>
+    <meta name="description" content="ChuGL real-time graphics + ChucK audio programming, running in the browser via WebAssembly and WebGPU.">
+
+    <link rel="stylesheet" href="style.css">
+
+    <!-- Syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/androidstudio.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+</head>
+
+<body>
+
+    <a href="#about" class="skip-link">Skip to main content</a>
+
+    <!-- ── Hero ────────────────────────────────────────────────────────── -->
+    <header class="hero">
+        <h1>WebChuGL
+            <a href="https://chuck.stanford.edu">
+                <img class="logo" src="https://chuck.stanford.edu/doc/images/chuck-logo2023w.png" alt="ChucK logo">
+            </a>
+        </h1>
+        <p class="tagline">ChuGL &rArr; now on the Web</p>
+
+        <p class="description">
+            Real-time graphics and audio programming in the browser with
+            <a href="https://chuck.stanford.edu/chugl/" target="_blank">ChuGL</a>
+            (ChucK Graphics Library) compiled to WebAssembly,
+            <a href="https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API" target="_blank">WebGPU</a>
+            rendering, and
+            <a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API" target="_blank">Web Audio</a>!
+            Create and share interactive audiovisual experiences, creative
+            instruments, data sonifications, and more &mdash; all from a URL.
+            Take ChuGL with you on the go!
+        </p>
+
+        <nav class="hero-buttons" aria-label="Primary">
+            <a href="https://github.com/ccrma/webchugl" target="_blank" class="btn-orange">View on GitHub</a>
+            <a href="#getting-started" class="btn-green">Getting Started</a>
+            <a href="docs/" class="btn-orange">Documentation</a>
+        </nav>
+
+        <div class="hero-snippet">
+            <pre><code class="language-html">&lt;canvas id="canvas"&gt;&lt;/canvas&gt;
+&lt;script type="module"&gt;
+    import ChuGL from 'https://cdn.jsdelivr.net/npm/webchugl/+esm';
+    var ck = await ChuGL.init({ canvas: document.getElementById('canvas') });
+    ck.runCode('SinOsc s =&gt; dac; while(true) GG.nextFrame() =&gt; now;');
+&lt;/script&gt;</code></pre>
+        </div>
+    </header>
+
+    <main>
+
+    <!-- ── What is WebChuGL? ───────────────────────────────────────────── -->
+    <h2 id="about">What is WebChuGL?</h2>
+    <p>
+        <a href="https://github.com/ccrma/webchugl" target="_blank">github</a> |
+        <a href="docs/">docs</a>
+    </p>
+
+    <p>
+        WebChuGL brings <a href="https://chuck.stanford.edu/chugl/" target="_blank">ChuGL</a>,
+        the real-time graphics framework for the
+        <a href="https://chuck.stanford.edu/" target="_blank">ChucK</a> programming language,
+        to the web browser! ChuGL&rsquo;s C++ source code has been compiled with
+        <a href="https://emscripten.org/" target="_blank">Emscripten</a> to WebAssembly (WASM)
+        to render via the WebGPU API and run audio through an
+        <a href="https://developer.mozilla.org/en-US/docs/Web/API/AudioWorkletNode" target="_blank">AudioWorkletNode</a>.
+        With near-native performance, WebChuGL runs on modern desktop browsers
+        as well as tablets and mobile devices!
+    </p>
+
+    <p>
+        WebChuGL builds on <a href="https://chuck.cs.princeton.edu/webchuck/" target="_blank">WebChucK</a>
+        by adding ChuGL&rsquo;s scenegraph, materials, textures, shaders, post-processing,
+        and the full GGen (graphics generator) ecosystem &mdash; all tightly
+        synchronized to ChucK&rsquo;s strongly-timed audio engine. Bring together
+        real-time graphics, sound synthesis, and the interconnectivity of the
+        web to create new audiovisual experiences and creative workflows!
+    </p>
+
+    <!-- ── Features ────────────────────────────────────────────────────── -->
+    <h2 id="features">Features</h2>
+    <div class="features">
+        <div class="feature-card">
+            <div class="icon">&#x1F3A8;</div>
+            <h4>WebGPU Rendering</h4>
+            <p>Hardware-accelerated graphics via the modern WebGPU API! Scenegraph, PBR materials, textures, custom shaders, post-processing effects, and more.</p>
+        </div>
+        <div class="feature-card">
+            <div class="icon">&#x1F3B5;</div>
+            <h4>Strongly-Timed Audio</h4>
+            <p>ChucK&rsquo;s powerful audio engine runs via AudioWorklet with lock-free ring buffers for sample-accurate timing, synthesis, effects, and music.</p>
+        </div>
+        <div class="feature-card">
+            <div class="icon">&#x1F50C;</div>
+            <h4>ChuGin Ecosystem</h4>
+            <p>Load ChuGins (ChucK plugins) compiled as WebAssembly side modules &mdash; extend the language with custom UGens and libraries!</p>
+        </div>
+        <div class="feature-card">
+            <div class="icon">&#x1F3AE;</div>
+            <h4>Input &amp; Sensors</h4>
+            <p>Keyboard, mouse, gamepad, MIDI, accelerometer, gyroscope, drag-and-drop files, speech recognition, MediaPipe hand tracking, and more!</p>
+        </div>
+        <div class="feature-card">
+            <div class="icon">&#x1F310;</div>
+            <h4>JS &harr; ChucK Bridge</h4>
+            <p>Full bidirectional communication between JavaScript and ChucK! Set and get globals, listen for events, load audio dynamically, and more.</p>
+        </div>
+        <div class="feature-card">
+            <div class="icon">&#x2699;&#xFE0F;</div>
+            <h4>Configurable Audio</h4>
+            <p>Set sample rate, channel count, and more via URL params (<code>?srate=44100&amp;out=4</code>) or the init config.</p>
+        </div>
+    </div>
+
+    <!-- ── Examples ────────────────────────────────────────────────────── -->
+    <h2 id="examples">Examples</h2>
+    <p>Check out what you can build with WebChuGL! Each example is a self-contained project you can fork and customize. Source code is in the <a href="https://github.com/ccrma/webchugl/tree/main/examples" target="_blank">examples/</a> directory.</p>
+
+    <div class="carousel" role="region" aria-label="Example projects" tabindex="0">
+        <a href="#" class="example-card">
+            <div class="thumb">&#x1F916;</div>
+            <div class="body">
+                <h5>Date the Dobots</h5>
+                <p>A full ChuGL game running entirely in the browser. Demonstrates loading a complete project via <code>runZip</code>.</p>
+            </div>
+        </a>
+        <a href="#" class="example-card">
+            <div class="thumb">&#x1F941;</div>
+            <div class="body">
+                <h5>Drum Machine</h5>
+                <p>A step-sequenced drum machine with HTML UI controls driving synthesized drum sounds in real-time.</p>
+            </div>
+        </a>
+        <a href="#" class="example-card">
+            <div class="thumb">&#x1F39B;&#xFE0F;</div>
+            <div class="body">
+                <h5>HTML UI</h5>
+                <p>Overlay HTML controls like sliders and dropdowns to drive ChucK synth parameters in real-time via the JS &harr; ChucK bridge.</p>
+            </div>
+        </a>
+        <a href="#" class="example-card">
+            <div class="thumb">&#x1F3A4;</div>
+            <div class="body">
+                <h5>Recorder</h5>
+                <p>Record WebChuGL&rsquo;s audio output to a downloadable file. Demonstrates tapping into the Web Audio graph.</p>
+            </div>
+        </a>
+        <a href="#" class="example-card">
+            <div class="thumb">&#x1F4CA;</div>
+            <div class="body">
+                <h5>Data Sonification</h5>
+                <p>Stream live Wikipedia edits via Server-Sent Events and sonify each edit with ChucK synthesis and ChuGL visuals.</p>
+            </div>
+        </a>
+        <a href="#" class="example-card">
+            <div class="thumb">&#x1F30D;</div>
+            <div class="body">
+                <h5>Web Data</h5>
+                <p>Fetch live earthquake data from the USGS API and visualize it as a 3D globe with ChuGL.</p>
+            </div>
+        </a>
+        <a href="#" class="example-card">
+            <div class="thumb">&#x1F3B9;</div>
+            <div class="body">
+                <h5>MIDI</h5>
+                <p>Connect a MIDI controller via the Web MIDI API and play ChucK synthesizers in real-time.</p>
+            </div>
+        </a>
+        <a href="#" class="example-card">
+            <div class="thumb">&#x1F5E3;&#xFE0F;</div>
+            <div class="body">
+                <h5>Speech Recognition</h5>
+                <p>Use the Web Speech API to control ChucK programs and ChuGL visuals with voice commands.</p>
+            </div>
+        </a>
+        <a href="#" class="example-card">
+            <div class="thumb">&#x270B;</div>
+            <div class="body">
+                <h5>MediaPipe</h5>
+                <p>Real-time hand tracking via Google MediaPipe drives ChuGL visuals and ChucK audio parameters.</p>
+            </div>
+        </a>
+        <a href="#" class="example-card">
+            <div class="thumb">&#x1F3AE;</div>
+            <div class="body">
+                <h5>Gamepad</h5>
+                <p>Plug in a gamepad or joystick and use it to control ChuGL graphics and ChucK audio parameters.</p>
+            </div>
+        </a>
+        <a href="#" class="example-card">
+            <div class="thumb">&#x1F4C1;</div>
+            <div class="body">
+                <h5>Drag &amp; Drop</h5>
+                <p>Drag audio files onto the browser and load them directly into ChucK&rsquo;s virtual filesystem for playback.</p>
+            </div>
+        </a>
+        <a href="#" class="example-card">
+            <div class="thumb">&#x1F9E9;</div>
+            <div class="body">
+                <h5>Plugins</h5>
+                <p>Dynamically load ChuGins (ChucK plugins) and ChuMP packages at runtime to extend WebChuGL.</p>
+            </div>
+        </a>
+    </div>
+
+    <!-- ── Getting Started ─────────────────────────────────────────────── -->
+    <h2 id="getting-started">Getting Started</h2>
+
+    <p>All you need is a browser with <a href="https://caniuse.com/webgpu" target="_blank">WebGPU support</a> (Chrome 113+, Edge 113+, Firefox Nightly). Create an <code>index.html</code>:</p>
+
+    <pre><code class="language-html">&lt;canvas id="canvas"&gt;&lt;/canvas&gt;
+&lt;script type="module"&gt;
+    import ChuGL from 'https://cdn.jsdelivr.net/npm/webchugl/+esm';
+
+    var ck = await ChuGL.init({
+        canvas: document.getElementById('canvas'),
+    });
+
+    ck.runCode('SinOsc s =&gt; dac; while(true) GG.nextFrame() =&gt; now;');
+&lt;/script&gt;</code></pre>
+
+    <p>See the <a href="docs/#getting-started">full getting started guide</a> for self-hosted builds, deployment, cross-origin isolation, and building from source.</p>
+
+    <!-- ── Documentation ───────────────────────────────────────────────── -->
+    <h2 id="api">Documentation</h2>
+    <p>
+        Read the full <a href="docs/">WebChuGL API documentation</a> for details on
+        every method available on the ChucK instance &mdash; code execution, global variables,
+        events, arrays, ChuGin loading, audio, persistent storage, and more!
+    </p>
+
+
+    </main>
+
+    <!-- ── Footer ──────────────────────────────────────────────────────── -->
+    <footer class="footer">
+        <nav aria-label="Footer">
+            <a href="https://github.com/ccrma/webchugl">GitHub</a> &middot;
+            <a href="docs/">Docs</a> &middot;
+            <a href="#examples">Examples</a> &middot;
+            <a href="https://chuck.stanford.edu/chugl/">ChuGL</a> &middot;
+            <a href="https://chuck.stanford.edu/">ChucK</a> &middot;
+            <a href="https://chuck.cs.princeton.edu/webchuck/">WebChucK</a>
+        </nav>
+    </footer>
+
+    <!-- Syntax highlighting init -->
+    <script>hljs.highlightAll();</script>
+</body>
+
+</html>

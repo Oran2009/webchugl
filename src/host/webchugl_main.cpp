@@ -20,9 +20,13 @@
 #include <emscripten.h>
 #include <dlfcn.h>
 #include <stdio.h>
+#include <sys/stat.h>
 #include <chrono>
 #include <list>
 #include <string>
+
+// Track dlopen handles so they're properly closed on shutdown
+static std::list<void*> g_chuginHandles;
 
 // ChuGL query function (defined via CK_DLL_QUERY macro in ChuGL.cpp)
 extern "C" t_CKBOOL ck_query(Chuck_DL_Query* QUERY);
@@ -246,8 +250,8 @@ static bool g_needsMicrophone = false;
 void initAudio()
 {
     EM_ASM({
-        if (typeof window.WebChuGL._initAudio === 'function') {
-            window.WebChuGL._initAudio(
+        if (typeof Module._initAudio === 'function') {
+            Module._initAudio(
                 Module.wasmMemory.buffer,  // SharedArrayBuffer
                 $0, $1, $2,  // output: buffer ptr, writePos ptr, readPos ptr
                 $3, $4, $5,  // input: buffer ptr, writePos ptr, readPos ptr
@@ -258,7 +262,7 @@ void initAudio()
                 $10          // inChannels
             );
         } else {
-            console.error('[WebChuGL] WebChuGL._initAudio not found');
+            console.error('[WebChuGL] Module._initAudio not found');
         }
     },
     (int)(uintptr_t)g_audioRingBuffer,
@@ -379,68 +383,6 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    // Load ChuGins via dlopen() (paths scanned by JS ChuginLoader during preRun)
-    // Note: web chugins (for webchugl) require SIDE_MODULE=1 and -pthread
-    {
-        int chuginCount = EM_ASM_INT({
-            var c = window.WebChuGL.chugins;
-            return c ? c.pendingChugins.length : 0;
-        });
-
-        if (chuginCount > 0) {
-            printf("[WebChuGL] Loading %d ChuGin(s) via dlopen...\n", chuginCount);
-
-            for (int i = 0; i < chuginCount; i++) {
-                // Get the filesystem path from JS
-                char* path = (char*)EM_ASM_PTR({
-                    var paths = window.WebChuGL.chugins.pendingChugins;
-                    var p = paths[$0];
-                    var len = lengthBytesUTF8(p) + 1;
-                    var ptr = _malloc(len);
-                    stringToUTF8(p, ptr, len);
-                    return ptr;
-                }, i);
-
-                // Extract name from path (e.g. "/code/Bitcrusher.chug.wasm" -> "Bitcrusher")
-                std::string pathStr(path);
-                std::string name = pathStr.substr(pathStr.rfind('/') + 1);
-                size_t dotPos = name.find(".chug");
-                if (dotPos != std::string::npos) name = name.substr(0, dotPos);
-
-                // Load the SIDE_MODULE via Emscripten's dlopen
-                void* handle = dlopen(path, RTLD_NOW);
-                if (!handle) {
-                    printf("[WebChuGL] ERROR: dlopen failed for %s: %s\n", path, dlerror());
-                    free(path);
-                    continue;
-                }
-
-                // Get ck_query function pointer
-                f_ck_query queryFunc = (f_ck_query)dlsym(handle, "ck_query");
-                if (!queryFunc) {
-                    printf("[WebChuGL] ERROR: dlsym(ck_query) failed for %s: %s\n",
-                           path, dlerror());
-                    dlclose(handle);
-                    free(path);
-                    continue;
-                }
-
-                // Register with ChucK compiler
-                if (the_chuck->compiler()->bind(queryFunc, name.c_str(), "global")) {
-                    printf("[WebChuGL] Loaded ChuGin: %s\n", name.c_str());
-                } else {
-                    printf("[WebChuGL] ERROR: Failed to bind ChuGin: %s\n", name.c_str());
-                    dlclose(handle);
-                }
-
-                free(path);
-            }
-
-            // Clear pending list
-            EM_ASM({ window.WebChuGL.chugins.pendingChugins = []; });
-        }
-    }
-
     // IMPORTANT: start() must be called BEFORE compileFile() so that
     // static initialization shreds can execute properly (they check m_is_running)
     the_chuck->start();
@@ -453,13 +395,15 @@ int main(int argc, char** argv)
         printf("[WebChuGL] WARNING: Failed to compile built-in sensor classes\n");
     }
 
-    if (!the_chuck->compileFile("/code/main.ck", "", 1, TRUE)) {
-        printf("[WebChuGL] ERROR: Failed to compile /code/main.ck\n");
-        return 1;
-    }
+    // Compile main.ck if it exists (may not exist when using ESM runCode() API)
+    struct stat st;
+    if (stat("/code/main.ck", &st) == 0) {
+        if (!the_chuck->compileFile("/code/main.ck", "", 1, TRUE)) {
+            printf("[WebChuGL] ERROR: Failed to compile /code/main.ck\n");
+            return 1;
+        }
 
-    // Run VM briefly to execute initial setup code before GG.nextFrame()
-    {
+        // Run VM briefly to execute initial setup code before GG.nextFrame()
         SAMPLE* initBuffer = new SAMPLE[256 * g_numOutputChannels]();
         the_chuck->run(nullptr, initBuffer, 256);
         delete[] initBuffer;
@@ -799,6 +743,59 @@ int ck_get_assoc_float_array_value(const char* name, const char* key, int callba
     if (!the_chuck) return 0;
     return the_chuck->vm()->globals_manager()->getGlobalAssociativeFloatArrayValue(
         name, (t_CKINT)callback_id, key, _cb_get_float);
+}
+
+// ---- Code execution -------------------------------------------------
+
+EMSCRIPTEN_KEEPALIVE
+int ck_run_code(const char* code)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->compileCode(code, "", 1, TRUE) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_run_file(const char* path)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->compileFile(path, "", 1, TRUE) ? 1 : 0;
+}
+
+// ---- ChuGin loading (post-init) ------------------------------------
+
+EMSCRIPTEN_KEEPALIVE
+int ck_load_chugin(const char* vfsPath)
+{
+    if (!the_chuck) return 0;
+
+    void* handle = dlopen(vfsPath, RTLD_NOW);
+    if (!handle) {
+        printf("[WebChuGL] ERROR: dlopen failed for %s: %s\n", vfsPath, dlerror());
+        return 0;
+    }
+
+    f_ck_query queryFunc = (f_ck_query)dlsym(handle, "ck_query");
+    if (!queryFunc) {
+        printf("[WebChuGL] ERROR: dlsym(ck_query) failed for %s: %s\n", vfsPath, dlerror());
+        dlclose(handle);
+        return 0;
+    }
+
+    // Extract name from path (e.g. "/chugins/Bitcrusher.chug.wasm" -> "Bitcrusher")
+    std::string pathStr(vfsPath);
+    std::string name = pathStr.substr(pathStr.rfind('/') + 1);
+    size_t dotPos = name.find(".chug");
+    if (dotPos != std::string::npos) name = name.substr(0, dotPos);
+
+    if (the_chuck->compiler()->bind(queryFunc, name.c_str(), "global")) {
+        g_chuginHandles.push_back(handle);
+        printf("[WebChuGL] Loaded ChuGin: %s\n", name.c_str());
+        return 1;
+    } else {
+        printf("[WebChuGL] ERROR: Failed to bind ChuGin: %s\n", name.c_str());
+        dlclose(handle);
+        return 0;
+    }
 }
 
 } // extern "C"

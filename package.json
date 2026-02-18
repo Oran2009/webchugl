@@ -1,0 +1,38 @@
+{
+    "name": "webchugl",
+    "version": "0.1.0",
+    "description": "ChuGL real-time graphics + ChucK audio, in the browser via WebAssembly + WebGPU",
+    "type": "module",
+    "main": "dist/webchugl-esm.js",
+    "module": "dist/webchugl-esm.js",
+    "exports": {
+        ".": {
+            "import": "./dist/webchugl-esm.js",
+            "default": "./dist/webchugl-esm.js"
+        }
+    },
+    "files": [
+        "dist/webchugl-esm.js"
+    ],
+    "keywords": [
+        "chuck",
+        "chugl",
+        "webgpu",
+        "web-audio",
+        "graphics",
+        "music",
+        "wasm",
+        "webassembly"
+    ],
+    "scripts": {
+        "docs": "jsdoc -c jsdoc.json"
+    },
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/ccrma/webchugl"
+    },
+    "devDependencies": {
+        "jsdoc": "^4.0.5"
+    }
+}

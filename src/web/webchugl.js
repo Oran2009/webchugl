@@ -1,56 +1,21 @@
 // WebChuGL Runtime
-// Sets up the Emscripten Module, service worker, CK bridge, sensors, and audio.
+// Call _initWebChuGL(config) to initialize. Returns Promise<CK> bridge object.
 
 // ============================================================================
-// Service Worker Registration (COOP/COEP headers + offline caching)
+// Globals (set during initialization)
 // ============================================================================
 
-(function() {
-    if (!('serviceWorker' in navigator)) return;
-
-    // Already cross-origin isolated — SW is working, nothing to do
-    if (window.crossOriginIsolated) {
-        sessionStorage.removeItem('webchugl-sw-reload');
-        return;
-    }
-
-    // Not secure context — SW won't work
-    if (!window.isSecureContext) {
-        console.log('[WebChuGL] Service worker requires a secure context (HTTPS or localhost).');
-        return;
-    }
-
-    // Safety net: prevent infinite reload loops
-    var reloadCount = parseInt(sessionStorage.getItem('webchugl-sw-reload') || '0', 10);
-    if (reloadCount >= 3) {
-        console.warn('[WebChuGL] crossOriginIsolated is still false after ' + reloadCount + ' reloads. Giving up.');
-        sessionStorage.removeItem('webchugl-sw-reload');
-        return;
-    }
-
-    function doReload() {
-        sessionStorage.setItem('webchugl-sw-reload', String(reloadCount + 1));
-        location.reload();
-    }
-
-    navigator.serviceWorker.register('sw.js').then(function(registration) {
-        // Hard refresh recovery: SW is active but not controlling this page
-        // (hard refresh sets controller to null). A normal reload will go
-        // through the active SW which injects COOP/COEP headers.
-        if (registration.active && !navigator.serviceWorker.controller) {
-            doReload();
-            return;
-        }
-
-        // First visit / SW update: SW is installing or waiting.
-        // Wait for it to activate and claim this client, then reload.
-        navigator.serviceWorker.addEventListener('controllerchange', doReload);
-    });
-})();
+var _module = null;
 
 // ============================================================================
-// Utility helpers
+// Utility helpers (pure functions, no side effects)
 // ============================================================================
+
+var _binaryExts = /\.(wasm|wav|mp3|ogg|flac|aiff|aif|png|jpg|jpeg|gif|bmp|webp|tga|hdr|obj|mtl|glb|gltf|bin|dat|zip)$/i;
+
+function _isBinaryFile(path) {
+    return _binaryExts.test(path);
+}
 
 function _ensureVfsDir(path) {
     var parts = path.split('/').slice(0, -1);
@@ -109,541 +74,6 @@ function _audioBufferToWav(audioBuffer) {
 }
 
 // ============================================================================
-// WebChuGL Namespace
-// ============================================================================
-
-// Audio config set via CK.configure() before module loads (JS API override)
-var _userAudioConfig = null;
-
-window.WebChuGL = {
-    module:   null,  // Emscripten module instance (set during init)
-    audioCtx: null,  // AudioContext (set during audio init)
-    audioNode: null, // AudioWorkletNode (set during audio init)
-
-    // Pre-request MIDI access from setup.js to avoid async race conditions.
-    // ChucK's RtMidi C++ code also requests MIDI on-demand via its own shim.
-    //   navigator.requestMIDIAccess().then(function(a) { WebChuGL.initMidi(a); });
-    initMidi: function(access) {
-        window._rtmidi_internals_midi_access = access;
-        window._rtmidi_internals_latest_message_timestamp = 0.0;
-        window._rtmidi_internals_waiting = false;
-        window._rtmidi_internals_get_port_by_number = function(portNumber, isInput) {
-            var midi = window._rtmidi_internals_midi_access;
-            var devices = isInput ? midi.inputs : midi.outputs;
-            var i = 0;
-            for (var device of devices.values()) {
-                if (i === portNumber) return device;
-                i++;
-            }
-            return null;
-        };
-    },
-
-    // ── ChuGin Loader ────────────────────────────────────────────────────
-    // Scans VFS for .chug.wasm files; actual loading is done via dlopen() in C++.
-
-    chugins: {
-        pendingChugins: [],
-
-        scanForChugins: function(dirPath) {
-            var fs = _module.FS;
-            try {
-                var files = fs.readdir(dirPath);
-            } catch (e) { return; }
-            for (var i = 0; i < files.length; i++) {
-                var file = files[i];
-                if (file === '.' || file === '..') continue;
-                var fullPath = dirPath + '/' + file;
-                try {
-                    var stat = fs.stat(fullPath);
-                    if (fs.isDir(stat.mode)) {
-                        this.scanForChugins(fullPath);
-                    } else if (file.endsWith('.chug.wasm')) {
-                        this.pendingChugins.push(fullPath);
-                        console.log('[WebChuGL] Found: ' + fullPath);
-                    }
-                } catch (e) { }
-            }
-        }
-    },
-
-    // ── Internal (consumed by C++ EM_ASM) ────────────────────────────────
-
-    _initAudio: function(sab, outBufPtr, outWritePosPtr, outReadPosPtr,
-                         inBufPtr, inWritePosPtr, inReadPosPtr,
-                         capacity, needsMic, sampleRate, outChannels, inChannels) {
-        var ctx;
-        try {
-            ctx = new AudioContext({ sampleRate: sampleRate, latencyHint: 'interactive' });
-        } catch (e) {
-            console.error('[WebChuGL] Failed to create AudioContext: ' + e.message);
-            return;
-        }
-
-        ctx.audioWorklet.addModule('webchugl/audio-worklet-processor.js').then(function() {
-            var node = new AudioWorkletNode(ctx, 'chuck-processor', {
-                numberOfInputs: 1,
-                numberOfOutputs: 1,
-                outputChannelCount: [outChannels],
-                channelCount: inChannels,
-                channelCountMode: 'explicit'
-            });
-
-            node.port.postMessage({
-                sab: sab,
-                outBufOffset: outBufPtr,
-                outWritePosOffset: outWritePosPtr,
-                outReadPosOffset: outReadPosPtr,
-                inBufOffset: inBufPtr,
-                inWritePosOffset: inWritePosPtr,
-                inReadPosOffset: inReadPosPtr,
-                capacity: capacity,
-                outChannels: outChannels,
-                inChannels: inChannels
-            });
-
-            node.connect(ctx.destination);
-
-            // Expose audio context and node so setup.js / Web-ChuGins can
-            // tap into the audio graph (e.g. for recording, analysis, effects).
-            window.WebChuGL.audioCtx = ctx;
-            window.WebChuGL.audioNode = node;
-
-            if (needsMic) {
-                navigator.mediaDevices.getUserMedia({ audio: true })
-                    .then(function(stream) {
-                        var source = ctx.createMediaStreamSource(stream);
-                        source.connect(node);
-                        console.log('[WebChuGL] Microphone connected');
-                    })
-                    .catch(function(err) {
-                        console.log('[WebChuGL] Microphone not available: ' + err.message);
-                    });
-            }
-
-            // Resume AudioContext on user interaction
-            var startAudio = function() {
-                if (ctx.state === 'running') {
-                    document.removeEventListener('click', startAudio);
-                    document.removeEventListener('keydown', startAudio);
-                    document.removeEventListener('touchstart', startAudio);
-                    return;
-                }
-                ctx.resume();
-            };
-            document.addEventListener('click', startAudio);
-            document.addEventListener('keydown', startAudio);
-            document.addEventListener('touchstart', startAudio);
-
-            console.log('[WebChuGL] Audio initialized (JS AudioWorklet)');
-        }).catch(function(err) {
-            console.error('[WebChuGL] Audio worklet failed: ' + err.message);
-        });
-    }
-};
-
-// ============================================================================
-// Emscripten Module — MODULARIZE factory pattern
-// ============================================================================
-
-var _progressFill = document.getElementById('progress-fill');
-function _setProgress(pct) {
-    if (_progressFill) _progressFill.style.width = Math.round(pct) + '%';
-}
-
-// The Module instance, set during preRun and confirmed in .then().
-// All runtime code (CK bridge, sensors, etc.) accesses Emscripten through this.
-var _module = null;
-
-// ── Resolve audio config: URL params < JS API (WebChuGL.configure()) ─────
-// URL params: ?srate=44100&out=4&in=1
-var _audioConfig = (function() {
-    var defaults = { sampleRate: 48000, outChannels: 2, inChannels: 2 };
-    var params = new URLSearchParams(window.location.search);
-    var sr = parseInt(params.get('srate'), 10);
-    var out = parseInt(params.get('out'), 10);
-    var inp = parseInt(params.get('in'), 10);
-    if (sr > 0) defaults.sampleRate = sr;
-    if (out > 0) defaults.outChannels = out;
-    if (inp > 0) defaults.inChannels = inp;
-    // JS API (CK.configure()) overrides URL params
-    var uc = _userAudioConfig;
-    if (uc) {
-        if (uc.sampleRate > 0) defaults.sampleRate = uc.sampleRate;
-        if (uc.outputChannels > 0) defaults.outChannels = uc.outputChannels;
-        if (uc.inputChannels > 0) defaults.inChannels = uc.inputChannels;
-    }
-    return defaults;
-})();
-
-// Config object passed to the factory. This becomes Module inside the factory
-// closure, so properties set here are accessible from C++ via EM_ASM.
-var _moduleConfig = {
-    noInitialRun: true,
-
-    // Audio config read by C++ main() via EM_ASM
-    _audioConfig: _audioConfig,
-
-    canvas: (function() {
-        var canvas = document.getElementById('canvas');
-        canvas.addEventListener('webglcontextlost', function(e) {
-            e.preventDefault();
-        }, false);
-        return canvas;
-    })(),
-
-    print: function(text) {
-        console.log(text);
-    },
-
-    printErr: function(text) {
-        console.error(text);
-    },
-
-    setStatus: function() {},
-
-    // Callback/event listener maps used by C++ EM_ASM code.
-    // Set here so they exist on Module from the start.
-    _ckCallbacks: {},
-    _ckEventListeners: {},
-
-    // Fetch all files from bundle.zip before main() runs
-    preRun: [function(mod) {
-        _module = mod;
-        mod.addRunDependency('ck-files');
-
-        var jszipReady = new Promise(function(resolve, reject) {
-            var s = document.createElement('script');
-            s.src = 'webchugl/jszip.min.js';
-            s.onload = resolve;
-            s.onerror = reject;
-            document.head.appendChild(s);
-        });
-
-        _setProgress(0);
-        fetch('bundle.zip')
-            .then(function(response) {
-                if (!response.ok) throw new Error('Failed to fetch bundle.zip');
-                var contentLength = response.headers.get('content-length');
-                if (!contentLength || !response.body) {
-                    return response.arrayBuffer();
-                }
-                var total = parseInt(contentLength, 10);
-                var loaded = 0;
-                var reader = response.body.getReader();
-                var chunks = [];
-                function read() {
-                    return reader.read().then(function(result) {
-                        if (result.done) {
-                            var combined = new Uint8Array(loaded);
-                            var offset = 0;
-                            for (var i = 0; i < chunks.length; i++) {
-                                combined.set(chunks[i], offset);
-                                offset += chunks[i].length;
-                            }
-                            return combined.buffer;
-                        }
-                        chunks.push(result.value);
-                        loaded += result.value.length;
-                        _setProgress(Math.round(loaded / total * 100) * 0.7);
-                        return read();
-                    });
-                }
-                return read();
-            })
-            .then(function(zipData) {
-                _setProgress(75);
-                return jszipReady.then(function() { return JSZip.loadAsync(zipData); });
-            })
-            .then(function(zip) {
-                var entries = Object.keys(zip.files).filter(function(name) {
-                    return !zip.files[name].dir;
-                });
-                var total = entries.length;
-                var loaded = 0;
-                return Promise.all(entries.map(function(name) {
-                    return zip.files[name].async('arraybuffer').then(function(content) {
-                        _ensureVfsDir('/' + name);
-                        _module.FS.writeFile('/' + name, new Uint8Array(content));
-                        loaded++;
-                        _setProgress(80 + (loaded / total) * 20);
-                    });
-                }));
-            })
-            .then(function() {
-                var chugins = window.WebChuGL.chugins;
-                chugins.scanForChugins('/code');
-                if (chugins.pendingChugins.length > 0) {
-                    console.log('[WebChuGL] Found ' + chugins.pendingChugins.length + ' ChuGin(s)');
-                }
-                mod.removeRunDependency('ck-files');
-            })
-            .catch(function(err) {
-                var msg = (err && err.message) ? err.message : String(err);
-                console.error('[WebChuGL] ' + msg);
-                document.getElementById('progress-bar').style.display = 'none';
-                var errEl = document.getElementById('error-text');
-                errEl.textContent = 'Failed to load files: ' + msg;
-                errEl.style.display = 'block';
-            });
-    }]
-};
-
-// Launch the Emscripten module. The promise resolves when the runtime is ready
-// (equivalent to onRuntimeInitialized in non-MODULARIZE builds).
-createWebChuGL(_moduleConfig).then(function(mod) {
-    _module = mod;
-    window.WebChuGL.module = mod;
-
-    if (!navigator.gpu) return;
-    navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).then(function(adapter) {
-        if (!adapter) {
-            document.getElementById('progress-bar').style.display = 'none';
-            var errEl = document.getElementById('error-text');
-            errEl.textContent = 'Failed to get WebGPU adapter';
-            errEl.style.display = 'block';
-            return;
-        }
-        return adapter.requestDevice().then(function(device) {
-            // Store on Module for C++ to register via EM_ASM
-            // (ChuGL's request_adapter/request_device read Module._preAdapter/_preDevice)
-            _module._preAdapter = adapter;
-            _module._preDevice = device;
-            document.getElementById('loading-screen').classList.add('hidden');
-            document.getElementById('canvas').focus();
-            _module.callMain([]);
-            _initSensors();
-
-            // Flush any CK bridge calls queued before callMain().
-            // Global arrays declared with [0] are allocated during
-            // callMain(), so no frame delay is needed.
-            _ckFlush();
-        });
-    }).catch(function(e) {
-        console.error('WebGPU pre-init failed:', e);
-        document.getElementById('progress-bar').style.display = 'none';
-        var errEl = document.getElementById('error-text');
-        errEl.textContent = 'WebGPU init failed: ' + e.message;
-        errEl.style.display = 'block';
-    });
-});
-
-// ============================================================================
-// CK: Host ↔ ChucK bridge
-// ============================================================================
-
-var _ckNextId = 1;
-
-// ── Deferred call queue ──────────────────────────────────────────────
-// CK methods can be called before the WASM module is ready.
-// Calls are queued and flushed once callMain() has executed.
-var _ckReady = false;
-var _ckQueue = [];
-var _ckReadyResolve;
-var _ckReadyPromise = new Promise(function(r) { _ckReadyResolve = r; });
-
-function _ckDefer(fn) {
-    if (_ckReady) fn();
-    else _ckQueue.push(fn);
-}
-
-function _ckDeferPromise(fn) {
-    if (_ckReady) return fn();
-    return new Promise(function(resolve, reject) {
-        _ckQueue.push(function() { fn().then(resolve, reject); });
-    });
-}
-
-function _ckFlush() {
-    _ckReady = true;
-    for (var i = 0; i < _ckQueue.length; i++) _ckQueue[i]();
-    _ckQueue = [];
-    _ckReadyResolve();
-}
-
-// ── Bridge helpers ───────────────────────────────────────────────────
-// Reduce boilerplate for the repetitive setter/getter patterns.
-
-function _ckSet(func, types, args) {
-    _ckDefer(function() {
-        _module.ccall(func, 'number', types, args);
-    });
-}
-
-function _ckGet(func, types, args) {
-    return _ckDeferPromise(function() {
-        return new Promise(function(resolve) {
-            var id = _ckNextId++;
-            _moduleConfig._ckCallbacks[id] = resolve;
-            _module.ccall(func, 'number', types.concat('number'), args.concat(id));
-        });
-    });
-}
-
-window.CK = {
-
-    // ── Audio Configuration ────────────────────────────────────────────
-    // Configure audio before the module loads. Values set here override
-    // URL query parameters (?srate=44100&out=4&in=1).
-    // Must be called before the page finishes loading (e.g. in setup.js).
-    //   CK.configure({ sampleRate: 44100, outputChannels: 4, inputChannels: 1 });
-    configure: function(opts) {
-        if (!_userAudioConfig) _userAudioConfig = {};
-        if (opts.sampleRate) _userAudioConfig.sampleRate = opts.sampleRate;
-        if (opts.outputChannels) _userAudioConfig.outputChannels = opts.outputChannels;
-        if (opts.inputChannels) _userAudioConfig.inputChannels = opts.inputChannels;
-    },
-
-    // Promise that resolves when the CK bridge is ready to use.
-    // All methods below auto-queue if called before ready, but this is
-    // available for code that wants to explicitly wait:
-    //   CK.ready.then(function() { ... });
-    ready: _ckReadyPromise,
-
-    // ── Scalar setters ────────────────────────────────────────────────────
-
-    setInt:    function(name, val) { _ckSet('ck_set_int',    ['string', 'number'], [name, val]); },
-    setFloat:  function(name, val) { _ckSet('ck_set_float',  ['string', 'number'], [name, val]); },
-    setString: function(name, val) { _ckSet('ck_set_string', ['string', 'string'], [name, val]); },
-
-    // ── Scalar getters (Promise-based) ────────────────────────────────────
-
-    getInt:    function(name) { return _ckGet('ck_get_int',    ['string'], [name]); },
-    getFloat:  function(name) { return _ckGet('ck_get_float',  ['string'], [name]); },
-    getString: function(name) { return _ckGet('ck_get_string', ['string'], [name]); },
-
-    // ── Events ────────────────────────────────────────────────────────────
-
-    signalEvent:    function(name) { _ckSet('ck_signal_event',    ['string'], [name]); },
-    broadcastEvent: function(name) { _ckSet('ck_broadcast_event', ['string'], [name]); },
-
-    listenForEvent: function(name, callback) {
-        var id = _ckNextId++;
-        _moduleConfig._ckEventListeners[id] = { callback: callback, once: false };
-        _ckSet('ck_listen_event', ['string', 'number', 'number'], [name, id, 1]);
-        return id;
-    },
-    listenForEventOnce: function(name, callback) {
-        var id = _ckNextId++;
-        _moduleConfig._ckEventListeners[id] = { callback: callback, once: true };
-        _ckSet('ck_listen_event', ['string', 'number', 'number'], [name, id, 0]);
-        return id;
-    },
-    stopListeningForEvent: function(name, listenerId) {
-        delete _moduleConfig._ckEventListeners[listenerId];
-        _ckSet('ck_stop_listening_event', ['string', 'number'], [name, listenerId]);
-    },
-    // Alias for WebChucK API compatibility
-    startListeningForEvent: function(name, callback) {
-        return this.listenForEvent(name, callback);
-    },
-
-    // ── Int array operations ──────────────────────────────────────────────
-
-    setIntArray: function(name, jsArray) {
-        _ckDefer(function() {
-            var buf = new Uint8Array(new Int32Array(jsArray).buffer);
-            _module.ccall('ck_set_int_array', 'number',
-                ['string', 'array', 'number'], [name, buf, jsArray.length]);
-        });
-    },
-    setIntArrayValue:      function(name, index, value) { _ckSet('ck_set_int_array_value',       ['string', 'number', 'number'], [name, index, value]); },
-    setAssocIntArrayValue: function(name, key, value)   { _ckSet('ck_set_assoc_int_array_value', ['string', 'string', 'number'], [name, key, value]); },
-    getIntArray:           function(name)               { return _ckGet('ck_get_int_array',             ['string'],                   [name]); },
-    getIntArrayValue:      function(name, index)        { return _ckGet('ck_get_int_array_value',       ['string', 'number'],         [name, index]); },
-    getAssocIntArrayValue: function(name, key)          { return _ckGet('ck_get_assoc_int_array_value', ['string', 'string'],         [name, key]); },
-
-    // ── Float array operations ────────────────────────────────────────────
-
-    setFloatArray: function(name, jsArray) {
-        _ckDefer(function() {
-            var buf = new Uint8Array(new Float64Array(jsArray).buffer);
-            _module.ccall('ck_set_float_array', 'number',
-                ['string', 'array', 'number'], [name, buf, jsArray.length]);
-        });
-    },
-    setFloatArrayValue:      function(name, index, value) { _ckSet('ck_set_float_array_value',       ['string', 'number', 'number'], [name, index, value]); },
-    setAssocFloatArrayValue: function(name, key, value)   { _ckSet('ck_set_assoc_float_array_value', ['string', 'string', 'number'], [name, key, value]); },
-    getFloatArray:           function(name)               { return _ckGet('ck_get_float_array',             ['string'],                   [name]); },
-    getFloatArrayValue:      function(name, index)        { return _ckGet('ck_get_float_array_value',       ['string', 'number'],         [name, index]); },
-    getAssocFloatArrayValue: function(name, key)          { return _ckGet('ck_get_assoc_float_array_value', ['string', 'string'],         [name, key]); },
-
-    // ── Persistent Storage (IndexedDB) ──────────────────────────────────
-
-    save: function(key, value) {
-        return _getDB().then(function(db) {
-            return new Promise(function(resolve, reject) {
-                var tx = db.transaction('kv', 'readwrite');
-                var req = tx.objectStore('kv').put(value, key);
-                req.onsuccess = function() { resolve(); };
-                req.onerror = function() { reject(req.error); };
-            });
-        });
-    },
-
-    load: function(key) {
-        return _getDB().then(function(db) {
-            return new Promise(function(resolve, reject) {
-                var tx = db.transaction('kv', 'readonly');
-                var req = tx.objectStore('kv').get(key);
-                req.onsuccess = function() { resolve(req.result); };
-                req.onerror = function() { reject(req.error); };
-            });
-        });
-    },
-
-    delete: function(key) {
-        return _getDB().then(function(db) {
-            return new Promise(function(resolve, reject) {
-                var tx = db.transaction('kv', 'readwrite');
-                var req = tx.objectStore('kv').delete(key);
-                req.onsuccess = function() { resolve(); };
-                req.onerror = function() { reject(req.error); };
-            });
-        });
-    },
-
-    listKeys: function() {
-        return _getDB().then(function(db) {
-            return new Promise(function(resolve, reject) {
-                var tx = db.transaction('kv', 'readonly');
-                var req = tx.objectStore('kv').getAllKeys();
-                req.onsuccess = function() { resolve(req.result); };
-                req.onerror = function() { reject(req.error); };
-            });
-        });
-    },
-
-    // ── Dynamic Audio Import ────────────────────────────────────────────
-
-    loadAudio: function(url, vfsPath) {
-        if (vfsPath[0] !== '/') vfsPath = '/' + vfsPath;
-        return fetch(url, { mode: 'cors' })
-            .catch(function() {
-                throw new Error('Failed to fetch (CORS blocked or network error): ' + url);
-            })
-            .then(function(response) {
-                if (!response.ok) throw new Error('HTTP ' + response.status + ': ' + url);
-                return response.arrayBuffer();
-            })
-            .then(function(arrayBuffer) {
-                var sr = (window.WebChuGL.audioCtx && window.WebChuGL.audioCtx.sampleRate) || 48000;
-                var audioCtx = new OfflineAudioContext(1, 1, sr);
-                return audioCtx.decodeAudioData(arrayBuffer);
-            })
-            .then(function(audioBuffer) {
-                var wavData = _audioBufferToWav(audioBuffer);
-                _ensureVfsDir(vfsPath);
-                _module.FS.writeFile(vfsPath, new Uint8Array(wavData));
-                console.log('[WebChuGL] Audio loaded: ' + vfsPath +
-                    ' (' + audioBuffer.duration.toFixed(2) + 's, ' +
-                    audioBuffer.numberOfChannels + 'ch)');
-                return vfsPath;
-            });
-    }
-};
-
-// ============================================================================
 // Persistent Storage (IndexedDB) — lazy-initialized
 // ============================================================================
 
@@ -672,7 +102,7 @@ function _getDB() {
 // Device Sensors (Accelerometer + Gyroscope)
 // ============================================================================
 
-function _initSensors() {
+function _initSensors(ck) {
     var accelPending = null;
     var gyroPending = null;
 
@@ -681,17 +111,17 @@ function _initSensors() {
 
     function flushSensors() {
         if (accelPending) {
-            CK.setFloat('_accelX', accelPending.x);
-            CK.setFloat('_accelY', accelPending.y);
-            CK.setFloat('_accelZ', accelPending.z);
-            CK.broadcastEvent('_accelReading');
+            ck.setFloat('_accelX', accelPending.x);
+            ck.setFloat('_accelY', accelPending.y);
+            ck.setFloat('_accelZ', accelPending.z);
+            ck.broadcastEvent('_accelReading');
             accelPending = null;
         }
         if (gyroPending) {
-            CK.setFloat('_gyroX', gyroPending.alpha);
-            CK.setFloat('_gyroY', gyroPending.beta);
-            CK.setFloat('_gyroZ', gyroPending.gamma);
-            CK.broadcastEvent('_gyroReading');
+            ck.setFloat('_gyroX', gyroPending.alpha);
+            ck.setFloat('_gyroY', gyroPending.beta);
+            ck.setFloat('_gyroZ', gyroPending.gamma);
+            ck.broadcastEvent('_gyroReading');
             gyroPending = null;
         }
         requestAnimationFrame(flushSensors);
@@ -741,4 +171,767 @@ function _initSensors() {
             window.addEventListener('deviceorientation', handleOrientation);
         }
     }
+}
+
+// ============================================================================
+// Service Worker Registration (COOP/COEP headers + offline caching)
+// ============================================================================
+
+function _registerServiceWorker(swUrl) {
+    if (!('serviceWorker' in navigator)) return;
+
+    // Already cross-origin isolated — SW is working, nothing to do
+    if (window.crossOriginIsolated) {
+        sessionStorage.removeItem('webchugl-sw-reload');
+        return;
+    }
+
+    // Not secure context — SW won't work
+    if (!window.isSecureContext) {
+        console.log('[WebChuGL] Service worker requires a secure context (HTTPS or localhost).');
+        return;
+    }
+
+    // Safety net: prevent infinite reload loops
+    var reloadCount = parseInt(sessionStorage.getItem('webchugl-sw-reload') || '0', 10);
+    if (reloadCount >= 3) {
+        console.warn('[WebChuGL] crossOriginIsolated is still false after ' + reloadCount + ' reloads. Giving up.');
+        sessionStorage.removeItem('webchugl-sw-reload');
+        return;
+    }
+
+    function doReload() {
+        sessionStorage.setItem('webchugl-sw-reload', String(reloadCount + 1));
+        location.reload();
+    }
+
+    navigator.serviceWorker.register(swUrl).then(function(registration) {
+        // Hard refresh recovery: SW is active but not controlling this page
+        // (hard refresh sets controller to null). A normal reload will go
+        // through the active SW which injects COOP/COEP headers.
+        if (registration.active && !navigator.serviceWorker.controller) {
+            doReload();
+            return;
+        }
+
+        // First visit / SW update: SW is installing or waiting.
+        // Wait for it to activate and claim this client, then reload.
+        navigator.serviceWorker.addEventListener('controllerchange', doReload);
+    });
+}
+
+// ============================================================================
+// Main Initialization
+// ============================================================================
+//
+// config = {
+//   canvas:           HTMLCanvasElement  (required)
+//   baseUrl:          string             (default: 'webchugl/')
+//   audioConfig:      { sampleRate, outputChannels, inputChannels }
+//   onProgress:       function(pct)      (loading progress 0-100)
+//   onError:          function(msg)      (error display)
+//   onReady:          function()         (called when init complete)
+// }
+//
+// Returns: Promise<CK>
+
+function _initWebChuGL(config) {
+    var _baseUrl = config.baseUrl || 'webchugl/';
+    if (_baseUrl[_baseUrl.length - 1] !== '/') _baseUrl += '/';
+    var _canvas = config.canvas;
+    var _chuginUrls = config.chugins || [];
+    var _loadedChugins = {};
+    var _onProgress = config.onProgress || function() {};
+    var _onError = config.onError || function(msg) { console.error('[WebChuGL] ' + msg); };
+    var _onReady = config.onReady || function() {};
+
+    // Lazy-load JSZip (shared across loadZip, runZip, loadPackage)
+    var _jszipPromise = null;
+    function _ensureJSZip() {
+        if (typeof JSZip !== 'undefined') return Promise.resolve();
+        if (_jszipPromise) return _jszipPromise;
+        _jszipPromise = new Promise(function(resolve, reject) {
+            var s = document.createElement('script');
+            s.src = _baseUrl + 'jszip.min.js';
+            s.onload = resolve;
+            s.onerror = function() { reject(new Error('Failed to load jszip')); };
+            document.head.appendChild(s);
+        });
+        return _jszipPromise;
+    }
+
+    // Load a .chug.wasm that's already in the VFS. Returns the short name, or null on failure.
+    function _loadChuginFromVfs(vfsPath) {
+        var filename = vfsPath.split('/').pop();
+        var shortName = filename.replace('.chug.wasm', '');
+        if (_loadedChugins[shortName]) return shortName;
+        var result = _module.ccall('ck_load_chugin', 'number', ['string'], [vfsPath]);
+        if (result) {
+            _loadedChugins[shortName] = true;
+            return shortName;
+        }
+        return null;
+    }
+
+    // ── Service Worker ──────────────────────────────────────────────────
+    if (config.serviceWorker !== false) {
+        _registerServiceWorker(config.serviceWorkerUrl || '/sw.js');
+    }
+
+    // ── Audio Config ────────────────────────────────────────────────────
+    // Priority: defaults < URL params < init config.audioConfig
+    var _audioConfig = (function() {
+        var defaults = { sampleRate: 48000, outChannels: 2, inChannels: 2 };
+        var params = new URLSearchParams(window.location.search);
+        var sr = parseInt(params.get('srate'), 10);
+        var out = parseInt(params.get('out'), 10);
+        var inp = parseInt(params.get('in'), 10);
+        if (sr > 0) defaults.sampleRate = sr;
+        if (out > 0) defaults.outChannels = out;
+        if (inp > 0) defaults.inChannels = inp;
+        var ac = config.audioConfig;
+        if (ac) {
+            if (ac.sampleRate > 0) defaults.sampleRate = ac.sampleRate;
+            if (ac.outputChannels > 0) defaults.outChannels = ac.outputChannels;
+            if (ac.inputChannels > 0) defaults.inChannels = ac.inputChannels;
+        }
+        return defaults;
+    })();
+
+    // ── Audio state (closure-scoped) ────────────────────────────────────
+    var _audioCtx = null;
+    var _audioNode = null;
+
+    // ── Module Config ───────────────────────────────────────────────────
+    var _moduleConfig = {
+        noInitialRun: true,
+
+        _audioConfig: _audioConfig,
+
+        canvas: (function() {
+            _canvas.addEventListener('webglcontextlost', function(e) {
+                e.preventDefault();
+            }, false);
+            return _canvas;
+        })(),
+
+        locateFile: function(path) {
+            return _baseUrl + path;
+        },
+
+        print: function(text) {
+            console.log(text);
+        },
+
+        printErr: function(text) {
+            console.error(text);
+        },
+
+        setStatus: function() {},
+
+        _ckCallbacks: {},
+        _ckEventListeners: {},
+
+        // Called from C++ initAudio() via EM_ASM
+        _initAudio: function(sab, outBufPtr, outWritePosPtr, outReadPosPtr,
+                             inBufPtr, inWritePosPtr, inReadPosPtr,
+                             capacity, needsMic, sampleRate, outChannels, inChannels) {
+            var ctx;
+            try {
+                ctx = new AudioContext({ sampleRate: sampleRate, latencyHint: 'interactive' });
+            } catch (e) {
+                console.error('[WebChuGL] Failed to create AudioContext: ' + e.message);
+                return;
+            }
+
+            ctx.audioWorklet.addModule(_baseUrl + 'audio-worklet-processor.js').then(function() {
+                var node = new AudioWorkletNode(ctx, 'chuck-processor', {
+                    numberOfInputs: 1,
+                    numberOfOutputs: 1,
+                    outputChannelCount: [outChannels],
+                    channelCount: inChannels,
+                    channelCountMode: 'explicit'
+                });
+
+                node.port.postMessage({
+                    sab: sab,
+                    outBufOffset: outBufPtr,
+                    outWritePosOffset: outWritePosPtr,
+                    outReadPosOffset: outReadPosPtr,
+                    inBufOffset: inBufPtr,
+                    inWritePosOffset: inWritePosPtr,
+                    inReadPosOffset: inReadPosPtr,
+                    capacity: capacity,
+                    outChannels: outChannels,
+                    inChannels: inChannels
+                });
+
+                node.connect(ctx.destination);
+
+                _audioCtx = ctx;
+                _audioNode = node;
+
+                if (needsMic) {
+                    navigator.mediaDevices.getUserMedia({ audio: true })
+                        .then(function(stream) {
+                            var source = ctx.createMediaStreamSource(stream);
+                            source.connect(node);
+                            console.log('[WebChuGL] Microphone connected');
+                        })
+                        .catch(function(err) {
+                            console.log('[WebChuGL] Microphone not available: ' + err.message);
+                        });
+                }
+
+                // Resume AudioContext on user interaction
+                function removeStartAudio() {
+                    document.removeEventListener('click', startAudio);
+                    document.removeEventListener('keydown', startAudio);
+                    document.removeEventListener('touchstart', startAudio);
+                }
+                var startAudio = function() {
+                    if (ctx.state === 'running') {
+                        removeStartAudio();
+                        return;
+                    }
+                    ctx.resume().then(removeStartAudio);
+                };
+                document.addEventListener('click', startAudio);
+                document.addEventListener('keydown', startAudio);
+                document.addEventListener('touchstart', startAudio);
+
+                console.log('[WebChuGL] Audio initialized (JS AudioWorklet)');
+            }).catch(function(err) {
+                console.error('[WebChuGL] Audio worklet failed: ' + err.message);
+            });
+        },
+
+        preRun: [function(mod) {
+            _module = mod;
+            _ensureVfsDir('/code');
+            _onProgress(100);
+        }]
+    };
+
+    // ── CK Bridge ───────────────────────────────────────────────────────
+    var _ckNextId = 1;
+    var _ckReady = false;
+    var _ckQueue = [];
+    function _ckDefer(fn) {
+        if (_ckReady) fn();
+        else _ckQueue.push(fn);
+    }
+
+    function _ckDeferPromise(fn) {
+        if (_ckReady) {
+            try { return fn(); }
+            catch (e) { return Promise.reject(e); }
+        }
+        return new Promise(function(resolve, reject) {
+            _ckQueue.push(function() {
+                try { fn().then(resolve, reject); }
+                catch (e) { reject(e); }
+            });
+        });
+    }
+
+    function _ckFlush() {
+        _ckReady = true;
+        for (var i = 0; i < _ckQueue.length; i++) _ckQueue[i]();
+        _ckQueue = [];
+    }
+
+    function _ckSet(func, types, args) {
+        _ckDefer(function() {
+            _module.ccall(func, 'number', types, args);
+        });
+    }
+
+    function _ckGet(func, types, args) {
+        return _ckDeferPromise(function() {
+            return new Promise(function(resolve) {
+                var id = _ckNextId++;
+                _moduleConfig._ckCallbacks[id] = resolve;
+                _module.ccall(func, 'number', types.concat('number'), args.concat(id));
+            });
+        });
+    }
+
+    var CK = {
+
+        // ── Audio access (null until audio system initializes) ────────
+        get audioContext() { return _audioCtx; },
+        get audioNode() { return _audioNode; },
+
+        // ── Code execution ─────────────────────────────────────────────
+
+        runCode: function(code) {
+            return _ckDeferPromise(function() {
+                return Promise.resolve(
+                    _module.ccall('ck_run_code', 'number', ['string'], [code])
+                );
+            });
+        },
+
+        runFile: function(pathOrUrl) {
+            if (pathOrUrl[0] === '/') {
+                // VFS path — run directly
+                return _ckDeferPromise(function() {
+                    return Promise.resolve(
+                        _module.ccall('ck_run_file', 'number', ['string'], [pathOrUrl])
+                    );
+                });
+            }
+            // Check if already in VFS at /code/<name> before fetching
+            var parts = pathOrUrl.split('/');
+            var filename = parts[parts.length - 1];
+            var vfsCheck = '/code/' + filename;
+            try {
+                _module.FS.stat(vfsCheck);
+                // File exists in VFS — run directly
+                return _ckDeferPromise(function() {
+                    return Promise.resolve(
+                        _module.ccall('ck_run_file', 'number', ['string'], [vfsCheck])
+                    );
+                });
+            } catch (e) {
+                // Not in VFS — fetch as URL, then run
+                return CK.loadFile(pathOrUrl).then(function(vfsPath) {
+                    return _ckDeferPromise(function() {
+                        return Promise.resolve(
+                            _module.ccall('ck_run_file', 'number', ['string'], [vfsPath])
+                        );
+                    });
+                });
+            }
+        },
+
+        createFile: function(path, data) {
+            _ckDefer(function() {
+                _ensureVfsDir(path);
+                if (typeof data === 'string') {
+                    _module.FS.writeFile(path, data);
+                } else {
+                    _module.FS.writeFile(path, new Uint8Array(data));
+                }
+            });
+        },
+
+        loadFile: function(url, vfsPath) {
+            if (!vfsPath) {
+                var parts = url.split('/');
+                vfsPath = '/code/' + parts[parts.length - 1];
+            }
+            if (vfsPath[0] !== '/') vfsPath = '/' + vfsPath;
+            var isBinary = _isBinaryFile(vfsPath);
+            var isChugin = vfsPath.endsWith('.chug.wasm');
+            return fetch(url)
+                .then(function(response) {
+                    if (!response.ok) throw new Error('Failed to fetch ' + url);
+                    return isBinary ? response.arrayBuffer() : response.text();
+                })
+                .then(function(data) {
+                    _ckDefer(function() {
+                        _ensureVfsDir(vfsPath);
+                        _module.FS.writeFile(vfsPath, isBinary ? new Uint8Array(data) : data);
+                        if (isChugin) _loadChuginFromVfs(vfsPath);
+                    });
+                    return vfsPath;
+                });
+        },
+
+        loadFiles: function(basePath, files) {
+            if (basePath[basePath.length - 1] !== '/') basePath += '/';
+            return Promise.all(files.map(function(file) {
+                var url = basePath + file;
+                var vfsPath = '/code/' + file;
+                var isBinary = _isBinaryFile(file);
+                var isChugin = file.endsWith('.chug.wasm');
+                return fetch(url)
+                    .then(function(response) {
+                        if (!response.ok) throw new Error('Failed to fetch ' + url);
+                        return isBinary ? response.arrayBuffer() : response.text();
+                    })
+                    .then(function(data) {
+                        _ensureVfsDir(vfsPath);
+                        _module.FS.writeFile(vfsPath, isBinary ? new Uint8Array(data) : data);
+                        if (isChugin) _loadChuginFromVfs(vfsPath);
+                        return vfsPath;
+                    });
+            }));
+        },
+
+        loadZip: function(url) {
+            var jszipReady = _ensureJSZip();
+            return fetch(url)
+                .then(function(response) {
+                    if (!response.ok) throw new Error('Failed to fetch ' + url);
+                    return response.arrayBuffer();
+                })
+                .then(function(zipData) {
+                    return jszipReady.then(function() { return JSZip.loadAsync(zipData); });
+                })
+                .then(function(zip) {
+                    var entries = Object.keys(zip.files).filter(function(name) {
+                        return !zip.files[name].dir;
+                    });
+                    return Promise.all(entries.map(function(name) {
+                        return zip.files[name].async('arraybuffer').then(function(content) {
+                            var vfsPath = '/code/' + name;
+                            _ensureVfsDir(vfsPath);
+                            _module.FS.writeFile(vfsPath, new Uint8Array(content));
+                            if (name.endsWith('.chug.wasm')) _loadChuginFromVfs(vfsPath);
+                        });
+                    }));
+                })
+                .then(function() {
+                    console.log('[WebChuGL] Zip extracted: ' + url);
+                });
+        },
+
+        runZip: function(url, mainFile) {
+            if (mainFile && mainFile[0] !== '/') mainFile = '/code/' + mainFile;
+            var jszipReady = _ensureJSZip();
+            return fetch(url)
+                .then(function(response) {
+                    if (!response.ok) throw new Error('Failed to fetch ' + url);
+                    return response.arrayBuffer();
+                })
+                .then(function(zipData) {
+                    return jszipReady.then(function() { return JSZip.loadAsync(zipData); });
+                })
+                .then(function(zip) {
+                    var entries = Object.keys(zip.files).filter(function(name) {
+                        return !zip.files[name].dir;
+                    });
+                    // Auto-detect main file: prefer main.ck at root, else first root .ck
+                    if (!mainFile) {
+                        if (entries.indexOf('main.ck') !== -1) {
+                            mainFile = '/code/main.ck';
+                        } else {
+                            var rootCk = entries.filter(function(n) {
+                                return n.endsWith('.ck') && n.indexOf('/') === -1;
+                            });
+                            mainFile = rootCk.length ? '/code/' + rootCk[0] : '/code/main.ck';
+                        }
+                    }
+                    return Promise.all(entries.map(function(name) {
+                        return zip.files[name].async('arraybuffer').then(function(content) {
+                            var vfsPath = '/code/' + name;
+                            _ensureVfsDir(vfsPath);
+                            _module.FS.writeFile(vfsPath, new Uint8Array(content));
+                            if (name.endsWith('.chug.wasm')) _loadChuginFromVfs(vfsPath);
+                        });
+                    }));
+                })
+                .then(function() {
+                    return _ckDeferPromise(function() {
+                        return Promise.resolve(
+                            _module.ccall('ck_run_file', 'number', ['string'], [mainFile])
+                        );
+                    });
+                });
+        },
+
+        // ── Scalar setters ─────────────────────────────────────────────
+
+        setInt:    function(name, val) { _ckSet('ck_set_int',    ['string', 'number'], [name, val]); },
+        setFloat:  function(name, val) { _ckSet('ck_set_float',  ['string', 'number'], [name, val]); },
+        setString: function(name, val) { _ckSet('ck_set_string', ['string', 'string'], [name, val]); },
+
+        // ── Scalar getters (Promise-based) ─────────────────────────────
+
+        getInt:    function(name) { return _ckGet('ck_get_int',    ['string'], [name]); },
+        getFloat:  function(name) { return _ckGet('ck_get_float',  ['string'], [name]); },
+        getString: function(name) { return _ckGet('ck_get_string', ['string'], [name]); },
+
+        // ── Events ─────────────────────────────────────────────────────
+
+        signalEvent:    function(name) { _ckSet('ck_signal_event',    ['string'], [name]); },
+        broadcastEvent: function(name) { _ckSet('ck_broadcast_event', ['string'], [name]); },
+
+        listenForEvent: function(name, callback) {
+            var id = _ckNextId++;
+            _moduleConfig._ckEventListeners[id] = { callback: callback, once: false };
+            _ckSet('ck_listen_event', ['string', 'number', 'number'], [name, id, 1]);
+            return id;
+        },
+        listenForEventOnce: function(name, callback) {
+            var id = _ckNextId++;
+            _moduleConfig._ckEventListeners[id] = { callback: callback, once: true };
+            _ckSet('ck_listen_event', ['string', 'number', 'number'], [name, id, 0]);
+            return id;
+        },
+        stopListeningForEvent: function(name, listenerId) {
+            delete _moduleConfig._ckEventListeners[listenerId];
+            _ckSet('ck_stop_listening_event', ['string', 'number'], [name, listenerId]);
+        },
+        // Alias for WebChucK API compatibility
+        startListeningForEvent: function(name, callback) {
+            return this.listenForEvent(name, callback);
+        },
+
+        // ── Int array operations ───────────────────────────────────────
+
+        setIntArray: function(name, jsArray) {
+            _ckDefer(function() {
+                var buf = new Uint8Array(new Int32Array(jsArray).buffer);
+                _module.ccall('ck_set_int_array', 'number',
+                    ['string', 'array', 'number'], [name, buf, jsArray.length]);
+            });
+        },
+        setIntArrayValue:      function(name, index, value) { _ckSet('ck_set_int_array_value',       ['string', 'number', 'number'], [name, index, value]); },
+        setAssocIntArrayValue: function(name, key, value)   { _ckSet('ck_set_assoc_int_array_value', ['string', 'string', 'number'], [name, key, value]); },
+        getIntArray:           function(name)               { return _ckGet('ck_get_int_array',             ['string'],                   [name]); },
+        getIntArrayValue:      function(name, index)        { return _ckGet('ck_get_int_array_value',       ['string', 'number'],         [name, index]); },
+        getAssocIntArrayValue: function(name, key)          { return _ckGet('ck_get_assoc_int_array_value', ['string', 'string'],         [name, key]); },
+
+        // ── Float array operations ─────────────────────────────────────
+
+        setFloatArray: function(name, jsArray) {
+            _ckDefer(function() {
+                var buf = new Uint8Array(new Float64Array(jsArray).buffer);
+                _module.ccall('ck_set_float_array', 'number',
+                    ['string', 'array', 'number'], [name, buf, jsArray.length]);
+            });
+        },
+        setFloatArrayValue:      function(name, index, value) { _ckSet('ck_set_float_array_value',       ['string', 'number', 'number'], [name, index, value]); },
+        setAssocFloatArrayValue: function(name, key, value)   { _ckSet('ck_set_assoc_float_array_value', ['string', 'string', 'number'], [name, key, value]); },
+        getFloatArray:           function(name)               { return _ckGet('ck_get_float_array',             ['string'],                   [name]); },
+        getFloatArrayValue:      function(name, index)        { return _ckGet('ck_get_float_array_value',       ['string', 'number'],         [name, index]); },
+        getAssocFloatArrayValue: function(name, key)          { return _ckGet('ck_get_assoc_float_array_value', ['string', 'string'],         [name, key]); },
+
+        // ── Persistent Storage (IndexedDB) ─────────────────────────────
+
+        save: function(key, value) {
+            return _getDB().then(function(db) {
+                return new Promise(function(resolve, reject) {
+                    var tx = db.transaction('kv', 'readwrite');
+                    var req = tx.objectStore('kv').put(value, key);
+                    req.onsuccess = function() { resolve(); };
+                    req.onerror = function() { reject(req.error); };
+                });
+            });
+        },
+
+        load: function(key) {
+            return _getDB().then(function(db) {
+                return new Promise(function(resolve, reject) {
+                    var tx = db.transaction('kv', 'readonly');
+                    var req = tx.objectStore('kv').get(key);
+                    req.onsuccess = function() { resolve(req.result); };
+                    req.onerror = function() { reject(req.error); };
+                });
+            });
+        },
+
+        delete: function(key) {
+            return _getDB().then(function(db) {
+                return new Promise(function(resolve, reject) {
+                    var tx = db.transaction('kv', 'readwrite');
+                    var req = tx.objectStore('kv').delete(key);
+                    req.onsuccess = function() { resolve(); };
+                    req.onerror = function() { reject(req.error); };
+                });
+            });
+        },
+
+        listKeys: function() {
+            return _getDB().then(function(db) {
+                return new Promise(function(resolve, reject) {
+                    var tx = db.transaction('kv', 'readonly');
+                    var req = tx.objectStore('kv').getAllKeys();
+                    req.onsuccess = function() { resolve(req.result); };
+                    req.onerror = function() { reject(req.error); };
+                });
+            });
+        },
+
+        // ── MIDI ──────────────────────────────────────────────────────
+
+        initMidi: function(access) {
+            window._rtmidi_internals_midi_access = access;
+            window._rtmidi_internals_latest_message_timestamp = 0.0;
+            window._rtmidi_internals_waiting = false;
+            window._rtmidi_internals_get_port_by_number = function(portNumber, isInput) {
+                var midi = window._rtmidi_internals_midi_access;
+                var devices = isInput ? midi.inputs : midi.outputs;
+                var i = 0;
+                for (var device of devices.values()) {
+                    if (i === portNumber) return device;
+                    i++;
+                }
+                return null;
+            };
+        },
+
+        // ── Dynamic Audio Import ───────────────────────────────────────
+
+        loadAudio: function(url, vfsPath) {
+            if (!vfsPath) {
+                var parts = url.split('/');
+                var name = parts[parts.length - 1].split('?')[0];
+                vfsPath = '/audio/' + (name || 'audio.wav');
+            }
+            if (vfsPath[0] !== '/') vfsPath = '/' + vfsPath;
+            return fetch(url, { mode: 'cors' })
+                .catch(function() {
+                    throw new Error('Failed to fetch (CORS blocked or network error): ' + url);
+                })
+                .then(function(response) {
+                    if (!response.ok) throw new Error('HTTP ' + response.status + ': ' + url);
+                    return response.arrayBuffer();
+                })
+                .then(function(arrayBuffer) {
+                    var ctx = _audioCtx || new OfflineAudioContext(1, 1, 48000);
+                    return ctx.decodeAudioData(arrayBuffer);
+                })
+                .then(function(audioBuffer) {
+                    var wavData = _audioBufferToWav(audioBuffer);
+                    _ensureVfsDir(vfsPath);
+                    _module.FS.writeFile(vfsPath, new Uint8Array(wavData));
+                    console.log('[WebChuGL] Audio loaded: ' + vfsPath +
+                        ' (' + audioBuffer.duration.toFixed(2) + 's, ' +
+                        audioBuffer.numberOfChannels + 'ch)');
+                    return vfsPath;
+                });
+        },
+
+        // ── ChuGin Loading ────────────────────────────────────────────
+
+        loadChugin: function(url) {
+            var name = url.split('/').pop();
+            var shortName = name.replace('.chug.wasm', '');
+            if (_loadedChugins[shortName]) return Promise.resolve(shortName);
+            return fetch(url).then(function(r) {
+                if (!r.ok) throw new Error('Failed to fetch chugin: ' + url);
+                return r.arrayBuffer();
+            }).then(function(buf) {
+                var vfsPath = '/chugins/' + name;
+                _ensureVfsDir(vfsPath);
+                _module.FS.writeFile(vfsPath, new Uint8Array(buf));
+                var loaded = _loadChuginFromVfs(vfsPath);
+                if (!loaded) throw new Error('Failed to load chugin: ' + name);
+                return loaded;
+            });
+        },
+
+        // ── ChuMP Package Loading ─────────────────────────────────────
+
+        loadPackage: function(name, version, url) {
+            version = version || 'latest';
+
+            var jszipReady = _ensureJSZip();
+
+            // Resolve zip URL from ChuMP registry if not provided
+            var zipPromise;
+            if (url) {
+                zipPromise = fetch(url).then(function(r) {
+                    if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + url);
+                    return r.arrayBuffer();
+                });
+            } else {
+                var manifestUrl = 'https://raw.githubusercontent.com/ccrma/chump-packages/main/packages/'
+                    + name + '/' + version + '/' + name + '.json';
+                zipPromise = fetch(manifestUrl).then(function(r) {
+                    if (!r.ok) throw new Error('Package not found: ' + name + '@' + version);
+                    return r.json();
+                }).then(function(manifest) {
+                    var files = manifest.files || [];
+                    if (!files.length || !files[0].url) {
+                        throw new Error('No download URL in manifest for ' + name);
+                    }
+                    return fetch(files[0].url).then(function(r) {
+                        if (!r.ok) throw new Error('HTTP ' + r.status);
+                        return r.arrayBuffer();
+                    });
+                });
+            }
+
+            return Promise.all([jszipReady, zipPromise]).then(function(results) {
+                return JSZip.loadAsync(results[1]);
+            }).then(function(zip) {
+                var stripDirs = ['examples', '_examples', 'scripts', 'releases', '.git'];
+                var stripFiles = ['readme', 'versions', 'imgui.ini'];
+                var entries = Object.keys(zip.files).filter(function(n) {
+                    if (zip.files[n].dir) return false;
+                    var firstDir = n.split('/')[0].toLowerCase();
+                    if (stripDirs.indexOf(firstDir) >= 0) return false;
+                    var basename = n.split('/').pop().toLowerCase();
+                    if (stripFiles.indexOf(basename) >= 0) return false;
+                    return true;
+                });
+                return Promise.all(entries.map(function(entryName) {
+                    return zip.files[entryName].async('arraybuffer').then(function(content) {
+                        var vfsPath = '/packages/' + name + '/' + entryName;
+                        _ensureVfsDir(vfsPath);
+                        _module.FS.writeFile(vfsPath, new Uint8Array(content));
+                    });
+                }));
+            }).then(function() {
+                console.log('[WebChuGL] Package loaded: ' + name + '@' + version);
+                return name;
+            });
+        }
+    };
+
+    // ── Launch ──────────────────────────────────────────────────────────
+    return createWebChuGL(_moduleConfig).then(function(mod) {
+        _module = mod;
+
+        if (!navigator.gpu) {
+            _onError('WebGPU is not available');
+            return CK;
+        }
+
+        // Fetch chugins in parallel with WebGPU adapter/device acquisition
+        var _pendingChuginPaths = [];
+        var chuginPromise = _chuginUrls.length > 0
+            ? Promise.all(_chuginUrls.map(function(url) {
+                return fetch(url).then(function(r) {
+                    if (!r.ok) throw new Error('Failed to fetch chugin: ' + url);
+                    return r.arrayBuffer();
+                }).then(function(buf) {
+                    var name = url.split('/').pop();
+                    var vfsPath = '/chugins/' + name;
+                    _ensureVfsDir(vfsPath);
+                    _module.FS.writeFile(vfsPath, new Uint8Array(buf));
+                    _pendingChuginPaths.push(vfsPath);
+                    console.log('[WebChuGL] Fetched chugin: ' + name);
+                });
+            }))
+            : Promise.resolve();
+
+        var gpuPromise = navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+
+        return Promise.all([chuginPromise, gpuPromise]).then(function(results) {
+            var adapter = results[1];
+            if (!adapter) {
+                _onError('Failed to get WebGPU adapter');
+                return CK;
+            }
+            return adapter.requestDevice().then(function(device) {
+                _module._preAdapter = adapter;
+                _module._preDevice = device;
+                _onReady();
+                _module.callMain([]);
+
+                // Load init-time chugins (after callMain so the_chuck exists)
+                for (var i = 0; i < _pendingChuginPaths.length; i++) {
+                    var loaded = _loadChuginFromVfs(_pendingChuginPaths[i]);
+                    if (!loaded) {
+                        console.warn('[WebChuGL] Failed to load chugin: ' + _pendingChuginPaths[i]);
+                    }
+                }
+
+                _initSensors(CK);
+                _ckFlush();
+                return CK;
+            });
+        }).catch(function(e) {
+            console.error('WebGPU pre-init failed:', e);
+            _onError('WebGPU init failed: ' + e.message);
+            return CK;
+        });
+    });
 }
