@@ -44,59 +44,6 @@
  */
 
 /**
- * Write a file to the virtual filesystem.
- *
- * @function createFile
- * @memberof ChucK
- * @instance
- * @param {string} path - Destination path in the VFS (e.g. `/code/data.txt`).
- * @param {string|ArrayBuffer} data - File contents (string for text, ArrayBuffer for binary).
- */
-
-/**
- * Fetch a URL and write the contents to the virtual filesystem.
- * Automatically detects binary files by extension (`.wav`, `.png`, `.wasm`, etc.).
- * If the file is a `.chug.wasm` ChuGin, it is loaded into the VM automatically.
- *
- * @function loadFile
- * @memberof ChucK
- * @instance
- * @param {string} url - URL to fetch.
- * @param {string} [vfsPath] - Destination VFS path. Defaults to `/code/<filename>`.
- * @returns {Promise<string>} The VFS path where the file was written.
- * @example
- * var path = await ck.loadFile('./assets/click.wav');
- * // path === '/code/click.wav'
- */
-
-/**
- * Fetch multiple files from a base URL into `/code/`.
- * Automatically detects binary files and `.chug.wasm` ChuGins.
- *
- * @function loadFiles
- * @memberof ChucK
- * @instance
- * @param {string} basePath - Base URL (e.g. `./assets/`).
- * @param {string[]} files - Array of filenames relative to basePath.
- * @returns {Promise<string[]>} Array of VFS paths.
- * @example
- * await ck.loadFiles('./assets/', ['click.wav', 'snare.wav', 'lib.ck']);
- */
-
-/**
- * Fetch a zip archive and extract all files to the virtual filesystem
- * under `/code/`. Automatically detects and loads any `.chug.wasm` ChuGins.
- *
- * @function loadZip
- * @memberof ChucK
- * @instance
- * @param {string} url - URL of the zip file.
- * @returns {Promise<void>}
- * @example
- * await ck.loadZip('./assets.zip');
- */
-
-/**
  * Fetch a zip archive, extract to VFS, and run the main ChucK file.
  * If `mainFile` is omitted, auto-detects `main.ck` at the zip root,
  * or falls back to the first `.ck` file found.
@@ -111,6 +58,95 @@
  * await ck.runZip('./bundle.zip');
  * // or with an explicit entry point:
  * await ck.runZip('./bundle.zip', 'game.ck');
+ */
+
+// ── Virtual Filesystem ──────────────────────────────────────────────────
+
+/**
+ * Write a file to the virtual filesystem.
+ *
+ * Unlike the `load*` functions, this requires a full VFS path — no
+ * automatic `/code/` prefix is added.
+ *
+ * @function createFile
+ * @memberof ChucK
+ * @instance
+ * @param {string} path - Destination path in the VFS (e.g. `/code/data.txt`).
+ * @param {string|ArrayBuffer} data - File contents (string for text, ArrayBuffer for binary).
+ */
+
+/**
+ * List all files in a VFS directory (recursively). Useful for debugging
+ * "file not found" errors or inspecting what `loadZip` extracted.
+ *
+ * @function listFiles
+ * @memberof ChucK
+ * @instance
+ * @param {string} [dir='/code'] - Directory to list. Defaults to `/code`.
+ * @returns {string[]} Array of absolute VFS paths.
+ * @example
+ * await ck.loadZip('./bundle.zip');
+ * console.log(ck.listFiles());
+ * // ['/code/main.ck', '/code/lib/utils.ck', '/code/assets/click.wav']
+ */
+
+/**
+ * Fetch a URL and write the contents to the virtual filesystem under
+ * `/code/`. Only the filename is kept — directory structure in the URL
+ * is not preserved. Use the `vfsPath` parameter for full control over
+ * the destination path.
+ *
+ * Automatically detects binary files by extension (`.wav`, `.png`, `.wasm`, etc.).
+ * If the file is a `.chug.wasm` ChuGin, it is loaded into the VM automatically.
+ *
+ * @function loadFile
+ * @memberof ChucK
+ * @instance
+ * @param {string} url - URL to fetch.
+ * @param {string} [vfsPath=/code/&lt;filename&gt;] - Destination VFS path.
+ * @returns {Promise<string>} The VFS path where the file was written.
+ * @example
+ * var path = await ck.loadFile('./assets/click.wav');
+ * // path === '/code/click.wav'
+ *
+ * // Explicit destination:
+ * var path = await ck.loadFile('./assets/click.wav', '/code/sounds/click.wav');
+ */
+
+/**
+ * Fetch multiple files from a base URL into `/code/`. The relative path
+ * of each file is preserved, so subdirectories in the `files` array map
+ * directly to subdirectories under `/code/`.
+ *
+ * Automatically detects binary files and `.chug.wasm` ChuGins.
+ *
+ * @function loadFiles
+ * @memberof ChucK
+ * @instance
+ * @param {string} basePath - Base URL (e.g. `./assets/`).
+ * @param {string[]} files - Filenames relative to basePath. Subdirectory
+ *   paths are preserved (e.g. `'sfx/click.wav'` → `/code/sfx/click.wav`).
+ * @returns {Promise<string[]>} Array of VFS paths.
+ * @example
+ * await ck.loadFiles('./assets/', ['click.wav', 'sfx/snare.wav', 'lib.ck']);
+ * // VFS: /code/click.wav, /code/sfx/snare.wav, /code/lib.ck
+ */
+
+/**
+ * Fetch a zip archive and extract all files to `/code/` in the virtual
+ * filesystem. The zip's directory structure is preserved under `/code/`.
+ * Automatically detects and loads any `.chug.wasm` ChuGins.
+ *
+ * Use {@link ChucK#listFiles} to inspect what was extracted.
+ *
+ * @function loadZip
+ * @memberof ChucK
+ * @instance
+ * @param {string} url - URL of the zip file.
+ * @returns {Promise<void>}
+ * @example
+ * await ck.loadZip('./assets.zip');
+ * console.log(ck.listFiles()); // see what was extracted
  */
 
 // ── Scalar Variables ────────────────────────────────────────────────────
@@ -393,9 +429,9 @@
  * @memberof ChucK
  * @instance
  * @param {string} url - URL of the `.chug.wasm` file.
- * @returns {Promise<string>} The ChuGin name (e.g. `"Bitcrusher"`).
+ * @returns {Promise<string>} The ChuGin name (e.g. `"DMX"`).
  * @example
- * await ck.loadChugin('./chugins/Bitcrusher.chug.wasm');
+ * await ck.loadChugin('./chugins/DMX.chug.wasm');
  */
 
 /**
@@ -409,7 +445,7 @@
  * @param {string} [url] - Direct URL to the package zip (skips registry lookup).
  * @returns {Promise<string>} The package name.
  * @example
- * await ck.loadPackage('ChuGL-Grid');
+ * await ck.loadPackage('ChuGUI');
  */
 
 // ── Audio ───────────────────────────────────────────────────────────────

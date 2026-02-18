@@ -257,20 +257,16 @@ pre code {
     font-size: 0.8rem;
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
     padding: 3px 10px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--accent);
     border-radius: 4px;
-    color: var(--fg-dim);
+    color: var(--accent2);
     text-decoration: none;
     transition: border-color 0.2s, color 0.2s;
 }
 
-.method-toc a:visited {
-    color: var(--fg-dim);
-}
-
 .method-toc a:hover {
-    border-color: var(--accent);
-    color: var(--fg);
+    border-color: var(--accent2);
+    color: var(--accent);
     text-decoration: none;
 }
 
@@ -498,8 +494,8 @@ pre code {
     height: 44px;
     border-radius: var(--radius);
     background: var(--bg-card);
-    border: 1px solid var(--border);
-    color: var(--fg-dim);
+    border: 1px solid var(--accent);
+    color: var(--accent2);
     font-size: 1rem;
     cursor: pointer;
     display: flex;
@@ -520,8 +516,8 @@ pre code {
 }
 
 .back-to-top:hover {
-    border-color: var(--accent);
-    color: var(--fg);
+    border-color: var(--accent2);
+    color: var(--accent);
     transform: translateY(-2px);
     text-decoration: none;
 }

@@ -10,16 +10,15 @@ var env = require('jsdoc/env');
 var METHOD_GROUPS = [
     {
         title: 'Code Execution',
-        methods: ['runCode', 'runFile', 'createFile', 'loadFile', 'loadFiles', 'loadZip', 'runZip']
+        methods: ['runCode', 'runFile', 'runZip']
+    },
+    {
+        title: 'Virtual Filesystem',
+        methods: ['createFile', 'listFiles', 'loadFile', 'loadFiles', 'loadZip']
     },
     {
         title: 'Scalar Variables',
         methods: ['setInt', 'setFloat', 'setString', 'getInt', 'getFloat', 'getString']
-    },
-    {
-        title: 'Events',
-        methods: ['signalEvent', 'broadcastEvent', 'listenForEvent', 'listenForEventOnce',
-                  'stopListeningForEvent', 'startListeningForEvent']
     },
     {
         title: 'Int Arrays',
@@ -30,6 +29,11 @@ var METHOD_GROUPS = [
         title: 'Float Arrays',
         methods: ['setFloatArray', 'getFloatArray', 'setFloatArrayValue', 'getFloatArrayValue',
                   'setAssocFloatArrayValue', 'getAssocFloatArrayValue']
+    },
+    {
+        title: 'Events',
+        methods: ['signalEvent', 'broadcastEvent', 'listenForEvent', 'listenForEventOnce',
+                  'stopListeningForEvent', 'startListeningForEvent']
     },
     {
         title: 'ChuGins & Packages',

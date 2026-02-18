@@ -517,6 +517,30 @@ function _initWebChuGL(config) {
             });
         },
 
+        listFiles: function(dir) {
+            dir = dir || '/code';
+            function walk(d) {
+                var results = [];
+                try {
+                    var entries = _module.FS.readdir(d);
+                } catch (e) {
+                    return results;
+                }
+                for (var i = 0; i < entries.length; i++) {
+                    if (entries[i] === '.' || entries[i] === '..') continue;
+                    var full = d + '/' + entries[i];
+                    var stat = _module.FS.stat(full);
+                    if (_module.FS.isDir(stat.mode)) {
+                        results = results.concat(walk(full));
+                    } else {
+                        results.push(full);
+                    }
+                }
+                return results;
+            }
+            return walk(dir);
+        },
+
         loadFile: function(url, vfsPath) {
             if (!vfsPath) {
                 var parts = url.split('/');
