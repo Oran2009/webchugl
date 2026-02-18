@@ -15,7 +15,11 @@ SRC_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$SRC_DIR/build"
 CMAKE_BUILD_DIR="$SRC_DIR/.cmake-build"
 PROJECT_ROOT="$(dirname "$SRC_DIR")"
-EMSDK_DIR="$PROJECT_ROOT/emsdk-4.0.17/install/emscripten"
+EMSDK_DIR="$(ls -d "$PROJECT_ROOT"/emsdk-*/install/emscripten 2>/dev/null | head -1)"
+if [ -z "$EMSDK_DIR" ] || [ ! -d "$EMSDK_DIR" ]; then
+    echo "Error: Emscripten SDK not found. Run setup.sh first." >&2
+    exit 1
+fi
 
 # Parse arguments
 CLEAN=false
@@ -105,4 +109,4 @@ python3 "$SCRIPT_DIR/py/minify_js.py" "$BUILD_DIR/webchugl/webchugl.js"
 echo ""
 echo "=== Build Complete ==="
 echo "Output: $BUILD_DIR"
-echo "Next: ./scripts/bundle.sh (to create bundle.sh)"
+echo "Next: ./scripts/bundle.sh (to create bundle.zip)"

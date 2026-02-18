@@ -129,7 +129,7 @@ window.WebChuGL = {
             var devices = isInput ? midi.inputs : midi.outputs;
             var i = 0;
             for (var device of devices.values()) {
-                if (i == portNumber) return device;
+                if (i === portNumber) return device;
                 i++;
             }
             return null;

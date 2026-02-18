@@ -159,7 +159,7 @@ if [ -f "$GLFW_PATCH" ]; then
 
         echo "[emscripten-glfw] Downloading contrib.glfw3 port..."
         mkdir -p "$CACHE_PORTS_DIR"
-        curl -L -o "$GLFW_PORT_ZIP" "$GLFW_PORT_URL"
+        curl -L --fail -o "$GLFW_PORT_ZIP" "$GLFW_PORT_URL"
 
         echo "[emscripten-glfw] Extracting..."
         mkdir -p "$GLFW_PORT_DIR"

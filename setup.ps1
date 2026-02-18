@@ -169,7 +169,8 @@ if (Test-Path $GlfwPatch) {
 
         Write-Host "[emscripten-glfw] Downloading contrib.glfw3 port..." -ForegroundColor Yellow
         New-Item -ItemType Directory -Path $CachePortsDir -Force | Out-Null
-        curl -L -o $GlfwPortZip $GlfwPortUrl
+        curl -L --fail -o $GlfwPortZip $GlfwPortUrl
+        if ($LASTEXITCODE -ne 0) { throw "Failed to download contrib.glfw3 port" }
 
         Write-Host "[emscripten-glfw] Extracting..." -ForegroundColor Yellow
         Expand-Archive -Path $GlfwPortZip -DestinationPath $GlfwPortDir -Force

@@ -18,11 +18,13 @@ $ScriptDir = $PSScriptRoot
 $SrcDir = Split-Path -Parent $ScriptDir
 $BuildDir = Join-Path $SrcDir "build"
 $CMakeBuildDir = Join-Path $SrcDir ".cmake-build"
-$EmsdkDir = Join-Path (Split-Path -Parent $SrcDir) "emsdk-4.0.17\install\emscripten"
+$ProjectRoot = Split-Path -Parent $SrcDir
+$EmsdkDir = (Get-ChildItem -Path $ProjectRoot -Directory -Filter "emsdk-*" | Select-Object -First 1).FullName
+if (-not $EmsdkDir) { throw "Emscripten SDK not found. Run setup.ps1 first." }
+$EmsdkDir = Join-Path $EmsdkDir "install\emscripten"
 $EmCMake = Join-Path $EmsdkDir "emcmake.py"
 $EmMake = Join-Path $EmsdkDir "emmake.py"
 
-$ProjectRoot = Split-Path -Parent $SrcDir
 $PatchDir = Join-Path $ProjectRoot "patches"
 
 Write-Host "=== Building WebChuGL ===" -ForegroundColor Cyan
