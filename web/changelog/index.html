@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebChuGL Changelog</title>
+    <meta name="description" content="Release history and changelog for WebChuGL.">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <a href="#changelog" class="skip-link">Skip to main content</a>
+
+    <!-- ── Hero ────────────────────────────────────────────────────────── -->
+    <header class="hero">
+        <canvas id="hero-canvas"></canvas>
+        <div class="hero-overlay">
+            <h1>Changelog</h1>
+            <p class="tagline">WebChuGL release history</p>
+
+            <nav class="hero-buttons" aria-label="Primary">
+                <a href="../" class="btn-green">Back to WebChuGL</a>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+
+    <h2 id="changelog">Releases</h2>
+
+    <div class="empty-state">
+        <div class="icon">&#x1F4E6;</div>
+        <p>No releases yet &mdash; check back soon!</p>
+    </div>
+
+    <!--
+    Template for future releases:
+
+    <div class="release">
+        <div class="release-header">
+            <h3 class="release-version">v0.1.0</h3>
+            <span class="release-date">2026-XX-XX</span>
+        </div>
+        <div class="release-body">
+            <h3>Added</h3>
+            <ul>
+                <li>Feature description here</li>
+            </ul>
+            <h3>Changed</h3>
+            <ul>
+                <li>Change description here</li>
+            </ul>
+            <h3>Fixed</h3>
+            <ul>
+                <li>Bug fix description here</li>
+            </ul>
+        </div>
+    </div>
+    -->
+
+    </main>
+
+    <a href="#" class="back-to-top" aria-label="Back to top">&#x25B2;</a>
+
+    <!-- ── Footer ──────────────────────────────────────────────────────── -->
+    <footer class="footer">
+        <nav aria-label="Footer">
+            <a href="../">WebChuGL</a> &middot;
+            <a href="../docs/">Docs</a> &middot;
+            <a href="https://github.com/ccrma/webchugl">GitHub</a> &middot;
+            <a href="https://chuck.stanford.edu/chugl/">ChuGL</a> &middot;
+            <a href="https://chuck.stanford.edu/">ChucK</a> &middot;
+            <a href="https://chuck.cs.princeton.edu/webchuck/">WebChucK</a>
+        </nav>
+    </footer>
+
+    <!-- Back to top button -->
+    <script>
+    (function() {
+        var btn = document.querySelector(".back-to-top");
+        window.addEventListener("scroll", function() {
+            btn.classList.toggle("visible", window.scrollY > 400);
+        }, { passive: true });
+        btn.addEventListener("click", function(e) {
+            e.preventDefault();
+            window.scrollTo({ top: 0, behavior: "smooth" });
+        });
+    })();
+    </script>
+
+    <!-- Hero WebChuGL embed (progressive enhancement) -->
+    <script type="module">
+    (async function() {
+        if (!navigator.gpu) return;
+        var canvas = document.getElementById('hero-canvas');
+        if (!canvas) return;
+        try {
+            var mod = await import('../src/webchugl-esm.js');
+            var ck = await mod.default.init({
+                canvas: canvas,
+                whereIsChuGL: '../src/',
+                serviceWorker: false,
+            });
+            canvas.classList.add('ready');
+            ck.runCode([
+                'GGen sunSystem, earthSystem, moonSystem;',
+                'GSphere sun, earth, moon;',
+                'for(auto x : [sun, earth, moon]) x.mat().wireframe(true);',
+                'GG.scene().ambient(@(.5,.5,.5));',
+                'sun.color(Color.YELLOW);',
+                'earth.color((Color.SKYBLUE + Color.BLUE) / 2);',
+                'moon.color(Color.GRAY);',
+                'earthSystem.pos(@(2.2, 0.0, 0.0));',
+                'moonSystem.pos(@(.55, 0.0, 0.0));',
+                'sun.sca(@(2.0, 2.0, 2.0));',
+                'earth.sca(@(0.4, 0.4, 0.4));',
+                'moon.sca(@(0.12, 0.12, 0.12));',
+                'moonSystem --> earthSystem --> sunSystem --> GG.scene();',
+                'sun --> sunSystem; earth --> earthSystem; moon --> moonSystem;',
+                'GG.camera().pos(@(0, 5, 7));',
+                'GG.camera().lookAt(@(0, 0, 0));',
+                '0.0 => float angle;',
+                'while(true) {',
+                '  GG.nextFrame() => now;',
+                '  sunSystem.rotateY(.5 * GG.dt());',
+                '  earthSystem.rotateY(.7 * GG.dt());',
+                '  sun.rotateY(-1 * GG.dt());',
+                '  earth.rotateY(.4 * GG.dt());',
+                '  moon.rotateY(.9 * GG.dt());',
+                '  .08 * GG.dt() +=> angle;',
+                '  GG.camera().pos(@(7*Math.cos(angle), 5, 7*Math.sin(angle)));',
+                '  GG.camera().lookAt(@(0, 0, 0));',
+                '}',
+            ].join('\n'));
+        } catch(e) {
+            console.log('[webchugl] Hero demo unavailable:', e.message);
+        }
+    })();
+    </script>
+</body>
+
+</html>

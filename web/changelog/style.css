@@ -1,4 +1,6 @@
-/* ── Base ─────────────────────────────────────────────────────────────── */
+/* ── WebChuGL Changelog ───────────────────────────────────────────────── */
+
+/* ── Same Bootstrap import as main page for consistent CSS reset ──────── */
 @import url('https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css');
 
 :root {
@@ -30,6 +32,7 @@
 .skip-link:focus,
 .skip-link:visited { top: 0; color: var(--bg); }
 
+/* ── Base ────────────────────────────────────────────────────────────── */
 html { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; }
 
 body {
@@ -127,11 +130,15 @@ pre code {
 }
 
 .hero h1 { margin-top: 0; font-size: 3rem; font-weight: 800; border: none; }
-.hero .logo { width: 56px; height: 56px; vertical-align: middle; margin-left: 8px; }
 .hero .tagline { font-size: 1.25rem; font-style: italic; color: var(--fg); margin-top: -0.4rem; }
-.hero .description { max-width: 640px; margin: 1.5rem auto; }
 
-.hero-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin: 1.2rem 0; }
+.hero-buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 1.2rem;
+}
 
 /* ── Buttons ─────────────────────────────────────────────────────────── */
 .btn-green {
@@ -162,80 +169,69 @@ pre code {
 }
 .btn-orange:hover { background: var(--accent2); color: #141418; transform: translateY(-1px); text-decoration: none; }
 
-/* ── Feature Cards ───────────────────────────────────────────────────── */
-.features {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 1rem;
-    margin: 1.5rem 0;
-}
-
-.feature-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
+/* ── Release entries ─────────────────────────────────────────────────── */
+.release {
+    margin: 2rem 0;
     padding: 1.5rem;
-    transition: border-color 0.2s, transform 0.2s;
-}
-.feature-card:hover { border-color: var(--accent); transform: translateY(-2px); }
-.feature-card h4 { margin-top: 0; font-size: 1.1rem; }
-.feature-card .icon { font-size: 1.5rem; margin-bottom: 0.5rem; }
-
-/* ── Example Carousel ────────────────────────────────────────────────── */
-.carousel {
-    display: flex;
-    gap: 12px;
-    overflow-x: auto;
-    padding: 1rem 0;
-    scroll-snap-type: x mandatory;
-}
-
-.carousel::-webkit-scrollbar { height: 6px; }
-.carousel::-webkit-scrollbar-track { background: var(--bg); }
-.carousel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-
-.example-card {
-    flex: 0 0 300px;
-    scroll-snap-align: start;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    overflow: hidden;
     transition: border-color 0.2s;
 }
-.example-card:hover { border-color: var(--accent); }
-a.example-card { color: inherit; text-decoration: none; display: block; }
-a.example-card:hover { color: inherit; text-decoration: none; }
-a.example-card:visited { color: inherit; }
-.example-card .thumb {
-    width: 100%;
-    height: 170px;
-    object-fit: cover;
-    background: var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--fg-dim);
-    font-size: 2rem;
-}
-.example-card .body { padding: 1rem; }
-.example-card h5 { margin: 0 0 0.5rem; font-size: 1rem; }
-.example-card p { margin: 0 0 0.8rem; font-size: 0.9rem; color: var(--fg-dim); }
 
-/* ── API Reference Table ─────────────────────────────────────────────── */
-.api-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 1rem 0;
+.release:hover {
+    border-color: var(--accent);
 }
-.api-table th, .api-table td {
-    padding: 0.6rem 1rem;
-    text-align: left;
-    border-bottom: 1px solid var(--border);
+
+.release-header {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
 }
-.api-table th { color: var(--fg-dim); font-weight: 600; font-size: 0.85rem; text-transform: uppercase; }
-.api-table td code { font-size: 0.85rem; }
-.api-table tr:hover { background: rgba(34, 197, 94, 0.05); }
+
+.release-version {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--accent);
+    margin: 0;
+}
+
+.release-date {
+    font-size: 0.9rem;
+    color: var(--fg-dim);
+}
+
+.release-body h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--accent2);
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.release-body ul {
+    margin: 0.5em 0;
+    padding-left: 1.5em;
+}
+
+.release-body li {
+    margin: 0.3em 0;
+    color: var(--fg);
+}
+
+/* ── Empty state ─────────────────────────────────────────────────────── */
+.empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--fg-dim);
+}
+
+.empty-state .icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+}
 
 /* ── Back to Top button ───────────────────────────────────────────────── */
 .back-to-top {
@@ -281,25 +277,6 @@ a.example-card:visited { color: inherit; }
     color: var(--fg-dim);
     font-size: 0.9rem;
 }
-
-/* ── Highlight.js override (match green/orange scheme) ────────────────── */
-.hljs {
-    background: var(--code-bg) !important;
-}
-
-.hljs-addition,
-.hljs-attribute,
-.hljs-string,
-.hljs-link,
-.hljs-template-variable,
-.hljs-variable { color: var(--accent) !important; }
-
-.hljs-deletion,
-.hljs-keyword,
-.hljs-selector-tag { color: var(--accent2) !important; }
-
-.hljs-comment,
-.hljs-quote { color: var(--fg-dim) !important; }
 
 /* ── Focus indicators ────────────────────────────────────────────────── */
 :focus-visible {

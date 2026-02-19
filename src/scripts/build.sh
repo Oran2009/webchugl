@@ -99,6 +99,18 @@ if [ -d "$CMAKE_BUILD_DIR/webchugl" ]; then
     cp -r "$CMAKE_BUILD_DIR/webchugl/"* "$BUILD_DIR/webchugl/"
 fi
 
+# Copy runtime to web/src/ (for website deployment)
+echo "Copying to web/src/..."
+WEB_SRC_DIR="$PROJECT_ROOT/web/src"
+mkdir -p "$WEB_SRC_DIR"
+for f in index.js webchugl.wasm webchugl.js webchugl-esm.js \
+         audio-worklet-processor.js jszip.min.js \
+         chugl_logo_light.png chugl_logo_dark.png; do
+    [ -f "$BUILD_DIR/webchugl/$f" ] && cp "$BUILD_DIR/webchugl/$f" "$WEB_SRC_DIR/$f"
+done
+# sw.js goes one level up (web/) for broader scope
+[ -f "$BUILD_DIR/sw.js" ] && cp "$BUILD_DIR/sw.js" "$PROJECT_ROOT/web/sw.js"
+
 # Copy ESM entry point to dist/ (for npm publishing)
 echo "Preparing npm dist..."
 DIST_DIR="$PROJECT_ROOT/dist"

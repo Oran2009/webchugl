@@ -14,7 +14,11 @@ var METHOD_GROUPS = [
     },
     {
         title: 'Virtual Filesystem',
-        methods: ['createFile', 'listFiles', 'loadFile', 'loadFiles', 'loadZip']
+        methods: ['createFile', 'removeFile', 'fileExists', 'listFiles', 'loadFile', 'loadFiles', 'loadZip']
+    },
+    {
+        title: 'Audio',
+        methods: ['loadAudio', 'initMidi', 'getSampleRate']
     },
     {
         title: 'Scalar Variables',
@@ -37,11 +41,11 @@ var METHOD_GROUPS = [
     },
     {
         title: 'ChuGins & Packages',
-        methods: ['loadChugin', 'loadPackage']
+        methods: ['loadChugin', 'getLoadedChugins', 'loadPackage']
     },
     {
-        title: 'Audio',
-        methods: ['loadAudio', 'initMidi']
+        title: 'VM',
+        methods: ['getCurrentTime', 'getActiveShreds', 'getLastError', 'getGlobalVariables']
     },
     {
         title: 'Persistent Storage',
@@ -203,15 +207,18 @@ function buildPage(chuckClass, chuckMethods, chuckMembers, chuglNamespace, chugl
     html += '<div class="page-layout">\n';
     html += '<main class="content">\n';
 
-    // ── Header ──
+    // ── Header (canvas hero) ──
     html += '<header class="hero">\n';
-    html += '<h1>WebChuGL => now</h1>\n';
-    html += '<p class="tagline">JavaScript &harr; ChucK bridge reference</p>\n';
+    html += '<canvas id="hero-canvas"></canvas>\n';
+    html += '<div class="hero-overlay">\n';
+    html += '<h1>docs =&gt; now</h1>\n';
+    html += '<p class="tagline">WebChuGL Documentation</p>\n';
     html += '<nav class="nav-links" aria-label="Primary">\n';
     html += '<a href="https://chuck.stanford.edu/chugl/api/" target="_blank" class="btn-orange">ChuGL API</a>\n';
     html += '<a href="http://chuck.stanford.edu/doc/reference" target="_blank" class="btn-green">ChucK API</a>\n';
     html += '<a href="../" class="btn-orange">Back to WebChuGL</a>\n';
     html += '</nav>\n';
+    html += '</div>\n';
     html += '</header>\n';
 
     // ── Getting Started section ──
@@ -525,6 +532,56 @@ function buildPage(chuckClass, chuckMethods, chuckMembers, chuglNamespace, chugl
     html += '      }\n';
     html += '    });\n';
     html += '  });\n';
+    html += '})();\n';
+    html += '</script>\n';
+
+    // Hero WebChuGL embed (progressive enhancement)
+    html += '<script type="module">\n';
+    html += '(async function() {\n';
+    html += '    if (!navigator.gpu) return;\n';
+    html += '    var canvas = document.getElementById("hero-canvas");\n';
+    html += '    if (!canvas) return;\n';
+    html += '    try {\n';
+    html += '        var mod = await import("../src/webchugl-esm.js");\n';
+    html += '        var ck = await mod.default.init({\n';
+    html += '            canvas: canvas,\n';
+    html += '            whereIsChuGL: "../src/",\n';
+    html += '            serviceWorker: false,\n';
+    html += '        });\n';
+    html += '        canvas.classList.add("ready");\n';
+    html += '        ck.runCode([\n';
+    html += '            "GGen sunSystem, earthSystem, moonSystem;",\n';
+    html += '            "GSphere sun, earth, moon;",\n';
+    html += '            "for(auto x : [sun, earth, moon]) x.mat().wireframe(true);",\n';
+    html += '            "GG.scene().ambient(@(.5,.5,.5));",\n';
+    html += '            "sun.color(Color.YELLOW);",\n';
+    html += '            "earth.color((Color.SKYBLUE + Color.BLUE) / 2);",\n';
+    html += '            "moon.color(Color.GRAY);",\n';
+    html += '            "earthSystem.pos(@(2.2, 0.0, 0.0));",\n';
+    html += '            "moonSystem.pos(@(.55, 0.0, 0.0));",\n';
+    html += '            "sun.sca(@(2.0, 2.0, 2.0));",\n';
+    html += '            "earth.sca(@(0.4, 0.4, 0.4));",\n';
+    html += '            "moon.sca(@(0.12, 0.12, 0.12));",\n';
+    html += '            "moonSystem --> earthSystem --> sunSystem --> GG.scene();",\n';
+    html += '            "sun --> sunSystem; earth --> earthSystem; moon --> moonSystem;",\n';
+    html += '            "GG.camera().pos(@(0, 5, 7));",\n';
+    html += '            "GG.camera().lookAt(@(0, 0, 0));",\n';
+    html += '            "0.0 => float angle;",\n';
+    html += '            "while(true) {",\n';
+    html += '            "  GG.nextFrame() => now;",\n';
+    html += '            "  sunSystem.rotateY(.5 * GG.dt());",\n';
+    html += '            "  earthSystem.rotateY(.7 * GG.dt());",\n';
+    html += '            "  sun.rotateY(-1 * GG.dt());",\n';
+    html += '            "  earth.rotateY(.4 * GG.dt());",\n';
+    html += '            "  moon.rotateY(.9 * GG.dt());",\n';
+    html += '            "  .08 * GG.dt() +=> angle;",\n';
+    html += '            "  GG.camera().pos(@(7*Math.cos(angle), 5, 7*Math.sin(angle)));",\n';
+    html += '            "  GG.camera().lookAt(@(0, 0, 0));",\n';
+    html += '            "}",\n';
+    html += '        ].join("\\n"));\n';
+    html += '    } catch(e) {\n';
+    html += '        console.log("[webchugl] Hero demo unavailable:", e.message);\n';
+    html += '    }\n';
     html += '})();\n';
     html += '</script>\n';
 

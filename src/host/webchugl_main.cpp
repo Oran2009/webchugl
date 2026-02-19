@@ -24,6 +24,7 @@
 #include <chrono>
 #include <list>
 #include <string>
+#include <vector>
 
 // Track dlopen handles so they're properly closed on shutdown
 static std::list<void*> g_chuginHandles;
@@ -759,6 +760,94 @@ int ck_run_file(const char* path)
 {
     if (!the_chuck) return 0;
     return the_chuck->compileFile(path, "", 1, TRUE) ? 1 : 0;
+}
+
+// ---- VM introspection -----------------------------------------------
+
+EMSCRIPTEN_KEEPALIVE
+double ck_get_now()
+{
+    if (!the_chuck) return 0.0;
+    return (double)the_chuck->now();
+}
+
+EMSCRIPTEN_KEEPALIVE
+const char* ck_get_active_shreds()
+{
+    static std::string result;
+    if (!the_chuck) return "[]";
+
+    std::vector<Chuck_VM_Shred*> shreds;
+    the_chuck->vm()->shreduler()->get_all_shreds(shreds);
+
+    result = "[";
+    for (size_t i = 0; i < shreds.size(); i++) {
+        if (i > 0) result += ",";
+        result += "{\"id\":";
+        result += std::to_string(shreds[i]->xid);
+        result += ",\"name\":\"";
+        // Escape quotes in name
+        std::string name = shreds[i]->name;
+        for (size_t j = 0; j < name.size(); j++) {
+            if (name[j] == '"') result += "\\\"";
+            else result += name[j];
+        }
+        result += "\"}";
+    }
+    result += "]";
+    return result.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE
+const char* ck_get_all_globals()
+{
+    static std::string result;
+    if (!the_chuck) return "[]";
+
+    std::vector<Chuck_Globals_TypeValue> list;
+    the_chuck->vm()->globals_manager()->get_all_global_variables(list);
+
+    result = "[";
+    for (size_t i = 0; i < list.size(); i++) {
+        if (i > 0) result += ",";
+        result += "{\"type\":\"";
+        result += list[i].type;
+        result += "\",\"name\":\"";
+        result += list[i].name;
+        result += "\"}";
+    }
+    result += "]";
+    return result.c_str();
+}
+
+// ---- Compilation diagnostics ----------------------------------------
+
+// Buffer to capture compiler error output
+static std::string g_lastCompileOutput;
+
+static void _cherr_capture(const char* msg) {
+    g_lastCompileOutput += msg;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_run_code_ex(const char* code)
+{
+    if (!the_chuck) return 0;
+
+    g_lastCompileOutput.clear();
+    the_chuck->setCherrCallback(_cherr_capture);
+
+    int result = the_chuck->compileCode(code, "", 1, TRUE) ? 1 : 0;
+
+    the_chuck->setCherrCallback(NULL);
+
+    return result;
+}
+
+EMSCRIPTEN_KEEPALIVE
+const char* ck_get_last_compile_output()
+{
+    return g_lastCompileOutput.c_str();
 }
 
 // ---- ChuGin loading (post-init) ------------------------------------

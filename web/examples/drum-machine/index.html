@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drum Machine - WebChuGL</title>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; }
+        canvas { width: 100%; height: 100%; display: block; outline: none; }
+
+        #drum-panel {
+            position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
+            z-index: 50; background: rgba(15,15,25,0.94); border-radius: 8px; padding: 10px;
+            font: 11px monospace; color: #ccc; box-shadow: 0 2px 16px rgba(0,0,0,0.6);
+            user-select: none;
+        }
+        #drum-header { text-align: center; font-weight: bold; margin-bottom: 6px; font-size: 13px; }
+        .drum-row { display: flex; align-items: center; margin: 2px 0; }
+        .drum-label { width: 44px; text-align: right; padding-right: 6px; font-size: 10px; color: #888; }
+        .drum-cell {
+            width: 24px; height: 24px; margin: 1px; border: 1px solid #333;
+            background: #1a1a2a; border-radius: 3px; cursor: pointer; padding: 0;
+        }
+        .drum-cell:hover { border-color: #666; }
+        .drum-cell.active { background: #f0c040; border-color: #f0c040; }
+        .drum-cell.playing { box-shadow: 0 0 4px #fff; }
+        #drum-controls { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+        #drum-controls label { flex: 1; font-size: 10px; color: #888; }
+        #drum-controls label span { color: #f0c040; }
+        #drum-controls input[type=range] { width: 100%; accent-color: #f0c040; }
+        #drum-controls button {
+            padding: 4px 10px; background: #333; color: #ccc;
+            border: 1px solid #555; border-radius: 3px; font: 11px monospace; cursor: pointer;
+        }
+        #drum-controls button:hover { background: #444; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+
+    <div id="drum-panel">
+        <div id="drum-header">Drum Machine</div>
+        <div id="drum-grid"></div>
+        <div id="drum-controls">
+            <label>BPM <span id="bpm-val">120</span>
+                <input type="range" id="bpm-slider" min="60" max="200" value="120">
+            </label>
+            <button id="drum-save">Save</button>
+            <button id="drum-clear">Clear</button>
+        </div>
+    </div>
+
+    <script type="module" src="./index.js"></script>
+    <script src="../example-nav.js"></script>
+</body>
+</html>

@@ -76,6 +76,35 @@
  */
 
 /**
+ * Remove a file or directory from the virtual filesystem. Directories
+ * are removed recursively. Returns `true` if the path was removed,
+ * `false` if it didn't exist.
+ *
+ * @function removeFile
+ * @memberof ChucK
+ * @instance
+ * @param {string} path - Absolute VFS path to remove.
+ * @returns {boolean} `true` if removed, `false` if path didn't exist.
+ * @example
+ * ck.removeFile('/code/temp.wav');
+ * ck.removeFile('/code/old-assets'); // removes directory recursively
+ */
+
+/**
+ * Check whether a file or directory exists in the virtual filesystem.
+ *
+ * @function fileExists
+ * @memberof ChucK
+ * @instance
+ * @param {string} path - Absolute VFS path to check.
+ * @returns {boolean} `true` if the path exists.
+ * @example
+ * if (ck.fileExists('/code/config.ck')) {
+ *     await ck.runFile('/code/config.ck');
+ * }
+ */
+
+/**
  * List all files in a VFS directory (recursively). Useful for debugging
  * "file not found" errors or inspecting what `loadZip` extracted.
  *
@@ -435,6 +464,18 @@
  */
 
 /**
+ * Get the names of all currently loaded ChuGins.
+ *
+ * @function getLoadedChugins
+ * @memberof ChucK
+ * @instance
+ * @returns {string[]} Array of ChuGin names (e.g. `['DMX', 'NHHall']`).
+ * @example
+ * await ck.loadChugin('./chugins/DMX.chug.wasm');
+ * console.log(ck.getLoadedChugins()); // ['DMX']
+ */
+
+/**
  * Load a ChuMP package from the registry or a direct URL.
  *
  * @function loadPackage
@@ -478,6 +519,17 @@
  */
 
 /**
+ * Get the audio sample rate. Returns `null` if audio hasn't initialized yet.
+ *
+ * @function getSampleRate
+ * @memberof ChucK
+ * @instance
+ * @returns {number|null} Sample rate in Hz (e.g. `48000`), or `null`.
+ * @example
+ * console.log(ck.getSampleRate()); // 48000
+ */
+
+/**
  * The `AudioContext` used by WebChuGL. `null` until the audio system
  * initializes (after `ChuGL.init()` resolves and user interaction occurs).
  *
@@ -494,6 +546,61 @@
  * @member {AudioWorkletNode} audioNode
  * @memberof ChucK
  * @instance
+ */
+
+// ── VM Introspection ────────────────────────────────────────────────────
+
+/**
+ * Get the current ChucK time (`now`) in samples. Divide by the sample
+ * rate to convert to seconds.
+ *
+ * @function getCurrentTime
+ * @memberof ChucK
+ * @instance
+ * @returns {number} Current time in samples.
+ * @example
+ * var samples = ck.getCurrentTime();
+ * var seconds = samples / ck.getSampleRate();
+ */
+
+/**
+ * Get all active shreds (running and blocked) in the ChucK VM.
+ *
+ * @function getActiveShreds
+ * @memberof ChucK
+ * @instance
+ * @returns {Array<{id: number, name: string}>} Array of shred objects.
+ * @example
+ * var shreds = ck.getActiveShreds();
+ * // [{ id: 1, name: "main.ck" }, { id: 3, name: "helper.ck" }]
+ */
+
+/**
+ * Get the error output from the last failed compilation. Call this
+ * after {@link ChucK#runCode} or {@link ChucK#runFile} returns `0`
+ * to retrieve the compiler error message.
+ *
+ * @function getLastError
+ * @memberof ChucK
+ * @instance
+ * @returns {string} The error message, or an empty string if no error.
+ * @example
+ * var result = await ck.runCode('invalid code!!!');
+ * if (!result) {
+ *     console.error(ck.getLastError());
+ * }
+ */
+
+/**
+ * Get all global variables currently declared in the ChucK VM.
+ *
+ * @function getGlobalVariables
+ * @memberof ChucK
+ * @instance
+ * @returns {Array<{type: string, name: string}>} Array of variable descriptors.
+ * @example
+ * var globals = ck.getGlobalVariables();
+ * // [{ type: "int", name: "score" }, { type: "float", name: "gain" }]
  */
 
 // ── Persistent Storage (IndexedDB) ──────────────────────────────────────

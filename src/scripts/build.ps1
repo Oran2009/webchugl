@@ -97,6 +97,26 @@ if (Test-Path $CMakeWebchuglDir) {
     Copy-Item (Join-Path $CMakeWebchuglDir "*") $BuildWebchuglDir -Recurse -Force
 }
 
+# Copy runtime to web/src/ (for website deployment)
+Write-Host "Copying to web/src/..." -ForegroundColor Gray
+$WebSrcDir = Join-Path $ProjectRoot "web\src"
+if (-not (Test-Path $WebSrcDir)) {
+    New-Item -ItemType Directory -Path $WebSrcDir | Out-Null
+}
+foreach ($f in @("index.js", "webchugl.wasm", "webchugl.js", "webchugl-esm.js",
+                 "audio-worklet-processor.js", "jszip.min.js",
+                 "chugl_logo_light.png", "chugl_logo_dark.png")) {
+    $src = Join-Path $BuildWebchuglDir $f
+    if (Test-Path $src) {
+        Copy-Item $src (Join-Path $WebSrcDir $f) -Force
+    }
+}
+# sw.js goes one level up (web/) for broader scope
+$swSrc = Join-Path $BuildDir "sw.js"
+if (Test-Path $swSrc) {
+    Copy-Item $swSrc (Join-Path $ProjectRoot "web\sw.js") -Force
+}
+
 # Copy ESM entry point to dist/ (for npm publishing)
 Write-Host "Preparing npm dist..." -ForegroundColor Gray
 $DistDir = Join-Path $ProjectRoot "dist"

@@ -4,6 +4,7 @@ src/.cmake-build/
 src/host-web/
 src/code/
 dist/
+web/src/
 
 # CMake generated
 CMakeCache.txt

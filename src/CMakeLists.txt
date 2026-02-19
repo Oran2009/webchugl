@@ -220,14 +220,14 @@ set_target_properties(webchugl PROPERTIES
 add_custom_command(TARGET webchugl POST_BUILD
     # Create webchugl/ subdirectory
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/webchugl
-    # Move Emscripten outputs (index.js, index.wasm) into webchugl/
+    # Move Emscripten outputs into webchugl/ (rename .wasm for clarity)
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_BINARY_DIR}/index.js
         ${CMAKE_CURRENT_BINARY_DIR}/webchugl/index.js
     COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_CURRENT_BINARY_DIR}/index.js
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_BINARY_DIR}/index.wasm
-        ${CMAKE_CURRENT_BINARY_DIR}/webchugl/index.wasm
+        ${CMAKE_CURRENT_BINARY_DIR}/webchugl/webchugl.wasm
     COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_CURRENT_BINARY_DIR}/index.wasm
     # Copy JS/WASM runtime into webchugl/
     COMMAND ${CMAKE_COMMAND} -E copy

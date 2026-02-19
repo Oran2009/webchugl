@@ -316,6 +316,7 @@ function _initWebChuGL(config) {
         })(),
 
         locateFile: function(path) {
+            if (path === 'index.wasm') path = 'webchugl.wasm';
             return _baseUrl + path;
         },
 
@@ -463,6 +464,30 @@ function _initWebChuGL(config) {
         get audioContext() { return _audioCtx; },
         get audioNode() { return _audioNode; },
 
+        getSampleRate: function() {
+            return _audioCtx ? _audioCtx.sampleRate : null;
+        },
+
+        // ── VM Introspection ────────────────────────────────────────────
+
+        getCurrentTime: function() {
+            return _module.ccall('ck_get_now', 'number', [], []);
+        },
+
+        getActiveShreds: function() {
+            var json = _module.ccall('ck_get_active_shreds', 'string', [], []);
+            return JSON.parse(json);
+        },
+
+        getLastError: function() {
+            return _module.ccall('ck_get_last_compile_output', 'string', [], []);
+        },
+
+        getGlobalVariables: function() {
+            var json = _module.ccall('ck_get_all_globals', 'string', [], []);
+            return JSON.parse(json);
+        },
+
         // ── Code execution ─────────────────────────────────────────────
 
         runCode: function(code) {
@@ -515,6 +540,34 @@ function _initWebChuGL(config) {
                     _module.FS.writeFile(path, new Uint8Array(data));
                 }
             });
+        },
+
+        removeFile: function(path) {
+            try {
+                var stat = _module.FS.stat(path);
+                if (_module.FS.isDir(stat.mode)) {
+                    // Recursive directory removal
+                    var entries = _module.FS.readdir(path).filter(function(e) { return e !== '.' && e !== '..'; });
+                    for (var i = 0; i < entries.length; i++) {
+                        this.removeFile(path + '/' + entries[i]);
+                    }
+                    _module.FS.rmdir(path);
+                } else {
+                    _module.FS.unlink(path);
+                }
+                return true;
+            } catch (e) {
+                return false;
+            }
+        },
+
+        fileExists: function(path) {
+            try {
+                _module.FS.stat(path);
+                return true;
+            } catch (e) {
+                return false;
+            }
         },
 
         listFiles: function(dir) {
@@ -838,6 +891,10 @@ function _initWebChuGL(config) {
                 if (!loaded) throw new Error('Failed to load chugin: ' + name);
                 return loaded;
             });
+        },
+
+        getLoadedChugins: function() {
+            return Object.keys(_loadedChugins);
         },
 
         // ── ChuMP Package Loading ─────────────────────────────────────

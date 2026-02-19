@@ -63,7 +63,6 @@ p { margin: 1em 0; }
 
 a { color: var(--link); text-decoration: none; transition: color 0.2s; }
 a:hover { color: var(--accent); text-decoration: underline; }
-a:visited:not([class*="btn-"]) { color: var(--link); }
 
 /* ── Code (identical to main site) ────────────────────────────────────── */
 code {
@@ -91,16 +90,51 @@ pre code {
     font-size: 0.85rem;
 }
 
-/* ── Hero (identical to main site) ────────────────────────────────────── */
+/* ── Hero (live canvas + overlay) ────────────────────────────────────── */
 .hero {
-    text-align: center;
-    padding: 2rem 0 2.5rem;
-    border-bottom: 1px solid var(--border);
+    position: relative;
+    height: 480px;
+    overflow: hidden;
     margin-bottom: 2rem;
 }
 
+/* Emscripten sets inline width/height to device-pixel size; override with !important */
+#hero-canvas {
+    position: absolute;
+    border-radius: var(--radius);
+    inset: 0;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 1.2s ease;
+}
+
+#hero-canvas.ready {
+    opacity: 1;
+}
+
+.hero-overlay {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    text-align: center;
+    padding: 2rem;
+    background: radial-gradient(ellipse at center, rgba(20,20,24,0.85) 0%, rgba(20,20,24,0.4) 100%);
+    transition: background 1.2s ease;
+}
+
+/* Reduce overlay darkness once canvas is live */
+.hero:has(#hero-canvas.ready) .hero-overlay {
+    background: radial-gradient(ellipse at center, rgba(20,20,24,0.6) 0%, rgba(20,20,24,0.15) 100%);
+}
+
 .hero h1 { margin-top: 0; font-size: 3rem; font-weight: 800; border: none; }
-.hero .tagline { font-size: 1.25rem; font-style: italic; color: var(--fg-dim); margin-top: -0.4rem; }
+.hero .tagline { font-size: 1.25rem; font-style: italic; color: var(--fg); margin-top: -0.4rem; }
 
 .nav-links {
     display: flex;
@@ -393,9 +427,23 @@ pre code {
     margin-left: 0.3em;
 }
 
-/* Sub-params (e.g. config.canvas) */
-.params-table tr.sub td:first-child { padding-left: 2rem; }
-.params-table tr.sub-2 td:first-child { padding-left: 3.2rem; }
+/* Sub-params (e.g. config.canvas) — indented with left border connector */
+.params-table tr.sub td:first-child {
+    padding-left: 2rem;
+    border-left: 2px solid var(--border);
+}
+.params-table tr.sub-2 td:first-child {
+    padding-left: 3.4rem;
+    border-left: 2px solid var(--border);
+}
+
+/* Subtle background tint for nested rows */
+.params-table tr.sub td {
+    background: rgba(255, 255, 255, 0.015);
+}
+.params-table tr.sub-2 td {
+    background: rgba(255, 255, 255, 0.03);
+}
 
 /* ── Returns ──────────────────────────────────────────────────────────── */
 .returns {

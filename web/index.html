@@ -20,50 +20,32 @@
 
     <!-- ── Hero ────────────────────────────────────────────────────────── -->
     <header class="hero">
-        <h1>WebChuGL
-            <a href="https://chuck.stanford.edu">
-                <img class="logo" src="https://chuck.stanford.edu/doc/images/chuck-logo2023w.png" alt="ChucK logo">
-            </a>
-        </h1>
-        <p class="tagline">ChuGL &rArr; now on the Web</p>
+        <canvas id="hero-canvas"></canvas>
+        <div class="hero-overlay">
+            <h1>WebChuGL</h1>
+            <p class="tagline">ChuGL &rArr; now on the Web</p>
 
-        <p class="description">
-            Real-time graphics and audio programming in the browser with
-            <a href="https://chuck.stanford.edu/chugl/" target="_blank">ChuGL</a>
-            (ChucK Graphics Library) compiled to WebAssembly,
-            <a href="https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API" target="_blank">WebGPU</a>
-            rendering, and
-            <a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API" target="_blank">Web Audio</a>!
-            Create and share interactive audiovisual experiences, creative
-            instruments, data sonifications, and more &mdash; all from a URL.
-            Take ChuGL with you on the go!
-        </p>
+            <p class="description">
+                Real-time graphics and audio programming in the browser with
+                <a href="https://chuck.stanford.edu/chugl/" target="_blank">ChuGL</a>
+                (ChucK Graphics Library) compiled to WebAssembly,
+                <a href="https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API" target="_blank">WebGPU</a>
+                rendering, and
+                <a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API" target="_blank">Web Audio</a>!
+                Create and share interactive audiovisual experiences, games, data sonifications, and more &mdash; all in your web browser!
+            </p>
 
-        <nav class="hero-buttons" aria-label="Primary">
-            <a href="https://github.com/ccrma/webchugl" target="_blank" class="btn-orange">View on GitHub</a>
-            <a href="#getting-started" class="btn-green">Getting Started</a>
-            <a href="docs/" class="btn-orange">Documentation</a>
-        </nav>
-
-        <div class="hero-snippet">
-            <pre><code class="language-html">&lt;canvas id="canvas"&gt;&lt;/canvas&gt;
-&lt;script type="module"&gt;
-    import ChuGL from 'https://cdn.jsdelivr.net/npm/webchugl/+esm';
-    var ck = await ChuGL.init({ canvas: document.getElementById('canvas') });
-    ck.runCode('SinOsc s =&gt; dac; while(true) GG.nextFrame() =&gt; now;');
-&lt;/script&gt;</code></pre>
+            <nav class="hero-buttons" aria-label="PrimaFry">
+                <a href="https://github.com/ccrma/webchugl" target="_blank" class="btn-orange">View on GitHub</a>
+                <a href="docs/" class="btn-green">Documentation</a>
+                <a href="changelog/" class="btn-orange">Changelog</a>
+            </nav>
         </div>
     </header>
 
     <main>
 
     <!-- ── What is WebChuGL? ───────────────────────────────────────────── -->
-    <h2 id="about">What is WebChuGL?</h2>
-    <p>
-        <a href="https://github.com/ccrma/webchugl" target="_blank">github</a> |
-        <a href="docs/">docs</a>
-    </p>
-
     <p>
         WebChuGL brings <a href="https://chuck.stanford.edu/chugl/" target="_blank">ChuGL</a>,
         the real-time graphics framework for the
@@ -72,17 +54,13 @@
         <a href="https://emscripten.org/" target="_blank">Emscripten</a> to WebAssembly (WASM)
         to render via the WebGPU API and run audio through an
         <a href="https://developer.mozilla.org/en-US/docs/Web/API/AudioWorkletNode" target="_blank">AudioWorkletNode</a>.
-        With near-native performance, WebChuGL runs on modern desktop browsers
-        as well as tablets and mobile devices!
     </p>
 
     <p>
         WebChuGL builds on <a href="https://chuck.cs.princeton.edu/webchuck/" target="_blank">WebChucK</a>
         by adding ChuGL&rsquo;s scenegraph, materials, textures, shaders, post-processing,
         and the full GGen (graphics generator) ecosystem &mdash; all tightly
-        synchronized to ChucK&rsquo;s strongly-timed audio engine. Bring together
-        real-time graphics, sound synthesis, and the interconnectivity of the
-        web to create new audiovisual experiences and creative workflows!
+        synchronized to ChucK&rsquo;s strongly-timed audio engine.
     </p>
 
     <!-- ── Features ────────────────────────────────────────────────────── -->
@@ -122,80 +100,80 @@
 
     <!-- ── Examples ────────────────────────────────────────────────────── -->
     <h2 id="examples">Examples</h2>
-    <p>Check out what you can build with WebChuGL! Each example is a self-contained project you can fork and customize. Source code is in the <a href="https://github.com/ccrma/webchugl/tree/main/examples" target="_blank">examples/</a> directory.</p>
+    <p>Check out what you can build with WebChuGL! Each example is a self-contained project you can copy and modify. Source code is in the <a href="https://github.com/ccrma/webchugl/tree/main/web/examples" target="_blank">web/examples/</a> directory.</p>
 
     <div class="carousel" role="region" aria-label="Example projects" tabindex="0">
-        <a href="#" class="example-card">
+        <a href="examples/drum-machine/" class="example-card">
             <div class="thumb">&#x1F941;</div>
             <div class="body">
                 <h5>Drum Machine</h5>
                 <p>A step-sequenced drum machine with HTML UI controls driving synthesized drum sounds in real-time.</p>
             </div>
         </a>
-        <a href="#" class="example-card">
+        <a href="examples/html-ui/" class="example-card">
             <div class="thumb">&#x1F39B;&#xFE0F;</div>
             <div class="body">
                 <h5>HTML UI</h5>
                 <p>Overlay HTML controls like sliders and dropdowns to drive ChucK synth parameters in real-time via the JS &harr; ChucK bridge.</p>
             </div>
         </a>
-        <a href="#" class="example-card">
+        <a href="examples/recorder/" class="example-card">
             <div class="thumb">&#x1F3A4;</div>
             <div class="body">
                 <h5>Recorder</h5>
                 <p>Record WebChuGL&rsquo;s audio output to a downloadable file. Demonstrates tapping into the Web Audio graph.</p>
             </div>
         </a>
-        <a href="#" class="example-card">
+        <a href="examples/data-sonification/" class="example-card">
             <div class="thumb">&#x1F4CA;</div>
             <div class="body">
                 <h5>Data Sonification</h5>
                 <p>Stream live Wikipedia edits via Server-Sent Events and sonify each edit with ChucK synthesis and ChuGL visuals.</p>
             </div>
         </a>
-        <a href="#" class="example-card">
+        <a href="examples/web-data/" class="example-card">
             <div class="thumb">&#x1F30D;</div>
             <div class="body">
                 <h5>Web Data</h5>
                 <p>Fetch live earthquake data from the USGS API and visualize it as a 3D globe with ChuGL.</p>
             </div>
         </a>
-        <a href="#" class="example-card">
+        <a href="examples/midi/" class="example-card">
             <div class="thumb">&#x1F3B9;</div>
             <div class="body">
                 <h5>MIDI</h5>
                 <p>Connect a MIDI controller via the Web MIDI API and play ChucK synthesizers in real-time.</p>
             </div>
         </a>
-        <a href="#" class="example-card">
+        <a href="examples/speech/" class="example-card">
             <div class="thumb">&#x1F5E3;&#xFE0F;</div>
             <div class="body">
                 <h5>Speech Recognition</h5>
                 <p>Use the Web Speech API to control ChucK programs and ChuGL visuals with voice commands.</p>
             </div>
         </a>
-        <a href="#" class="example-card">
+        <a href="examples/mediapipe/" class="example-card">
             <div class="thumb">&#x270B;</div>
             <div class="body">
                 <h5>MediaPipe</h5>
                 <p>Real-time hand tracking via Google MediaPipe drives ChuGL visuals and ChucK audio parameters.</p>
             </div>
         </a>
-        <a href="#" class="example-card">
+        <a href="examples/gamepad/" class="example-card">
             <div class="thumb">&#x1F3AE;</div>
             <div class="body">
                 <h5>Gamepad</h5>
                 <p>Plug in a gamepad or joystick and use it to control ChuGL graphics and ChucK audio parameters.</p>
             </div>
         </a>
-        <a href="#" class="example-card">
+        <a href="examples/drag-drop/" class="example-card">
             <div class="thumb">&#x1F4C1;</div>
             <div class="body">
                 <h5>Drag &amp; Drop</h5>
                 <p>Drag audio files onto the browser and load them directly into ChucK&rsquo;s virtual filesystem for playback.</p>
             </div>
         </a>
-        <a href="#" class="example-card">
+        <a href="examples/plugins/" class="example-card">
             <div class="thumb">&#x1F9E9;</div>
             <div class="body">
                 <h5>Plugins</h5>
@@ -233,6 +211,8 @@
 
     </main>
 
+    <a href="#" class="back-to-top" aria-label="Back to top">&#x25B2;</a>
+
     <!-- ── Footer ──────────────────────────────────────────────────────── -->
     <footer class="footer">
         <nav aria-label="Footer">
@@ -247,6 +227,70 @@
 
     <!-- Syntax highlighting init -->
     <script>hljs.highlightAll();</script>
+
+    <!-- Back to top button -->
+    <script>
+    (function() {
+        var btn = document.querySelector(".back-to-top");
+        window.addEventListener("scroll", function() {
+            btn.classList.toggle("visible", window.scrollY > 400);
+        }, { passive: true });
+        btn.addEventListener("click", function(e) {
+            e.preventDefault();
+            window.scrollTo({ top: 0, behavior: "smooth" });
+        });
+    })();
+    </script>
+
+    <!-- Hero WebChuGL embed (progressive enhancement) -->
+    <script type="module">
+    (async function() {
+        if (!navigator.gpu) return;
+        var canvas = document.getElementById('hero-canvas');
+        if (!canvas) return;
+        try {
+            var mod = await import('./src/webchugl-esm.js');
+            var ck = await mod.default.init({
+                canvas: canvas,
+                whereIsChuGL: './src/',
+                serviceWorker: false,
+            });
+            canvas.classList.add('ready');
+            ck.runCode([
+                'GGen sunSystem, earthSystem, moonSystem;',
+                'GSphere sun, earth, moon;',
+                'for(auto x : [sun, earth, moon]) x.mat().wireframe(true);',
+                'GG.scene().ambient(@(.5,.5,.5));',
+                'sun.color(Color.YELLOW);',
+                'earth.color((Color.SKYBLUE + Color.BLUE) / 2);',
+                'moon.color(Color.GRAY);',
+                'earthSystem.pos(@(2.2, 0.0, 0.0));',
+                'moonSystem.pos(@(.55, 0.0, 0.0));',
+                'sun.sca(@(2.0, 2.0, 2.0));',
+                'earth.sca(@(0.4, 0.4, 0.4));',
+                'moon.sca(@(0.12, 0.12, 0.12));',
+                'moonSystem --> earthSystem --> sunSystem --> GG.scene();',
+                'sun --> sunSystem; earth --> earthSystem; moon --> moonSystem;',
+                'GG.camera().pos(@(0, 5, 7));',
+                'GG.camera().lookAt(@(0, 0, 0));',
+                '0.0 => float angle;',
+                'while(true) {',
+                '  GG.nextFrame() => now;',
+                '  sunSystem.rotateY(.5 * GG.dt());',
+                '  earthSystem.rotateY(.7 * GG.dt());',
+                '  sun.rotateY(-1 * GG.dt());',
+                '  earth.rotateY(.4 * GG.dt());',
+                '  moon.rotateY(.9 * GG.dt());',
+                '  .08 * GG.dt() +=> angle;',
+                '  GG.camera().pos(@(7*Math.cos(angle), 5, 7*Math.sin(angle)));',
+                '  GG.camera().lookAt(@(0, 0, 0));',
+                '}',
+            ].join('\n'));
+        } catch(e) {
+            console.log('[webchugl] Hero demo unavailable:', e.message);
+        }
+    })();
+    </script>
 </body>
 
 </html>
