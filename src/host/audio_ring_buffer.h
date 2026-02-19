@@ -59,12 +59,15 @@ inline std::atomic<uint32_t> g_inputRingReadPos{0};
 // ============================================================================
 
 // Allocate ring buffers. Must be called once before any read/write operations.
+// Safe to call again (frees previous allocation first).
 inline void initRingBuffers(uint32_t outChannels, uint32_t inChannels) {
     // Clamp to sane range to prevent overflow in allocation
     if (outChannels == 0 || outChannels > 32) outChannels = 2;
     if (inChannels == 0 || inChannels > 32) inChannels = 2;
     g_outChannels = outChannels;
     g_inChannels = inChannels;
+    delete[] g_audioRingBuffer;
+    delete[] g_inputRingBuffer;
     g_audioRingBuffer = new float[RING_CAPACITY * outChannels]();
     g_inputRingBuffer = new float[RING_CAPACITY * inChannels]();
 }
@@ -105,12 +108,14 @@ inline void ringWrite(const float* data, int samples) {
 inline uint32_t inputRingAvailableToRead() {
     uint32_t writePos = g_inputRingWritePos.load(std::memory_order_acquire);
     uint32_t readPos = g_inputRingReadPos.load(std::memory_order_relaxed);
-    return writePos - readPos;
+    uint32_t available = writePos - readPos;
+    if (available > RING_CAPACITY) return 0;  // overflow guard
+    return available;
 }
 
 // Read from input ring buffer, converting interleaved → planar for ChucK
 // outBuffer: planar [ch0_s0..ch0_sN, ch1_s0..ch1_sN, ...]
-// Returns: total floats written (samplesRead * g_inChannels)
+// Returns: number of sample frames read (not total floats)
 inline int inputRingRead(float* outBuffer, int samples) {
     uint32_t available = inputRingAvailableToRead();
     if (available == 0) return 0;
@@ -127,5 +132,5 @@ inline int inputRingRead(float* outBuffer, int samples) {
     }
 
     g_inputRingReadPos.store(readPos + samples, std::memory_order_release);
-    return samples * nc;
+    return samples;
 }

@@ -38,15 +38,19 @@ build_chugin() {
     shift
     local sources=("$@")
 
+    local tmplog
+    tmplog=$(mktemp)
     echo -n "  Building $name... "
-    if (cd "$CHUGINS_DIR/$name" && emcc "${EMCC_FLAGS[@]}" "${INCLUDE[@]}" "${sources[@]}" -o "$OUTPUT_DIR/$name.chug.wasm" 2>/dev/null); then
+    if (cd "$CHUGINS_DIR/$name" && emcc "${EMCC_FLAGS[@]}" "${INCLUDE[@]}" "${sources[@]}" -o "$OUTPUT_DIR/$name.chug.wasm" 2>"$tmplog"); then
         echo "OK"
         PASS=$((PASS + 1))
     else
         echo "FAILED"
+        cat "$tmplog" >&2
         FAIL=$((FAIL + 1))
         FAILED_LIST="$FAILED_LIST $name"
     fi
+    rm -f "$tmplog"
 }
 
 echo "Building web ChuGins..."

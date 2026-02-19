@@ -10,12 +10,14 @@ PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 
 # Dependency versions
 CHUGL_REPO="https://github.com/ccrma/chugl.git"
-CHUGL_COMMIT="9d6245a"
+CHUGL_COMMIT="9d6245a"  # short SHA; git checkout handles prefix matching
 
 CHUCK_REPO="https://github.com/ccrma/chuck.git"
-CHUCK_COMMIT="60caede9"
+CHUCK_COMMIT="60caede9"  # short SHA; git checkout handles prefix matching
 
 EMSDK_VERSION="4.0.17"
+# Pin emsdk orchestration scripts to a known commit for reproducibility
+EMSDK_COMMIT="bb1c0642e7df86a7dee5abe8a0a98ac16ae9fd02"
 
 echo "=== WebChuGL Setup ==="
 echo ""
@@ -37,7 +39,7 @@ if [ -d "$CHUGL_DIR" ]; then
     cd "$PROJECT_ROOT"
 else
     echo "[chugl] Cloning from $CHUGL_REPO..."
-    git clone "$CHUGL_REPO" "$CHUGL_DIR"
+    git clone --filter=blob:none "$CHUGL_REPO" "$CHUGL_DIR"
     cd "$CHUGL_DIR"
     git checkout "$CHUGL_COMMIT"
     cd "$PROJECT_ROOT"
@@ -61,7 +63,7 @@ if [ -d "$CHUCK_DIR" ]; then
     cd "$PROJECT_ROOT"
 else
     echo "[chuck] Cloning from $CHUCK_REPO..."
-    git clone "$CHUCK_REPO" "$CHUCK_DIR"
+    git clone --filter=blob:none "$CHUCK_REPO" "$CHUCK_DIR"
     cd "$CHUCK_DIR"
     git checkout "$CHUCK_COMMIT"
     cd "$PROJECT_ROOT"
@@ -80,10 +82,13 @@ else
     echo ""
     echo "=== Installing Emscripten SDK $EMSDK_VERSION ==="
 
-    # Clone emsdk if needed
+    # Clone emsdk if needed (pinned to known commit for reproducibility)
     if [ ! -d "$EMSDK_DIR" ]; then
         echo "[emsdk] Cloning emsdk..."
-        git clone https://github.com/emscripten-core/emsdk.git "$EMSDK_DIR"
+        git clone --filter=blob:none https://github.com/emscripten-core/emsdk.git "$EMSDK_DIR"
+        cd "$EMSDK_DIR"
+        git checkout "$EMSDK_COMMIT"
+        cd "$PROJECT_ROOT"
     fi
 
     cd "$EMSDK_DIR"
@@ -123,10 +128,10 @@ if [ -f "$CHUGL_PATCH" ]; then
         git apply "$CHUGL_PATCH"
         echo "[chugl] Patch applied successfully"
     else
-        echo "[chugl] WARNING: Discarding local changes and reapplying patch..."
-        git checkout .
-        git apply "$CHUGL_PATCH"
-        echo "[chugl] Patch applied successfully"
+        echo "[chugl] ERROR: Patch does not apply cleanly."
+        echo "[chugl] If you have local changes, stash them first: cd chugl && git stash"
+        echo "[chugl] Then re-run setup.sh"
+        exit 1
     fi
     cd "$PROJECT_ROOT"
 fi
@@ -141,10 +146,10 @@ if [ -f "$CHUCK_PATCH" ]; then
         git apply "$CHUCK_PATCH"
         echo "[chuck] Patch applied successfully"
     else
-        echo "[chuck] WARNING: Discarding local changes and reapplying patch..."
-        git checkout .
-        git apply "$CHUCK_PATCH"
-        echo "[chuck] Patch applied successfully"
+        echo "[chuck] ERROR: Patch does not apply cleanly."
+        echo "[chuck] If you have local changes, stash them first: cd chuck && git stash"
+        echo "[chuck] Then re-run setup.sh"
+        exit 1
     fi
     cd "$PROJECT_ROOT"
 fi
@@ -162,6 +167,16 @@ if [ -f "$GLFW_PATCH" ]; then
         echo "[emscripten-glfw] Downloading contrib.glfw3 port..."
         mkdir -p "$CACHE_PORTS_DIR"
         curl -L --fail -o "$GLFW_PORT_ZIP" "$GLFW_PORT_URL"
+
+        # Verify download integrity
+        GLFW_EXPECTED_SHA256="c0d3fc0b0e4fea44c72e2e5a657c55924c68b60d2e984b8b3e82f42914ba0980"
+        GLFW_ACTUAL_SHA256="$(sha256sum "$GLFW_PORT_ZIP" | cut -d' ' -f1)"
+        if [ "$GLFW_ACTUAL_SHA256" != "$GLFW_EXPECTED_SHA256" ]; then
+            echo "[emscripten-glfw] WARNING: SHA-256 mismatch for contrib.glfw3 port download"
+            echo "  Expected: $GLFW_EXPECTED_SHA256"
+            echo "  Got:      $GLFW_ACTUAL_SHA256"
+            echo "  If this is a new version, update GLFW_EXPECTED_SHA256 in setup.sh"
+        fi
 
         echo "[emscripten-glfw] Extracting..."
         mkdir -p "$GLFW_PORT_DIR"

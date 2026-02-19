@@ -28,6 +28,8 @@
 
 // Track dlopen handles so they're properly closed on shutdown
 static std::list<void*> g_chuginHandles;
+// Track loaded ChuGin paths to prevent duplicate loading
+static std::list<std::string> g_loadedChuginPaths;
 
 // ChuGL query function (defined via CK_DLL_QUERY macro in ChuGL.cpp)
 extern "C" t_CKBOOL ck_query(Chuck_DL_Query* QUERY);
@@ -297,7 +299,6 @@ static void run_vm_frame(void* data)
     if (samplesToGenerate >= 1) {
         int outCh = g_numOutputChannels;
         int inCh = g_numInputChannels;
-        int maxCh = outCh > inCh ? outCh : inCh;
         int maxSPC = g_maxSamplesPerCall;
 
         // Planar buffers for ChucK: [ch0_s0..ch0_sN, ch1_s0..ch1_sN, ...]
@@ -308,16 +309,18 @@ static void run_vm_frame(void* data)
         static float* floatBuffer = nullptr;
         static float* floatInBuffer = nullptr;
         if (!inBuffer) {
-            inBuffer = new SAMPLE[maxSPC * inCh]();
-            outBuffer = new SAMPLE[maxSPC * outCh]();
-            floatBuffer = new float[maxSPC * outCh]();
-            floatInBuffer = new float[maxSPC * inCh]();
+            SAMPLE* nb = new SAMPLE[maxSPC * inCh]();
+            SAMPLE* ob = new SAMPLE[maxSPC * outCh]();
+            float*  fb = new float[maxSPC * outCh]();
+            float*  fib = new float[maxSPC * inCh]();
+            inBuffer = nb;
+            outBuffer = ob;
+            floatBuffer = fb;
+            floatInBuffer = fib;
         }
 
         // Read mic input from input ring buffer (planar format)
-        int inputFloatsWritten = inputRingRead(floatInBuffer, samplesToGenerate);
-        // Convert float to SAMPLE, copy channel-by-channel for correct planar layout
-        int samplesRead = (inCh > 0) ? inputFloatsWritten / inCh : 0;
+        int samplesRead = inputRingRead(floatInBuffer, samplesToGenerate);
         for (int ch = 0; ch < inCh; ch++) {
             for (int s = 0; s < samplesToGenerate; s++) {
                 inBuffer[ch * samplesToGenerate + s] =
@@ -529,7 +532,7 @@ EM_JS(void, _ck_resolve_int_array, (int id, int* arr, unsigned int len), {
     var cb = Module._ckCallbacks[id];
     if (cb) {
         var result = new Array(len);
-        for (var i = 0; i < len; i++) result[i] = HEAP32[(arr >> 2) + i];
+        for (var i = 0; i < len; i++) result[i] = getValue(arr + i * 4, 'i32');
         cb(result);
         delete Module._ckCallbacks[id];
     }
@@ -539,7 +542,7 @@ EM_JS(void, _ck_resolve_float_array, (int id, double* arr, unsigned int len), {
     var cb = Module._ckCallbacks[id];
     if (cb) {
         var result = new Array(len);
-        for (var i = 0; i < len; i++) result[i] = HEAPF64[(arr >> 3) + i];
+        for (var i = 0; i < len; i++) result[i] = getValue(arr + i * 8, 'double');
         cb(result);
         delete Module._ckCallbacks[id];
     }
@@ -576,15 +579,21 @@ static void _cb_event(t_CKINT id)
 { _ck_dispatch_event((int)id); }
 
 // Escape JSON-special characters for safe embedding in JSON string values
+// Per RFC 8259 §7: all U+0000–U+001F must be escaped.
 static void appendJsonEscaped(std::string& out, const std::string& s) {
     for (size_t i = 0; i < s.size(); i++) {
-        char c = s[i];
+        unsigned char c = (unsigned char)s[i];
         if (c == '"')       out += "\\\"";
         else if (c == '\\') out += "\\\\";
         else if (c == '\n') out += "\\n";
         else if (c == '\r') out += "\\r";
         else if (c == '\t') out += "\\t";
-        else out += c;
+        else if (c < 0x20) {
+            char buf[8];
+            snprintf(buf, sizeof(buf), "\\u%04x", c);
+            out += buf;
+        }
+        else out += s[i];
     }
 }
 
@@ -888,6 +897,15 @@ int ck_load_chugin(const char* vfsPath)
     if (!the_chuck) return 0;
     if (!vfsPath || vfsPath[0] == '\0') return 0;
 
+    // Prevent loading the same ChuGin twice
+    std::string pathStr(vfsPath);
+    for (const auto& p : g_loadedChuginPaths) {
+        if (p == pathStr) {
+            printf("[WebChuGL] ChuGin already loaded: %s\n", vfsPath);
+            return 1;
+        }
+    }
+
     void* handle = dlopen(vfsPath, RTLD_NOW);
     if (!handle) {
         printf("[WebChuGL] ERROR: dlopen failed for %s: %s\n", vfsPath, dlerror());
@@ -902,7 +920,6 @@ int ck_load_chugin(const char* vfsPath)
     }
 
     // Extract name from path (e.g. "/chugins/Bitcrusher.chug.wasm" -> "Bitcrusher")
-    std::string pathStr(vfsPath);
     size_t slashPos = pathStr.rfind('/');
     std::string name = (slashPos == std::string::npos)
         ? pathStr : pathStr.substr(slashPos + 1);
@@ -911,6 +928,7 @@ int ck_load_chugin(const char* vfsPath)
 
     if (the_chuck->compiler()->bind(queryFunc, name.c_str(), "global")) {
         g_chuginHandles.push_back(handle);
+        g_loadedChuginPaths.push_back(pathStr);
         printf("[WebChuGL] Loaded ChuGin: %s\n", name.c_str());
         return 1;
     } else {

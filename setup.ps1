@@ -8,12 +8,14 @@ $ProjectRoot = $PSScriptRoot
 
 # Dependency versions
 $CHUGL_REPO = "https://github.com/ccrma/chugl.git"
-$CHUGL_COMMIT = "9d6245a"
+$CHUGL_COMMIT = "9d6245a"  # short SHA; git checkout handles prefix matching
 
 $CHUCK_REPO = "https://github.com/ccrma/chuck.git"
-$CHUCK_COMMIT = "60caede9"
+$CHUCK_COMMIT = "60caede9"  # short SHA; git checkout handles prefix matching
 
 $EMSDK_VERSION = "4.0.17"
+# Pin emsdk orchestration scripts to a known commit for reproducibility
+$EMSDK_COMMIT = "bb1c0642e7df86a7dee5abe8a0a98ac16ae9fd02"
 
 Write-Host "=== WebChuGL Setup ===" -ForegroundColor Cyan
 Write-Host ""
@@ -35,7 +37,7 @@ if (Test-Path $ChuglDir) {
     Pop-Location
 } else {
     Write-Host "[chugl] Cloning from $CHUGL_REPO..." -ForegroundColor Yellow
-    git clone $CHUGL_REPO $ChuglDir
+    git clone --filter=blob:none $CHUGL_REPO $ChuglDir
     Push-Location $ChuglDir
     git checkout $CHUGL_COMMIT
     Pop-Location
@@ -59,7 +61,7 @@ if (Test-Path $ChuckDir) {
     Pop-Location
 } else {
     Write-Host "[chuck] Cloning from $CHUCK_REPO..." -ForegroundColor Yellow
-    git clone $CHUCK_REPO $ChuckDir
+    git clone --filter=blob:none $CHUCK_REPO $ChuckDir
     Push-Location $ChuckDir
     git checkout $CHUCK_COMMIT
     Pop-Location
@@ -78,10 +80,13 @@ if (Test-Path $EmsdkInstall) {
     Write-Host ""
     Write-Host "=== Installing Emscripten SDK $EMSDK_VERSION ===" -ForegroundColor Cyan
 
-    # Clone emsdk if needed
+    # Clone emsdk if needed (pinned to known commit for reproducibility)
     if (-not (Test-Path $EmsdkDir)) {
         Write-Host "[emsdk] Cloning emsdk..." -ForegroundColor Yellow
-        git clone https://github.com/emscripten-core/emsdk.git $EmsdkDir
+        git clone --filter=blob:none https://github.com/emscripten-core/emsdk.git $EmsdkDir
+        Push-Location $EmsdkDir
+        git checkout $EMSDK_COMMIT
+        Pop-Location
     }
 
     Push-Location $EmsdkDir
@@ -134,10 +139,11 @@ if (Test-Path $ChuglPatch) {
             git apply $ChuglPatch
             Write-Host "[chugl] Patch applied successfully" -ForegroundColor Green
         } else {
-            Write-Host "[chugl] WARNING: Discarding local changes and reapplying patch..." -ForegroundColor Yellow
-            git checkout .
-            git apply $ChuglPatch
-            Write-Host "[chugl] Patch applied successfully" -ForegroundColor Green
+            Write-Host "[chugl] ERROR: Patch does not apply cleanly." -ForegroundColor Red
+            Write-Host "[chugl] If you have local changes, stash them first: cd chugl; git stash" -ForegroundColor Red
+            Write-Host "[chugl] Then re-run setup.ps1" -ForegroundColor Red
+            Pop-Location
+            exit 1
         }
     }
     Pop-Location
@@ -156,10 +162,11 @@ if (Test-Path $ChuckPatch) {
             git apply $ChuckPatch
             Write-Host "[chuck] Patch applied successfully" -ForegroundColor Green
         } else {
-            Write-Host "[chuck] WARNING: Discarding local changes and reapplying patch..." -ForegroundColor Yellow
-            git checkout .
-            git apply $ChuckPatch
-            Write-Host "[chuck] Patch applied successfully" -ForegroundColor Green
+            Write-Host "[chuck] ERROR: Patch does not apply cleanly." -ForegroundColor Red
+            Write-Host "[chuck] If you have local changes, stash them first: cd chuck; git stash" -ForegroundColor Red
+            Write-Host "[chuck] Then re-run setup.ps1" -ForegroundColor Red
+            Pop-Location
+            exit 1
         }
     }
     Pop-Location
@@ -179,6 +186,16 @@ if (Test-Path $GlfwPatch) {
         New-Item -ItemType Directory -Path $CachePortsDir -Force | Out-Null
         curl -L --fail -o $GlfwPortZip $GlfwPortUrl
         if ($LASTEXITCODE -ne 0) { throw "Failed to download contrib.glfw3 port" }
+
+        # Verify download integrity
+        $GlfwExpectedSha256 = "c0d3fc0b0e4fea44c72e2e5a657c55924c68b60d2e984b8b3e82f42914ba0980"
+        $GlfwActualSha256 = (Get-FileHash $GlfwPortZip -Algorithm SHA256).Hash.ToLower()
+        if ($GlfwActualSha256 -ne $GlfwExpectedSha256) {
+            Write-Host "[emscripten-glfw] WARNING: SHA-256 mismatch for contrib.glfw3 port download" -ForegroundColor Yellow
+            Write-Host "  Expected: $GlfwExpectedSha256" -ForegroundColor Yellow
+            Write-Host "  Got:      $GlfwActualSha256" -ForegroundColor Yellow
+            Write-Host "  If this is a new version, update GlfwExpectedSha256 in setup.ps1" -ForegroundColor Yellow
+        }
 
         Write-Host "[emscripten-glfw] Extracting..." -ForegroundColor Yellow
         Expand-Archive -Path $GlfwPortZip -DestinationPath $GlfwPortDir -Force

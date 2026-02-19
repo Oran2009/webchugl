@@ -98,11 +98,12 @@
     <div id="audio-hint">Click to enable audio</div>
 
     <script>
-        // WebGPU check
+        // WebGPU check — set a flag so the module script can bail out
+        window._webgpuAvailable = !!navigator.gpu;
         if (!navigator.gpu) {
             document.getElementById('progress-bar').style.display = 'none';
             var errEl = document.getElementById('error-text');
-            errEl.textContent = 'WebGPU is not supported in this browser. Please use Chrome or Edge.';
+            errEl.textContent = 'WebGPU is not supported in this browser. Please use Chrome, Edge, or Firefox Nightly.';
             errEl.style.display = 'block';
         }
 
@@ -118,34 +119,49 @@
     </script>
     <!-- {{{ SCRIPT }}} -->
     <script type="module">
-        import ChuGL from './webchugl/webchugl-esm.js';
+        if (!window._webgpuAvailable) {
+            // Don't attempt WASM init without WebGPU
+        } else {
+            try {
+                var { default: ChuGL } = await import('./webchugl/webchugl-esm.js');
 
-        var ck = await ChuGL.init({
-            canvas: document.getElementById('canvas'),
-            whereIsChuGL: './webchugl/',
-            onProgress: function(pct) {
-                var el = document.getElementById('progress-fill');
-                if (el) el.style.width = Math.round(pct) + '%';
-                var bar = document.getElementById('progress-bar');
-                if (bar) bar.setAttribute('aria-valuenow', Math.round(pct));
-            },
-            onError: function(msg) {
-                console.error('[WebChuGL] ' + msg);
+                var ck = await ChuGL.init({
+                    canvas: document.getElementById('canvas'),
+                    whereIsChuGL: './webchugl/',
+                    onProgress: function(pct) {
+                        var el = document.getElementById('progress-fill');
+                        if (el) el.style.width = Math.round(pct) + '%';
+                        var bar = document.getElementById('progress-bar');
+                        if (bar) bar.setAttribute('aria-valuenow', Math.round(pct));
+                    },
+                    onError: function(msg) {
+                        console.error('[WebChuGL] ' + msg);
+                        var pb = document.getElementById('progress-bar');
+                        if (pb) pb.style.display = 'none';
+                        var errEl = document.getElementById('error-text');
+                        if (errEl) {
+                            errEl.textContent = msg;
+                            errEl.style.display = 'block';
+                        }
+                    },
+                });
+
+                await ck.runZip('./bundle.zip');
+
+                var ls = document.getElementById('loading-screen');
+                if (ls) ls.classList.add('hidden');
+                document.getElementById('canvas').focus();
+            } catch (e) {
+                console.error('[WebChuGL] Init failed:', e);
                 var pb = document.getElementById('progress-bar');
                 if (pb) pb.style.display = 'none';
                 var errEl = document.getElementById('error-text');
                 if (errEl) {
-                    errEl.textContent = msg;
+                    errEl.textContent = e.message || 'Initialization failed';
                     errEl.style.display = 'block';
                 }
-            },
-        });
-
-        await ck.runZip('./bundle.zip');
-
-        var ls = document.getElementById('loading-screen');
-        if (ls) ls.classList.add('hidden');
-        document.getElementById('canvas').focus();
+            }
+        }
     </script>
 </body>
 </html>

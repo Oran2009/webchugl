@@ -31,6 +31,8 @@ self.addEventListener('activate', function(event) {
 // ── Message handling ────────────────────────────────────────────────
 self.addEventListener('message', function(ev) {
     if (!ev.data) return;
+    // Only accept messages from same-origin clients
+    if (ev.source && new URL(ev.source.url).origin !== self.location.origin) return;
     if (ev.data.type === 'deregister') {
         self.registration.unregister().then(function() {
             return self.clients.matchAll();
@@ -93,6 +95,8 @@ self.addEventListener('fetch', function(event) {
             fetch(request).then(function(response) {
                 if (response.status === 0) return response;
                 return addCoiHeaders(response);
+            }).catch(function() {
+                return new Response('Network error', { status: 503, statusText: 'Service Unavailable' });
             })
         );
     }

@@ -66,7 +66,8 @@ class ChucKProcessor extends AudioWorkletProcessor {
             const inLen = inp[0].length;
             const wrPos = Atomics.load(this.inWritePos, 0);
             const rdPos = Atomics.load(this.inReadPos, 0);
-            const avail = (cap - ((wrPos - rdPos) >>> 0)) >>> 0;
+            const occupied = (wrPos - rdPos) >>> 0;
+            const avail = occupied > cap ? 0 : cap - occupied;
             const toWrite = Math.min(inLen, avail);
 
             for (let i = 0; i < toWrite; i++) {

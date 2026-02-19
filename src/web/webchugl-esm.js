@@ -719,6 +719,11 @@ var ChuGL = {
         var baseUrl = config.whereIsChuGL || 'https://ccrma.stanford.edu/~webchugl/v0.1/';
         if (baseUrl[baseUrl.length - 1] !== '/') baseUrl += '/';
 
+        // Validate baseUrl scheme to prevent loading scripts from untrusted origins
+        if (baseUrl.indexOf('://') !== -1 && baseUrl.indexOf('https://') !== 0 && baseUrl.indexOf('http://localhost') !== 0 && baseUrl.indexOf('http://127.0.0.1') !== 0) {
+            return Promise.reject(new Error('ChuGL.init(): whereIsChuGL must use https:// (or http://localhost for development)'));
+        }
+
         // Warn if cross-origin isolation is missing
         if (!window.crossOriginIsolated) {
             console.warn(

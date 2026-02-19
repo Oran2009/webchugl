@@ -110,7 +110,7 @@ function _initSensors(ck) {
     // built-in joystick support (polled via glfwPollEvents in the render loop).
 
     function flushSensors() {
-        if (!_module) return; // guard: stop if WASM torn down
+        if (!_module) return; // guard: stop if WASM torn down (do NOT re-schedule)
         if (accelPending) {
             ck.setFloat('_accelX', accelPending.x);
             ck.setFloat('_accelY', accelPending.y);
@@ -125,9 +125,9 @@ function _initSensors(ck) {
             ck.broadcastEvent('_gyroReading');
             gyroPending = null;
         }
-        _sensorRafId = requestAnimationFrame(flushSensors);
+        requestAnimationFrame(flushSensors);
     }
-    var _sensorRafId = requestAnimationFrame(flushSensors);
+    requestAnimationFrame(flushSensors);
 
     // Accelerometer
     if (window.DeviceMotionEvent) {
@@ -282,7 +282,7 @@ function _initWebChuGL(config) {
 
     // ── Service Worker ──────────────────────────────────────────────────
     if (config.serviceWorker !== false) {
-        var reloadPending = _registerServiceWorker(config.serviceWorkerUrl || '/sw.js');
+        var reloadPending = _registerServiceWorker(config.serviceWorkerUrl || './sw.js');
         if (reloadPending) {
             // Page will reload for cross-origin isolation — don't start WASM init
             return new Promise(function() {});
@@ -406,7 +406,10 @@ function _initWebChuGL(config) {
                         removeStartAudio();
                         return;
                     }
-                    ctx.resume().then(removeStartAudio).catch(removeStartAudio);
+                    ctx.resume().then(removeStartAudio).catch(function(err) {
+                        console.warn('[WebChuGL] AudioContext resume failed:', err);
+                        removeStartAudio();
+                    });
                 };
                 document.addEventListener('click', startAudio);
                 document.addEventListener('keydown', startAudio);
@@ -497,19 +500,23 @@ function _initWebChuGL(config) {
         // ── VM Introspection ────────────────────────────────────────────
 
         getCurrentTime: function() {
+            if (!_module) return 0;
             return _module.ccall('ck_get_now', 'number', [], []);
         },
 
         getActiveShreds: function() {
+            if (!_module) return [];
             var json = _module.ccall('ck_get_active_shreds', 'string', [], []);
             try { return JSON.parse(json); } catch(e) { return []; }
         },
 
         getLastError: function() {
+            if (!_module) return '';
             return _module.ccall('ck_get_last_compile_output', 'string', [], []);
         },
 
         getGlobalVariables: function() {
+            if (!_module) return [];
             var json = _module.ccall('ck_get_all_globals', 'string', [], []);
             try { return JSON.parse(json); } catch(e) { return []; }
         },
@@ -918,12 +925,14 @@ function _initWebChuGL(config) {
                 if (!r.ok) throw new Error('Failed to fetch chugin: ' + url);
                 return r.arrayBuffer();
             }).then(function(buf) {
-                var vfsPath = '/chugins/' + name;
-                _ensureVfsDir(vfsPath);
-                _module.FS.writeFile(vfsPath, new Uint8Array(buf));
-                var loaded = _loadChuginFromVfs(vfsPath);
-                if (!loaded) throw new Error('Failed to load chugin: ' + name);
-                return loaded;
+                return _ckDeferPromise(function() {
+                    var vfsPath = '/chugins/' + name;
+                    _ensureVfsDir(vfsPath);
+                    _module.FS.writeFile(vfsPath, new Uint8Array(buf));
+                    var loaded = _loadChuginFromVfs(vfsPath);
+                    if (!loaded) return Promise.reject(new Error('Failed to load chugin: ' + name));
+                    return Promise.resolve(loaded);
+                });
             });
         },
 
@@ -984,9 +993,11 @@ function _initWebChuGL(config) {
                 });
                 return Promise.all(entries.map(function(entryName) {
                     return zip.files[entryName].async('arraybuffer').then(function(content) {
-                        var vfsPath = '/packages/' + name + '/' + entryName;
-                        _ensureVfsDir(vfsPath);
-                        _module.FS.writeFile(vfsPath, new Uint8Array(content));
+                        _ckDefer(function() {
+                            var vfsPath = '/packages/' + name + '/' + entryName;
+                            _ensureVfsDir(vfsPath);
+                            _module.FS.writeFile(vfsPath, new Uint8Array(content));
+                        });
                     });
                 }));
             }).then(function() {
@@ -1005,8 +1016,9 @@ function _initWebChuGL(config) {
             return CK;
         }
 
-        // Fetch chugins in parallel with WebGPU adapter/device acquisition
-        var _pendingChuginPaths = [];
+        // Fetch chugins in parallel with WebGPU adapter/device acquisition.
+        // VFS writes are deferred until preRun has fired (module FS is ready).
+        var _pendingChuginBuffers = [];
         var chuginPromise = _chuginUrls.length > 0
             ? Promise.all(_chuginUrls.map(function(url) {
                 return fetch(url).then(function(r) {
@@ -1014,10 +1026,7 @@ function _initWebChuGL(config) {
                     return r.arrayBuffer();
                 }).then(function(buf) {
                     var name = url.split('/').pop();
-                    var vfsPath = '/chugins/' + name;
-                    _ensureVfsDir(vfsPath);
-                    _module.FS.writeFile(vfsPath, new Uint8Array(buf));
-                    _pendingChuginPaths.push(vfsPath);
+                    _pendingChuginBuffers.push({ name: name, buf: buf });
                     console.log('[WebChuGL] Fetched chugin: ' + name);
                 });
             }))
@@ -1037,11 +1046,15 @@ function _initWebChuGL(config) {
                 _onReady();
                 _module.callMain([]);
 
-                // Load init-time chugins (after callMain so the_chuck exists)
-                for (var i = 0; i < _pendingChuginPaths.length; i++) {
-                    var loaded = _loadChuginFromVfs(_pendingChuginPaths[i]);
+                // Write fetched chugins to VFS and load (after callMain so the_chuck exists)
+                for (var i = 0; i < _pendingChuginBuffers.length; i++) {
+                    var entry = _pendingChuginBuffers[i];
+                    var vfsPath = '/chugins/' + entry.name;
+                    _ensureVfsDir(vfsPath);
+                    _module.FS.writeFile(vfsPath, new Uint8Array(entry.buf));
+                    var loaded = _loadChuginFromVfs(vfsPath);
                     if (!loaded) {
-                        console.warn('[WebChuGL] Failed to load chugin: ' + _pendingChuginPaths[i]);
+                        console.warn('[WebChuGL] Failed to load chugin: ' + vfsPath);
                     }
                 }
 
@@ -1052,6 +1065,7 @@ function _initWebChuGL(config) {
         }).catch(function(e) {
             console.error('WebGPU pre-init failed:', e);
             _onError('WebGPU init failed: ' + e.message);
+            _ckFlushCallbacks();
             return CK;
         });
     });

@@ -80,7 +80,6 @@ set(CHUGL_SOURCES
     # Dear ImGui + cimgui C wrapper
     ${CHUGL_SRC_DIR}/vendor/cimgui/cimgui.cpp
     ${CHUGL_SRC_DIR}/vendor/cimgui/imgui/imgui.cpp
-    ${CHUGL_SRC_DIR}/vendor/cimgui/imgui/imgui_demo.cpp
     ${CHUGL_SRC_DIR}/vendor/cimgui/imgui/imgui_draw.cpp
     ${CHUGL_SRC_DIR}/vendor/cimgui/imgui/imgui_tables.cpp
     ${CHUGL_SRC_DIR}/vendor/cimgui/imgui/imgui_widgets.cpp
@@ -154,7 +153,7 @@ target_compile_options(webchugl PRIVATE
     -fPIC  # Required for -sMAIN_MODULE (dynamic linking)
     -pthread
     --use-port=contrib.glfw3
-    $<IF:$<CONFIG:Debug>,-O0 -g,-O2>
+    $<IF:$<CONFIG:Debug>,-O0 -g,-O3>
     -Wno-unused-parameter
     -Wno-sign-compare
     -Wno-unused-function
@@ -208,8 +207,9 @@ target_link_options(webchugl PRIVATE
     -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','addFunction','wasmTable','wasmMemory','callMain','FS']
     -sMODULARIZE=1
     -sEXPORT_NAME=createWebChuGL
+    -sPTHREAD_POOL_SIZE=2
     -sENVIRONMENT=web,worker
-    $<IF:$<CONFIG:Debug>,-O0 -g,-O2>
+    $<IF:$<CONFIG:Debug>,-O0 -g,-O3>
     $<$<CONFIG:Debug>:--profiling-funcs>
     -sMINIFY_HTML=0
     --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html

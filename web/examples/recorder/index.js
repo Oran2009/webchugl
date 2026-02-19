@@ -15,9 +15,16 @@ var timerEl = document.getElementById('rec-timer');
 var downloadsEl = document.getElementById('rec-downloads');
 var recordingCount = 0;
 
-// Audio initializes asynchronously — poll until ready
+// Audio initializes asynchronously — poll until ready (timeout after 30s)
+var checkCount = 0;
 var check = setInterval(function() {
-    if (!ck.audioContext || !ck.audioNode) return;
+    if (!ck.audioContext || !ck.audioNode) {
+        if (++checkCount > 300) {
+            clearInterval(check);
+            console.warn('[Recorder] Audio system did not initialize within 30 seconds');
+        }
+        return;
+    }
     clearInterval(check);
     setupRecorder(ck.audioContext, ck.audioNode);
 }, 100);

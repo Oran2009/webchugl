@@ -44,13 +44,6 @@ PATCH_DIR="$PROJECT_ROOT/patches"
 
 echo "=== Building WebChuGL ==="
 
-# Check for emscripten
-if [ ! -d "$EMSDK_DIR" ]; then
-    echo "Error: Emscripten not found at $EMSDK_DIR"
-    echo "Run ./setup.sh from the project root first."
-    exit 1
-fi
-
 EMCMAKE="$EMSDK_DIR/emcmake"
 EMMAKE="$EMSDK_DIR/emmake"
 
@@ -77,15 +70,12 @@ mkdir -p "$BUILD_DIR" "$CMAKE_BUILD_DIR"
 # Configure if needed
 if [ ! -f "$CMAKE_BUILD_DIR/CMakeCache.txt" ]; then
     echo "Configuring with CMake..."
-    cd "$CMAKE_BUILD_DIR"
-    "$EMCMAKE" cmake "$SRC_DIR" -DCMAKE_POLICY_VERSION_MINIMUM="3.5" -DCMAKE_BUILD_TYPE=Release
-    cd "$SRC_DIR"
+    (cd "$CMAKE_BUILD_DIR" && "$EMCMAKE" cmake "$SRC_DIR" -DCMAKE_POLICY_VERSION_MINIMUM="3.5" -DCMAKE_BUILD_TYPE=Release)
 fi
 
 # Build
 echo "Building WASM..."
-cd "$CMAKE_BUILD_DIR"
-"$EMMAKE" make -j "$JOBS"
+(cd "$CMAKE_BUILD_DIR" && "$EMMAKE" make -j "$JOBS")
 
 # Copy web outputs to build/
 echo "Copying web outputs..."
