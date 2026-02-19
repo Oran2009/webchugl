@@ -92,6 +92,7 @@ function _getDB() {
         request.onsuccess = function(event) { resolve(event.target.result); };
         request.onerror = function(event) {
             console.error('[WebChuGL] IndexedDB error:', event.target.error);
+            _ckDBReady = null; // allow retry on next call
             reject(event.target.error);
         };
     });
@@ -992,6 +993,11 @@ function _initWebChuGL(config) {
                     return true;
                 });
                 return Promise.all(entries.map(function(entryName) {
+                    // Reject entries with path traversal components
+                    var parts = entryName.split('/');
+                    for (var pi = 0; pi < parts.length; pi++) {
+                        if (parts[pi] === '..' || parts[pi] === '.') return Promise.resolve();
+                    }
                     return zip.files[entryName].async('arraybuffer').then(function(content) {
                         _ckDefer(function() {
                             var vfsPath = '/packages/' + name + '/' + entryName;

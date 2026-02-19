@@ -208,7 +208,6 @@ target_link_options(webchugl PRIVATE
     -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','addFunction','wasmTable','wasmMemory','callMain','FS']
     -sMODULARIZE=1
     -sEXPORT_NAME=createWebChuGL
-    -sPTHREAD_POOL_SIZE=2
     -sENVIRONMENT=web,worker
     $<IF:$<CONFIG:Debug>,-O0 -g,-O3>
     $<$<CONFIG:Debug>:--profiling-funcs>

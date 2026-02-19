@@ -558,8 +558,8 @@ EM_JS(void, _ck_dispatch_event, (int id), {
 
 // --- Static C++ callbacks (match ck_get_id signatures from chuck_globals.h) -
 
-// NOTE: t_CKINT is 64-bit but JS bridge uses 32-bit ints.
-// Values outside [-2^31, 2^31-1] are silently truncated.
+// NOTE: Under __EMSCRIPTEN__, t_CKINT is defined as int (32-bit).
+// The casts below are identity conversions for the wasm32 target.
 static void _cb_get_int(t_CKINT id, t_CKINT val)
 { _ck_resolve_int((int)id, (int)val); }
 
