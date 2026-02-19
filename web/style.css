@@ -89,8 +89,8 @@ a.example-card:visited { color: inherit; }
     position: fixed;
     bottom: 2rem;
     right: 2rem;
-    width: 44px;
-    height: 44px;
+    width: 40px;
+    height: 40px;
     border-radius: var(--radius);
     background: var(--bg-card);
     border: 2px solid var(--accent);

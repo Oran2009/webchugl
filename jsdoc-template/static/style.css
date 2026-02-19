@@ -368,8 +368,9 @@
 
 /* ── Back to Top button ───────────────────────────────────────────────── */
 .back-to-top {
-    width: 44px;
-    height: 44px;
+    margin-right: 14px;
+    width: 40px;
+    height: 40px;
     border-radius: var(--radius);
     background: var(--bg-card);
     border: 2px solid var(--accent);
