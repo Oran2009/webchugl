@@ -26,8 +26,8 @@ fi
 
 mkdir -p "$OUTPUT_DIR"
 
-EMCC_FLAGS="-O3 -sSIDE_MODULE=1 -pthread -sDISABLE_EXCEPTION_CATCHING=0 -fPIC"
-INCLUDE="-I $CHUGINS_DIR/chuck/include/"
+EMCC_FLAGS=(-O3 -sSIDE_MODULE=1 -pthread -sDISABLE_EXCEPTION_CATCHING=0 -fPIC)
+INCLUDE=(-I "$CHUGINS_DIR/chuck/include/")
 
 PASS=0
 FAIL=0
@@ -36,10 +36,10 @@ FAILED_LIST=""
 build_chugin() {
     local name="$1"
     shift
-    local sources="$@"
+    local sources=("$@")
 
     echo -n "  Building $name... "
-    if (cd "$CHUGINS_DIR/$name" && emcc $EMCC_FLAGS $INCLUDE $sources -o "$OUTPUT_DIR/$name.chug.wasm" 2>/dev/null); then
+    if (cd "$CHUGINS_DIR/$name" && emcc "${EMCC_FLAGS[@]}" "${INCLUDE[@]}" "${sources[@]}" -o "$OUTPUT_DIR/$name.chug.wasm" 2>/dev/null); then
         echo "OK"
         PASS=$((PASS + 1))
     else

@@ -25,7 +25,7 @@ $ChuglDir = Join-Path $ProjectRoot "chugl"
 if (Test-Path $ChuglDir) {
     Write-Host "[chugl] Directory exists, checking commit..." -ForegroundColor Yellow
     Push-Location $ChuglDir
-    $currentCommit = git rev-parse --short HEAD
+    $currentCommit = git rev-parse --short=7 HEAD
     if ($currentCommit -ne $CHUGL_COMMIT.Substring(0,7)) {
         Write-Host "[chugl] Warning: Current commit ($currentCommit) differs from expected ($CHUGL_COMMIT)" -ForegroundColor Red
         Write-Host "[chugl] You may need to: git checkout $CHUGL_COMMIT" -ForegroundColor Red
@@ -49,7 +49,7 @@ $ChuckDir = Join-Path $ProjectRoot "chuck"
 if (Test-Path $ChuckDir) {
     Write-Host "[chuck] Directory exists, checking commit..." -ForegroundColor Yellow
     Push-Location $ChuckDir
-    $currentCommit = git rev-parse --short HEAD
+    $currentCommit = git rev-parse --short=8 HEAD
     if ($currentCommit -ne $CHUCK_COMMIT.Substring(0,8)) {
         Write-Host "[chuck] Warning: Current commit ($currentCommit) differs from expected ($CHUCK_COMMIT)" -ForegroundColor Red
         Write-Host "[chuck] You may need to: git checkout $CHUCK_COMMIT" -ForegroundColor Red
@@ -124,17 +124,21 @@ Write-Host "=== Applying Patches ===" -ForegroundColor Cyan
 # Apply chugl patch
 $ChuglPatch = Join-Path $PatchDir "chugl.patch"
 if (Test-Path $ChuglPatch) {
-    Write-Host "[chugl] Applying patch..." -ForegroundColor Yellow
     Push-Location $ChuglDir
-    git apply --check $ChuglPatch 2>&1 | Out-Null
+    git apply --check --reverse $ChuglPatch 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
-        git apply $ChuglPatch
-        Write-Host "[chugl] Patch applied successfully" -ForegroundColor Green
+        Write-Host "[chugl] Patch already applied" -ForegroundColor Green
     } else {
-        Write-Host "[chugl] Resetting and reapplying patch..." -ForegroundColor Yellow
-        git checkout .
-        git apply $ChuglPatch
-        Write-Host "[chugl] Patch applied successfully" -ForegroundColor Green
+        git apply --check $ChuglPatch 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            git apply $ChuglPatch
+            Write-Host "[chugl] Patch applied successfully" -ForegroundColor Green
+        } else {
+            Write-Host "[chugl] WARNING: Discarding local changes and reapplying patch..." -ForegroundColor Yellow
+            git checkout .
+            git apply $ChuglPatch
+            Write-Host "[chugl] Patch applied successfully" -ForegroundColor Green
+        }
     }
     Pop-Location
 }
@@ -142,17 +146,21 @@ if (Test-Path $ChuglPatch) {
 # Apply chuck patch
 $ChuckPatch = Join-Path $PatchDir "chuck.patch"
 if (Test-Path $ChuckPatch) {
-    Write-Host "[chuck] Applying patch..." -ForegroundColor Yellow
     Push-Location $ChuckDir
-    git apply --check $ChuckPatch 2>&1 | Out-Null
+    git apply --check --reverse $ChuckPatch 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
-        git apply $ChuckPatch
-        Write-Host "[chuck] Patch applied successfully" -ForegroundColor Green
+        Write-Host "[chuck] Patch already applied" -ForegroundColor Green
     } else {
-        Write-Host "[chuck] Resetting and reapplying patch..." -ForegroundColor Yellow
-        git checkout .
-        git apply $ChuckPatch
-        Write-Host "[chuck] Patch applied successfully" -ForegroundColor Green
+        git apply --check $ChuckPatch 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            git apply $ChuckPatch
+            Write-Host "[chuck] Patch applied successfully" -ForegroundColor Green
+        } else {
+            Write-Host "[chuck] WARNING: Discarding local changes and reapplying patch..." -ForegroundColor Yellow
+            git checkout .
+            git apply $ChuckPatch
+            Write-Host "[chuck] Patch applied successfully" -ForegroundColor Green
+        }
     }
     Pop-Location
 }

@@ -110,6 +110,7 @@ function _initSensors(ck) {
     // built-in joystick support (polled via glfwPollEvents in the render loop).
 
     function flushSensors() {
+        if (!_module) return; // guard: stop if WASM torn down
         if (accelPending) {
             ck.setFloat('_accelX', accelPending.x);
             ck.setFloat('_accelY', accelPending.y);
@@ -124,9 +125,9 @@ function _initSensors(ck) {
             ck.broadcastEvent('_gyroReading');
             gyroPending = null;
         }
-        requestAnimationFrame(flushSensors);
+        _sensorRafId = requestAnimationFrame(flushSensors);
     }
-    requestAnimationFrame(flushSensors);
+    var _sensorRafId = requestAnimationFrame(flushSensors);
 
     // Accelerometer
     if (window.DeviceMotionEvent) {
@@ -177,47 +178,53 @@ function _initSensors(ck) {
 // Service Worker Registration (COOP/COEP headers + offline caching)
 // ============================================================================
 
+// Returns true if a page reload was triggered (caller should abort init).
 function _registerServiceWorker(swUrl) {
-    if (!('serviceWorker' in navigator)) return;
+    if (!('serviceWorker' in navigator)) return false;
 
     // Already cross-origin isolated — SW is working, nothing to do
     if (window.crossOriginIsolated) {
         sessionStorage.removeItem('webchugl-sw-reload');
-        return;
+        return false;
     }
 
-    // Not secure context — SW won't work
     if (!window.isSecureContext) {
         console.log('[WebChuGL] Service worker requires a secure context (HTTPS or localhost).');
-        return;
+        return false;
     }
 
-    // Safety net: prevent infinite reload loops
-    var reloadCount = parseInt(sessionStorage.getItem('webchugl-sw-reload') || '0', 10);
-    if (reloadCount >= 3) {
-        console.warn('[WebChuGL] crossOriginIsolated is still false after ' + reloadCount + ' reloads. Giving up.');
-        sessionStorage.removeItem('webchugl-sw-reload');
-        return;
-    }
-
-    function doReload() {
-        sessionStorage.setItem('webchugl-sw-reload', String(reloadCount + 1));
-        location.reload();
-    }
-
-    navigator.serviceWorker.register(swUrl).then(function(registration) {
-        // Hard refresh recovery: SW is active but not controlling this page
-        // (hard refresh sets controller to null). A normal reload will go
-        // through the active SW which injects COOP/COEP headers.
-        if (registration.active && !navigator.serviceWorker.controller) {
-            doReload();
-            return;
-        }
-
-        // First visit / SW update: SW is installing or waiting.
-        // Wait for it to activate and claim this client, then reload.
-        navigator.serviceWorker.addEventListener('controllerchange', doReload);
+    // Ensure the SW is registered (starts install on first visit,
+    // checks for updates otherwise). Fire-and-forget.
+    navigator.serviceWorker.register(swUrl).catch(function(err) {
+        console.error('[WebChuGL] Service worker registration failed:', err);
     });
+
+    // On force-reload (Ctrl+Shift+R) or first visit, the browser sets
+    // navigator.serviceWorker.controller to null — the SW cannot control
+    // that navigation request.  A normal location.reload() will go through
+    // the (now-registered) SW, which injects COOP/COEP headers.
+    if (!navigator.serviceWorker.controller) {
+        var key = 'webchugl-sw-reload';
+        var count = parseInt(sessionStorage.getItem(key) || '0', 10);
+        if (count < 2) {
+            sessionStorage.setItem(key, String(count + 1));
+            location.reload();
+            return true;
+        }
+        // Gave up after 2 reloads — proceed without isolation.
+        // The controllerchange listener below will still reload if
+        // the SW activates later (e.g., slow first-visit install).
+        console.warn('[WebChuGL] crossOriginIsolated is still false after ' + count + ' reloads. Giving up.');
+        sessionStorage.removeItem(key);
+    }
+
+    // Reload when a new SW becomes the controller (covers fresh installs
+    // that finish after the counter expired, and SW updates).
+    navigator.serviceWorker.addEventListener('controllerchange', function() {
+        if (!window.crossOriginIsolated) location.reload();
+    }, { once: true });
+
+    return false;
 }
 
 // ============================================================================
@@ -275,7 +282,11 @@ function _initWebChuGL(config) {
 
     // ── Service Worker ──────────────────────────────────────────────────
     if (config.serviceWorker !== false) {
-        _registerServiceWorker(config.serviceWorkerUrl || '/sw.js');
+        var reloadPending = _registerServiceWorker(config.serviceWorkerUrl || '/sw.js');
+        if (reloadPending) {
+            // Page will reload for cross-origin isolation — don't start WASM init
+            return new Promise(function() {});
+        }
     }
 
     // ── Audio Config ────────────────────────────────────────────────────
@@ -395,7 +406,7 @@ function _initWebChuGL(config) {
                         removeStartAudio();
                         return;
                     }
-                    ctx.resume().then(removeStartAudio);
+                    ctx.resume().then(removeStartAudio).catch(removeStartAudio);
                 };
                 document.addEventListener('click', startAudio);
                 document.addEventListener('keydown', startAudio);
@@ -442,6 +453,17 @@ function _initWebChuGL(config) {
         _ckQueue = [];
     }
 
+    // Settle all pending _ckGet callbacks (e.g., on VM reset or teardown).
+    // Resolves with undefined so hanging promises settle rather than leak.
+    function _ckFlushCallbacks() {
+        var cbs = _moduleConfig._ckCallbacks;
+        var keys = Object.keys(cbs);
+        for (var i = 0; i < keys.length; i++) {
+            cbs[keys[i]](undefined);
+            delete cbs[keys[i]];
+        }
+    }
+
     function _ckSet(func, types, args) {
         _ckDefer(function() {
             _module.ccall(func, 'number', types, args);
@@ -450,10 +472,14 @@ function _initWebChuGL(config) {
 
     function _ckGet(func, types, args) {
         return _ckDeferPromise(function() {
-            return new Promise(function(resolve) {
+            return new Promise(function(resolve, reject) {
                 var id = _ckNextId++;
                 _moduleConfig._ckCallbacks[id] = resolve;
-                _module.ccall(func, 'number', types.concat('number'), args.concat(id));
+                var ret = _module.ccall(func, 'number', types.concat('number'), args.concat(id));
+                if (!ret) {
+                    delete _moduleConfig._ckCallbacks[id];
+                    reject(new Error(func + ' failed'));
+                }
             });
         });
     }
@@ -476,7 +502,7 @@ function _initWebChuGL(config) {
 
         getActiveShreds: function() {
             var json = _module.ccall('ck_get_active_shreds', 'string', [], []);
-            return JSON.parse(json);
+            try { return JSON.parse(json); } catch(e) { return []; }
         },
 
         getLastError: function() {
@@ -485,7 +511,7 @@ function _initWebChuGL(config) {
 
         getGlobalVariables: function() {
             var json = _module.ccall('ck_get_all_globals', 'string', [], []);
-            return JSON.parse(json);
+            try { return JSON.parse(json); } catch(e) { return []; }
         },
 
         // ── Code execution ─────────────────────────────────────────────
@@ -549,7 +575,7 @@ function _initWebChuGL(config) {
                     // Recursive directory removal
                     var entries = _module.FS.readdir(path).filter(function(e) { return e !== '.' && e !== '..'; });
                     for (var i = 0; i < entries.length; i++) {
-                        this.removeFile(path + '/' + entries[i]);
+                        CK.removeFile(path + '/' + entries[i]);
                     }
                     _module.FS.rmdir(path);
                 } else {
@@ -630,9 +656,11 @@ function _initWebChuGL(config) {
                         return isBinary ? response.arrayBuffer() : response.text();
                     })
                     .then(function(data) {
-                        _ensureVfsDir(vfsPath);
-                        _module.FS.writeFile(vfsPath, isBinary ? new Uint8Array(data) : data);
-                        if (isChugin) _loadChuginFromVfs(vfsPath);
+                        _ckDefer(function() {
+                            _ensureVfsDir(vfsPath);
+                            _module.FS.writeFile(vfsPath, isBinary ? new Uint8Array(data) : data);
+                            if (isChugin) _loadChuginFromVfs(vfsPath);
+                        });
                         return vfsPath;
                     });
             }));
@@ -655,9 +683,11 @@ function _initWebChuGL(config) {
                     return Promise.all(entries.map(function(name) {
                         return zip.files[name].async('arraybuffer').then(function(content) {
                             var vfsPath = '/code/' + name;
-                            _ensureVfsDir(vfsPath);
-                            _module.FS.writeFile(vfsPath, new Uint8Array(content));
-                            if (name.endsWith('.chug.wasm')) _loadChuginFromVfs(vfsPath);
+                            _ckDefer(function() {
+                                _ensureVfsDir(vfsPath);
+                                _module.FS.writeFile(vfsPath, new Uint8Array(content));
+                                if (name.endsWith('.chug.wasm')) _loadChuginFromVfs(vfsPath);
+                            });
                         });
                     }));
                 })
@@ -695,9 +725,11 @@ function _initWebChuGL(config) {
                     return Promise.all(entries.map(function(name) {
                         return zip.files[name].async('arraybuffer').then(function(content) {
                             var vfsPath = '/code/' + name;
-                            _ensureVfsDir(vfsPath);
-                            _module.FS.writeFile(vfsPath, new Uint8Array(content));
-                            if (name.endsWith('.chug.wasm')) _loadChuginFromVfs(vfsPath);
+                            _ckDefer(function() {
+                                _ensureVfsDir(vfsPath);
+                                _module.FS.writeFile(vfsPath, new Uint8Array(content));
+                                if (name.endsWith('.chug.wasm')) _loadChuginFromVfs(vfsPath);
+                            });
                         });
                     }));
                 })
@@ -865,8 +897,10 @@ function _initWebChuGL(config) {
                 })
                 .then(function(audioBuffer) {
                     var wavData = _audioBufferToWav(audioBuffer);
-                    _ensureVfsDir(vfsPath);
-                    _module.FS.writeFile(vfsPath, new Uint8Array(wavData));
+                    _ckDefer(function() {
+                        _ensureVfsDir(vfsPath);
+                        _module.FS.writeFile(vfsPath, new Uint8Array(wavData));
+                    });
                     console.log('[WebChuGL] Audio loaded: ' + vfsPath +
                         ' (' + audioBuffer.duration.toFixed(2) + 's, ' +
                         audioBuffer.numberOfChannels + 'ch)');
@@ -900,7 +934,13 @@ function _initWebChuGL(config) {
         // ── ChuMP Package Loading ─────────────────────────────────────
 
         loadPackage: function(name, version, url) {
+            if (!name || !/^[a-zA-Z0-9_@\/-]+$/.test(name)) {
+                return Promise.reject(new Error('Invalid package name: ' + name));
+            }
             version = version || 'latest';
+            if (!/^[a-zA-Z0-9._-]+$/.test(version)) {
+                return Promise.reject(new Error('Invalid package version: ' + version));
+            }
 
             var jszipReady = _ensureJSZip();
 

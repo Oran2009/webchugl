@@ -61,10 +61,11 @@ if (-not (Test-Path $CMakeCacheFile)) {
     Write-Host "Configuring with CMake..." -ForegroundColor Yellow
     Push-Location $CMakeBuildDir
     try {
-        $env:EMSDK_PYTHON = ""
-        py $EmCMake cmake "$SrcDir" -DCMAKE_POLICY_VERSION_MINIMUM="3.5"
+        $savedPython = $env:EMSDK_PYTHON; $env:EMSDK_PYTHON = ""
+        py $EmCMake cmake "$SrcDir" -DCMAKE_POLICY_VERSION_MINIMUM="3.5" -DCMAKE_BUILD_TYPE=Release
         if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }
     } finally {
+        $env:EMSDK_PYTHON = $savedPython
         Pop-Location
     }
 }
@@ -73,16 +74,17 @@ if (-not (Test-Path $CMakeCacheFile)) {
 Write-Host "Building WASM..." -ForegroundColor Yellow
 Push-Location $CMakeBuildDir
 try {
-    $env:EMSDK_PYTHON = ""
+    $savedPython = $env:EMSDK_PYTHON; $env:EMSDK_PYTHON = ""
     py $EmMake make -j $Jobs
     if ($LASTEXITCODE -ne 0) { throw "Build failed" }
 } finally {
+    $env:EMSDK_PYTHON = $savedPython
     Pop-Location
 }
 
 # Copy web outputs to build/
 Write-Host "Copying web outputs..." -ForegroundColor Gray
-foreach ($f in @("index.html", "index.worker.js", "sw.js", "manifest.json")) {
+foreach ($f in @("index.html", "sw.js", "manifest.json")) {
     $src = Join-Path $CMakeBuildDir $f
     if (Test-Path $src) {
         Copy-Item $src (Join-Path $BuildDir $f) -Force
@@ -95,6 +97,13 @@ if (Test-Path $CMakeWebchuglDir) {
         New-Item -ItemType Directory -Path $BuildWebchuglDir | Out-Null
     }
     Copy-Item (Join-Path $CMakeWebchuglDir "*") $BuildWebchuglDir -Recurse -Force
+}
+
+# Validate required build outputs exist
+$requiredJs = Join-Path $BuildWebchuglDir "index.js"
+$requiredWasm = Join-Path $BuildWebchuglDir "webchugl.wasm"
+if (-not (Test-Path $requiredJs) -or -not (Test-Path $requiredWasm)) {
+    throw "Build outputs missing. Expected webchugl/index.js and webchugl/webchugl.wasm in $BuildDir"
 }
 
 # Copy runtime to web/src/ (for website deployment)

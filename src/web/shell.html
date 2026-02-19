@@ -89,11 +89,11 @@
     <div id="loading-screen">
         <img id="loading-logo-light" class="loading-logo" src="webchugl/chugl_logo_light.png" alt="ChuGL" fetchpriority="high">
         <img id="loading-logo-dark" class="loading-logo" src="webchugl/chugl_logo_dark.png" alt="ChuGL" fetchpriority="high">
-        <div id="progress-bar"><div id="progress-fill"></div></div>
+        <div id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" aria-label="Loading progress"><div id="progress-fill"></div></div>
         <div id="error-text"></div>
     </div>
 
-    <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+    <canvas id="canvas" tabindex="0"></canvas>
 
     <div id="audio-hint">Click to enable audio</div>
 
@@ -105,6 +105,9 @@
             errEl.textContent = 'WebGPU is not supported in this browser. Please use Chrome or Edge.';
             errEl.style.display = 'block';
         }
+
+        // Prevent context menu on canvas
+        document.getElementById('canvas').addEventListener('contextmenu', function(e) { e.preventDefault(); });
 
         // Hide audio hint on first interaction
         var audioHint = document.getElementById('audio-hint');
@@ -123,6 +126,8 @@
             onProgress: function(pct) {
                 var el = document.getElementById('progress-fill');
                 if (el) el.style.width = Math.round(pct) + '%';
+                var bar = document.getElementById('progress-bar');
+                if (bar) bar.setAttribute('aria-valuenow', Math.round(pct));
             },
             onError: function(msg) {
                 console.error('[WebChuGL] ' + msg);

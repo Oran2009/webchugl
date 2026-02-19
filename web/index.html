@@ -11,7 +11,7 @@
 
     <!-- Syntax highlighting -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/androidstudio.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" defer></script>
 </head>
 
 <body>
@@ -20,23 +20,23 @@
 
     <!-- ── Hero ────────────────────────────────────────────────────────── -->
     <header class="hero">
-        <canvas id="hero-canvas"></canvas>
+        <canvas id="hero-canvas" aria-hidden="true"></canvas>
         <div class="hero-overlay">
             <h1>WebChuGL</h1>
             <p class="tagline">ChuGL &rArr; now on the Web</p>
 
             <p class="description">
                 Real-time graphics and audio programming in the browser with
-                <a href="https://chuck.stanford.edu/chugl/" target="_blank">ChuGL</a>
+                <a href="https://chuck.stanford.edu/chugl/" target="_blank" rel="noopener noreferrer">ChuGL</a>
                 (ChucK Graphics Library) compiled to WebAssembly,
-                <a href="https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API" target="_blank">WebGPU</a>
+                <a href="https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API" target="_blank" rel="noopener noreferrer">WebGPU</a>
                 rendering, and
-                <a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API" target="_blank">Web Audio</a>!
+                <a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API" target="_blank" rel="noopener noreferrer">Web Audio</a>!
                 Create and share interactive audiovisual experiences, audio-centric games, data sonifications, and more &mdash; all in your web browser!
             </p>
 
-            <nav class="hero-buttons" aria-label="PrimaFry">
-                <a href="https://github.com/ccrma/webchugl" target="_blank" class="btn-orange">View on GitHub</a>
+            <nav class="hero-buttons" aria-label="Primary">
+                <a href="https://github.com/ccrma/webchugl" target="_blank" rel="noopener noreferrer" class="btn-orange">View on GitHub</a>
                 <a href="docs/" class="btn-green">Documentation</a>
                 <a href="changelog/" class="btn-orange">Changelog</a>
             </nav>
@@ -47,17 +47,17 @@
 
     <!-- ── What is WebChuGL? ───────────────────────────────────────────── -->
     <p>
-        WebChuGL brings <a href="https://chuck.stanford.edu/chugl/" target="_blank">ChuGL</a>,
+        WebChuGL brings <a href="https://chuck.stanford.edu/chugl/" target="_blank" rel="noopener noreferrer">ChuGL</a>,
         the real-time graphics framework for the
-        <a href="https://chuck.stanford.edu/" target="_blank">ChucK</a> programming language,
+        <a href="https://chuck.stanford.edu/" target="_blank" rel="noopener noreferrer">ChucK</a> programming language,
         to the web browser! ChuGL&rsquo;s C++ source code has been compiled with
-        <a href="https://emscripten.org/" target="_blank">Emscripten</a> to WebAssembly (WASM)
+        <a href="https://emscripten.org/" target="_blank" rel="noopener noreferrer">Emscripten</a> to WebAssembly (WASM)
         to render via the WebGPU API and run audio through an
-        <a href="https://developer.mozilla.org/en-US/docs/Web/API/AudioWorkletNode" target="_blank">AudioWorkletNode</a>.
+        <a href="https://developer.mozilla.org/en-US/docs/Web/API/AudioWorkletNode" target="_blank" rel="noopener noreferrer">AudioWorkletNode</a>.
     </p>
 
     <p>
-        WebChuGL builds on <a href="https://chuck.cs.princeton.edu/webchuck/" target="_blank">WebChucK</a>
+        WebChuGL builds on <a href="https://chuck.cs.princeton.edu/webchuck/" target="_blank" rel="noopener noreferrer">WebChucK</a>
         by adding ChuGL&rsquo;s scenegraph, materials, textures, shaders, post-processing,
         and the full GGen (graphics generator) ecosystem &mdash; all tightly
         synchronized to ChucK&rsquo;s strongly-timed audio engine.
@@ -79,7 +79,7 @@
         <div class="feature-card">
             <div class="icon">&#x1F50C;</div>
             <h4>ChuGin Support</h4>
-            <p>Web-compatible ChuGins (ChucK plugins) can be imported and used in WebChuGL! A handful of pre-compiled ChuGins are available <a href="chugins/" target="_blank">here</a>.</p>
+            <p>Web-compatible ChuGins (ChucK plugins) can be imported and used in WebChuGL! A handful of pre-compiled ChuGins are available <a href="chugins/" target="_blank" rel="noopener noreferrer">here</a>.</p>
         </div>
         <div class="feature-card">
             <div class="icon">&#x1F3AE;</div>
@@ -100,7 +100,7 @@
 
     <!-- ── Examples ────────────────────────────────────────────────────── -->
     <h2 id="examples">Examples</h2>
-    <p>Check out what you can build with WebChuGL! Each example is a self-contained project you can copy and modify. Source code is in the <a href="https://github.com/ccrma/webchugl/tree/main/web/examples" target="_blank">web/examples/</a> directory.</p>
+    <p>Check out what you can build with WebChuGL! Each example is a self-contained project you can copy and modify. Source code is in the <a href="https://github.com/ccrma/webchugl/tree/main/web/examples" target="_blank" rel="noopener noreferrer">web/examples/</a> directory.</p>
 
     <div class="example-grid">
         <a href="examples/drum-machine/" id="drum-machine" class="example-card">
@@ -192,7 +192,7 @@
     <!-- ── Getting Started ─────────────────────────────────────────────── -->
     <h2 id="getting-started">Getting Started</h2>
 
-    <p>All you need is a browser with <a href="https://caniuse.com/webgpu" target="_blank">WebGPU support</a> (Chrome 113+, Edge 113+, Firefox Nightly). Create an <code>index.html</code>:</p>
+    <p>All you need is a browser with <a href="https://caniuse.com/webgpu" target="_blank" rel="noopener noreferrer">WebGPU support</a> (Chrome 113+, Edge 113+, Firefox Nightly). Create an <code>index.html</code>:</p>
 
     <pre><code class="language-html">&lt;canvas id="canvas"&gt;&lt;/canvas&gt;
 &lt;script type="module"&gt;
@@ -260,7 +260,6 @@
             var ck = await mod.default.init({
                 canvas: canvas,
                 whereIsChuGL: './src/',
-                serviceWorker: false,
             });
             canvas.classList.add('ready');
             ck.runCode([

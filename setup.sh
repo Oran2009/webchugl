@@ -27,7 +27,7 @@ CHUGL_DIR="$PROJECT_ROOT/chugl"
 if [ -d "$CHUGL_DIR" ]; then
     echo "[chugl] Directory exists, checking commit..."
     cd "$CHUGL_DIR"
-    CURRENT_COMMIT=$(git rev-parse --short HEAD)
+    CURRENT_COMMIT=$(git rev-parse --short=7 HEAD)
     if [ "$CURRENT_COMMIT" != "${CHUGL_COMMIT:0:7}" ]; then
         echo "[chugl] Warning: Current commit ($CURRENT_COMMIT) differs from expected ($CHUGL_COMMIT)"
         echo "[chugl] You may need to: git checkout $CHUGL_COMMIT"
@@ -51,7 +51,7 @@ CHUCK_DIR="$PROJECT_ROOT/chuck"
 if [ -d "$CHUCK_DIR" ]; then
     echo "[chuck] Directory exists, checking commit..."
     cd "$CHUCK_DIR"
-    CURRENT_COMMIT=$(git rev-parse --short HEAD)
+    CURRENT_COMMIT=$(git rev-parse --short=8 HEAD)
     if [ "$CURRENT_COMMIT" != "${CHUCK_COMMIT:0:8}" ]; then
         echo "[chuck] Warning: Current commit ($CURRENT_COMMIT) differs from expected ($CHUCK_COMMIT)"
         echo "[chuck] You may need to: git checkout $CHUCK_COMMIT"
@@ -89,10 +89,10 @@ else
     cd "$EMSDK_DIR"
 
     echo "[emsdk] Installing version $EMSDK_VERSION..."
-    ./emsdk install $EMSDK_VERSION
+    ./emsdk install "$EMSDK_VERSION"
 
     echo "[emsdk] Activating version $EMSDK_VERSION..."
-    ./emsdk activate $EMSDK_VERSION
+    ./emsdk activate "$EMSDK_VERSION"
 
     # Move to install subdirectory for cleaner structure
     mkdir -p install
@@ -116,13 +116,14 @@ echo "=== Applying Patches ==="
 # Apply chugl patch
 CHUGL_PATCH="$PATCH_DIR/chugl.patch"
 if [ -f "$CHUGL_PATCH" ]; then
-    echo "[chugl] Applying patch..."
     cd "$CHUGL_DIR"
-    if git apply --check "$CHUGL_PATCH" 2>/dev/null; then
+    if git apply --check --reverse "$CHUGL_PATCH" 2>/dev/null; then
+        echo "[chugl] Patch already applied"
+    elif git apply --check "$CHUGL_PATCH" 2>/dev/null; then
         git apply "$CHUGL_PATCH"
         echo "[chugl] Patch applied successfully"
     else
-        echo "[chugl] Resetting and reapplying patch..."
+        echo "[chugl] WARNING: Discarding local changes and reapplying patch..."
         git checkout .
         git apply "$CHUGL_PATCH"
         echo "[chugl] Patch applied successfully"
@@ -133,13 +134,14 @@ fi
 # Apply chuck patch
 CHUCK_PATCH="$PATCH_DIR/chuck.patch"
 if [ -f "$CHUCK_PATCH" ]; then
-    echo "[chuck] Applying patch..."
     cd "$CHUCK_DIR"
-    if git apply --check "$CHUCK_PATCH" 2>/dev/null; then
+    if git apply --check --reverse "$CHUCK_PATCH" 2>/dev/null; then
+        echo "[chuck] Patch already applied"
+    elif git apply --check "$CHUCK_PATCH" 2>/dev/null; then
         git apply "$CHUCK_PATCH"
         echo "[chuck] Patch applied successfully"
     else
-        echo "[chuck] Resetting and reapplying patch..."
+        echo "[chuck] WARNING: Discarding local changes and reapplying patch..."
         git checkout .
         git apply "$CHUCK_PATCH"
         echo "[chuck] Patch applied successfully"
@@ -172,10 +174,8 @@ if [ -f "$GLFW_PATCH" ]; then
         GLFW_JS_FILE="$GLFW_PORT_DIR/src/js/lib_emscripten_glfw3.js"
         if [ -f "$GLFW_JS_FILE" ] && ! grep -q "Re-register MQL with current DPR" "$GLFW_JS_FILE"; then
             echo "[emscripten-glfw] Applying patch..."
-            cd "$GLFW_PORT_DIR"
-            patch -p1 < "$GLFW_PATCH"
+            (cd "$GLFW_PORT_DIR" && patch -p1 < "$GLFW_PATCH")
             echo "[emscripten-glfw] Patch applied successfully"
-            cd "$PROJECT_ROOT"
         else
             echo "[emscripten-glfw] Patch already applied"
         fi

@@ -101,7 +101,7 @@ self.addEventListener('fetch', function(event) {
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function addCoiHeaders(response) {
-    if (response.type === 'opaqueredirect' || !response.headers) {
+    if (response.type === 'opaque' || response.type === 'opaqueredirect' || !response.headers) {
         return response;
     }
 

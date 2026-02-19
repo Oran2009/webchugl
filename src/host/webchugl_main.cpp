@@ -266,13 +266,13 @@ void initAudio()
             console.error('[WebChuGL] Module._initAudio not found');
         }
     },
-    (int)(uintptr_t)g_audioRingBuffer,
-    (int)(uintptr_t)&g_ringWritePos,
-    (int)(uintptr_t)&g_ringReadPos,
-    (int)(uintptr_t)g_inputRingBuffer,
-    (int)(uintptr_t)&g_inputRingWritePos,
-    (int)(uintptr_t)&g_inputRingReadPos,
-    (int)RING_CAPACITY,
+    (uint32_t)(uintptr_t)g_audioRingBuffer,
+    (uint32_t)(uintptr_t)&g_ringWritePos,
+    (uint32_t)(uintptr_t)&g_ringReadPos,
+    (uint32_t)(uintptr_t)g_inputRingBuffer,
+    (uint32_t)(uintptr_t)&g_inputRingWritePos,
+    (uint32_t)(uintptr_t)&g_inputRingReadPos,
+    (uint32_t)RING_CAPACITY,
     g_needsMicrophone ? 1 : 0,
     g_sampleRate,
     g_numOutputChannels,
@@ -301,22 +301,28 @@ static void run_vm_frame(void* data)
         int maxSPC = g_maxSamplesPerCall;
 
         // Planar buffers for ChucK: [ch0_s0..ch0_sN, ch1_s0..ch1_sN, ...]
+        // Buffers are allocated once based on initial audio config.
+        // Changing channel counts or sample rate at runtime is not supported.
         static SAMPLE* inBuffer = nullptr;
         static SAMPLE* outBuffer = nullptr;
         static float* floatBuffer = nullptr;
         static float* floatInBuffer = nullptr;
         if (!inBuffer) {
-            inBuffer = new SAMPLE[maxSPC * maxCh]();
-            outBuffer = new SAMPLE[maxSPC * maxCh]();
-            floatBuffer = new float[maxSPC * maxCh]();
-            floatInBuffer = new float[maxSPC * maxCh]();
+            inBuffer = new SAMPLE[maxSPC * inCh]();
+            outBuffer = new SAMPLE[maxSPC * outCh]();
+            floatBuffer = new float[maxSPC * outCh]();
+            floatInBuffer = new float[maxSPC * inCh]();
         }
 
         // Read mic input from input ring buffer (planar format)
         int inputFloatsWritten = inputRingRead(floatInBuffer, samplesToGenerate);
-        // Convert float to SAMPLE and zero-fill if not enough
-        for (int i = 0; i < samplesToGenerate * inCh; i++) {
-            inBuffer[i] = (i < inputFloatsWritten) ? (SAMPLE)floatInBuffer[i] : 0;
+        // Convert float to SAMPLE, copy channel-by-channel for correct planar layout
+        int samplesRead = (inCh > 0) ? inputFloatsWritten / inCh : 0;
+        for (int ch = 0; ch < inCh; ch++) {
+            for (int s = 0; s < samplesToGenerate; s++) {
+                inBuffer[ch * samplesToGenerate + s] =
+                    (s < samplesRead) ? (SAMPLE)floatInBuffer[ch * samplesRead + s] : 0;
+            }
         }
 
         // Always run ChucK VM (needed for graphics via GG.nextFrame())
@@ -356,6 +362,10 @@ int main(int argc, char** argv)
         var c = Module._audioConfig;
         return (c && c.inChannels) ? c.inChannels : 2;
     });
+    // Clamp to sane range
+    if (g_sampleRate < 8000 || g_sampleRate > 192000) g_sampleRate = 48000;
+    if (g_numOutputChannels < 1 || g_numOutputChannels > 32) g_numOutputChannels = 2;
+    if (g_numInputChannels < 1 || g_numInputChannels > 32) g_numInputChannels = 2;
     g_maxSamplesPerCall = g_sampleRate / 10;  // 100ms cap
 
     printf("[WebChuGL] Audio config: %d Hz, %d out, %d in\n",
@@ -405,9 +415,11 @@ int main(int argc, char** argv)
         }
 
         // Run VM briefly to execute initial setup code before GG.nextFrame()
-        SAMPLE* initBuffer = new SAMPLE[256 * g_numOutputChannels]();
-        the_chuck->run(nullptr, initBuffer, 256);
-        delete[] initBuffer;
+        SAMPLE* initIn = new SAMPLE[256 * g_numInputChannels]();
+        SAMPLE* initOut = new SAMPLE[256 * g_numOutputChannels]();
+        the_chuck->run(initIn, initOut, 256);
+        delete[] initIn;
+        delete[] initOut;
     }
 
     // Check if adc is used
@@ -543,6 +555,8 @@ EM_JS(void, _ck_dispatch_event, (int id), {
 
 // --- Static C++ callbacks (match ck_get_id signatures from chuck_globals.h) -
 
+// NOTE: t_CKINT is 64-bit but JS bridge uses 32-bit ints.
+// Values outside [-2^31, 2^31-1] are silently truncated.
 static void _cb_get_int(t_CKINT id, t_CKINT val)
 { _ck_resolve_int((int)id, (int)val); }
 
@@ -560,6 +574,19 @@ static void _cb_get_float_array(t_CKINT id, t_CKFLOAT a[], t_CKUINT n)
 
 static void _cb_event(t_CKINT id)
 { _ck_dispatch_event((int)id); }
+
+// Escape JSON-special characters for safe embedding in JSON string values
+static void appendJsonEscaped(std::string& out, const std::string& s) {
+    for (size_t i = 0; i < s.size(); i++) {
+        char c = s[i];
+        if (c == '"')       out += "\\\"";
+        else if (c == '\\') out += "\\\\";
+        else if (c == '\n') out += "\\n";
+        else if (c == '\r') out += "\\r";
+        else if (c == '\t') out += "\\t";
+        else out += c;
+    }
+}
 
 // --- Exported functions ------------------------------
 
@@ -786,12 +813,7 @@ const char* ck_get_active_shreds()
         result += "{\"id\":";
         result += std::to_string(shreds[i]->xid);
         result += ",\"name\":\"";
-        // Escape quotes in name
-        std::string name = shreds[i]->name;
-        for (size_t j = 0; j < name.size(); j++) {
-            if (name[j] == '"') result += "\\\"";
-            else result += name[j];
-        }
+        appendJsonEscaped(result, shreds[i]->name);
         result += "\"}";
     }
     result += "]";
@@ -811,9 +833,9 @@ const char* ck_get_all_globals()
     for (size_t i = 0; i < list.size(); i++) {
         if (i > 0) result += ",";
         result += "{\"type\":\"";
-        result += list[i].type;
+        appendJsonEscaped(result, list[i].type);
         result += "\",\"name\":\"";
-        result += list[i].name;
+        appendJsonEscaped(result, list[i].name);
         result += "\"}";
     }
     result += "]";
@@ -837,7 +859,15 @@ int ck_run_code_ex(const char* code)
     g_lastCompileOutput.clear();
     the_chuck->setCherrCallback(_cherr_capture);
 
-    int result = the_chuck->compileCode(code, "", 1, TRUE) ? 1 : 0;
+    int result = 0;
+    try {
+        result = the_chuck->compileCode(code, "", 1, TRUE) ? 1 : 0;
+    } catch (const std::exception& e) {
+        g_lastCompileOutput += "[exception] ";
+        g_lastCompileOutput += e.what();
+    } catch (...) {
+        g_lastCompileOutput += "[unknown exception]";
+    }
 
     the_chuck->setCherrCallback(NULL);
 
@@ -856,6 +886,7 @@ EMSCRIPTEN_KEEPALIVE
 int ck_load_chugin(const char* vfsPath)
 {
     if (!the_chuck) return 0;
+    if (!vfsPath || vfsPath[0] == '\0') return 0;
 
     void* handle = dlopen(vfsPath, RTLD_NOW);
     if (!handle) {
@@ -872,7 +903,9 @@ int ck_load_chugin(const char* vfsPath)
 
     // Extract name from path (e.g. "/chugins/Bitcrusher.chug.wasm" -> "Bitcrusher")
     std::string pathStr(vfsPath);
-    std::string name = pathStr.substr(pathStr.rfind('/') + 1);
+    size_t slashPos = pathStr.rfind('/');
+    std::string name = (slashPos == std::string::npos)
+        ? pathStr : pathStr.substr(slashPos + 1);
     size_t dotPos = name.find(".chug");
     if (dotPos != std::string::npos) name = name.substr(0, dotPos);
 

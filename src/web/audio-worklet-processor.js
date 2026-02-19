@@ -35,6 +35,7 @@ class ChucKProcessor extends AudioWorkletProcessor {
         const cap = this.capacity;
         const outNc = this.outChannels;
         const out = outputs[0];
+        if (!out || !out[0]) return true;
         const len = out[0].length;
 
         // Read from output ring buffer → Web Audio output
@@ -45,16 +46,18 @@ class ChucKProcessor extends AudioWorkletProcessor {
 
         for (let i = 0; i < toRead; i++) {
             const idx = ((rp + i) % cap) * outNc;
-            for (let ch = 0; ch < outNc; ch++) {
+            for (let ch = 0; ch < outNc && ch < out.length; ch++) {
                 out[ch][i] = this.outBuf[idx + ch];
             }
         }
         for (let i = toRead; i < len; i++) {
-            for (let ch = 0; ch < outNc; ch++) {
+            for (let ch = 0; ch < outNc && ch < out.length; ch++) {
                 out[ch][i] = 0;
             }
         }
-        Atomics.store(this.outReadPos, 0, rp + toRead);
+        // Positions wrap at 2^32 via Uint32Array truncation — matches C++ uint32_t.
+        // The (wp - rp) >>> 0 subtraction on read handles wrap correctly.
+        Atomics.store(this.outReadPos, 0, (rp + toRead) >>> 0);
 
         // Write microphone input → input ring buffer
         const inNc = this.inChannels;
@@ -72,7 +75,8 @@ class ChucKProcessor extends AudioWorkletProcessor {
                     this.inBuf[idx + ch] = (ch < inp.length) ? inp[ch][i] : inp[0][i];
                 }
             }
-            Atomics.store(this.inWritePos, 0, wrPos + toWrite);
+            // Position wraps at 2^32 — see output ring buffer comment above.
+            Atomics.store(this.inWritePos, 0, (wrPos + toWrite) >>> 0);
         }
 
         return true;

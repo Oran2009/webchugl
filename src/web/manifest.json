@@ -4,13 +4,14 @@
     "description": "ChuGL compiled to WebAssembly — real-time graphics and audio in the browser.",
     "start_url": "./",
     "display": "standalone",
-    "background_color": "#ffffff",
+    "background_color": "#000000",
     "theme_color": "#0c0c14",
     "icons": [
         {
             "src": "webchugl/chugl_logo_light.png",
-            "sizes": "any",
-            "type": "image/png"
+            "sizes": "1920x758",
+            "type": "image/png",
+            "purpose": "any"
         }
     ]
 }

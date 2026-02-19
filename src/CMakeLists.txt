@@ -125,6 +125,9 @@ target_compile_definitions(webchugl PRIVATE
     __DISABLE_KBHIT__
     __DISABLE_PROMPTER__
     __DISABLE_SHELL__
+    # Disables ChucK's internal thread creation (not needed on web where the
+    # VM runs on the main thread). Does NOT affect the pthreads ABI, which is
+    # required (-pthread) for SharedArrayBuffer and ChuGin ABI compatibility.
     __DISABLE_THREADS__
     __DISABLE_OTF_SERVER__
     __DISABLE_ASYNCH_IO__
@@ -151,7 +154,7 @@ target_compile_options(webchugl PRIVATE
     -fPIC  # Required for -sMAIN_MODULE (dynamic linking)
     -pthread
     --use-port=contrib.glfw3
-    -O2
+    $<IF:$<CONFIG:Debug>,-O0 -g,-O2>
     -Wno-unused-parameter
     -Wno-sign-compare
     -Wno-unused-function
@@ -168,8 +171,12 @@ target_compile_options(webchugl PRIVATE
 # ===========================================================================
 include(FetchContent)
 
-# Set global flags for subdirectories
-# -pthread provides SharedArrayBuffer, -fPIC required for -sMAIN_MODULE
+# Set global flags for subdirectories (FreeType).
+# These cannot be scoped via target_compile_options because FreeType is an
+# external library added via add_subdirectory. -pthread is required for
+# SharedArrayBuffer ABI compatibility, and -fPIC is required for
+# -sMAIN_MODULE dynamic linking. Both must match between main module and
+# any SIDE_MODULE ChuGins.
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pthread -fPIC")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread -fPIC")
 
@@ -202,8 +209,8 @@ target_link_options(webchugl PRIVATE
     -sMODULARIZE=1
     -sEXPORT_NAME=createWebChuGL
     -sENVIRONMENT=web,worker
-    -O2
-    --profiling-funcs
+    $<IF:$<CONFIG:Debug>,-O0 -g,-O2>
+    $<$<CONFIG:Debug>:--profiling-funcs>
     -sMINIFY_HTML=0
     --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
     -sMAIN_MODULE=1
@@ -221,14 +228,12 @@ add_custom_command(TARGET webchugl POST_BUILD
     # Create webchugl/ subdirectory
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/webchugl
     # Move Emscripten outputs into webchugl/ (rename .wasm for clarity)
-    COMMAND ${CMAKE_COMMAND} -E copy
+    COMMAND ${CMAKE_COMMAND} -E rename
         ${CMAKE_CURRENT_BINARY_DIR}/index.js
         ${CMAKE_CURRENT_BINARY_DIR}/webchugl/index.js
-    COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_CURRENT_BINARY_DIR}/index.js
-    COMMAND ${CMAKE_COMMAND} -E copy
+    COMMAND ${CMAKE_COMMAND} -E rename
         ${CMAKE_CURRENT_BINARY_DIR}/index.wasm
         ${CMAKE_CURRENT_BINARY_DIR}/webchugl/webchugl.wasm
-    COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_CURRENT_BINARY_DIR}/index.wasm
     # Copy JS/WASM runtime into webchugl/
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_SOURCE_DIR}/web/webchugl.js
@@ -255,4 +260,5 @@ add_custom_command(TARGET webchugl POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_SOURCE_DIR}/web/manifest.json
         ${CMAKE_CURRENT_BINARY_DIR}/manifest.json
+    VERBATIM
 )

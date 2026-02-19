@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WebChuGL Changelog</title>
     <meta name="description" content="Release history and changelog for WebChuGL.">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="../style.css">
 </head>
 
 <body>
@@ -101,7 +101,6 @@
             var ck = await mod.default.init({
                 canvas: canvas,
                 whereIsChuGL: '../src/',
-                serviceWorker: false,
             });
             canvas.classList.add('ready');
             ck.runCode([

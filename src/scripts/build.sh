@@ -60,9 +60,7 @@ GLFW_JS_FILE="$EMSDK_DIR/cache/ports/contrib.glfw3/src/js/lib_emscripten_glfw3.j
 if [ -f "$GLFW_PATCH" ] && [ -f "$GLFW_JS_FILE" ]; then
     if ! grep -q "Re-register MQL with current DPR" "$GLFW_JS_FILE"; then
         echo "Applying emscripten-glfw patch..."
-        cd "$EMSDK_DIR/cache/ports/contrib.glfw3"
-        patch -p1 < "$GLFW_PATCH"
-        cd "$SRC_DIR"
+        (cd "$EMSDK_DIR/cache/ports/contrib.glfw3" && patch -p1 < "$GLFW_PATCH")
     fi
 fi
 
@@ -80,7 +78,7 @@ mkdir -p "$BUILD_DIR" "$CMAKE_BUILD_DIR"
 if [ ! -f "$CMAKE_BUILD_DIR/CMakeCache.txt" ]; then
     echo "Configuring with CMake..."
     cd "$CMAKE_BUILD_DIR"
-    "$EMCMAKE" cmake "$SRC_DIR" -DCMAKE_POLICY_VERSION_MINIMUM="3.5"
+    "$EMCMAKE" cmake "$SRC_DIR" -DCMAKE_POLICY_VERSION_MINIMUM="3.5" -DCMAKE_BUILD_TYPE=Release
     cd "$SRC_DIR"
 fi
 
@@ -91,12 +89,18 @@ cd "$CMAKE_BUILD_DIR"
 
 # Copy web outputs to build/
 echo "Copying web outputs..."
-for f in index.html index.worker.js sw.js manifest.json; do
+for f in index.html sw.js manifest.json; do
     [ -f "$CMAKE_BUILD_DIR/$f" ] && cp "$CMAKE_BUILD_DIR/$f" "$BUILD_DIR/$f"
 done
 if [ -d "$CMAKE_BUILD_DIR/webchugl" ]; then
     mkdir -p "$BUILD_DIR/webchugl"
     cp -r "$CMAKE_BUILD_DIR/webchugl/"* "$BUILD_DIR/webchugl/"
+fi
+
+# Validate required build outputs exist
+if [ ! -f "$BUILD_DIR/webchugl/index.js" ] || [ ! -f "$BUILD_DIR/webchugl/webchugl.wasm" ]; then
+    echo "ERROR: Build outputs missing. Expected webchugl/index.js and webchugl/webchugl.wasm in $BUILD_DIR" >&2
+    exit 1
 fi
 
 # Copy runtime to web/src/ (for website deployment)
