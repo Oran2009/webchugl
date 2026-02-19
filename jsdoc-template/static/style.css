@@ -372,7 +372,7 @@
     height: 44px;
     border-radius: var(--radius);
     background: var(--bg-card);
-    border: 1px solid var(--accent);
+    border: 2px solid var(--accent);
     color: var(--accent2);
     font-size: 1rem;
     cursor: pointer;
