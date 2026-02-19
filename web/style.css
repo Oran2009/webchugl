@@ -180,35 +180,36 @@ pre code {
 .feature-card h4 { margin-top: 0; font-size: 1.1rem; }
 .feature-card .icon { font-size: 1.5rem; margin-bottom: 0.5rem; }
 
-/* ── Example Carousel ────────────────────────────────────────────────── */
-.carousel {
-    display: flex;
-    gap: 12px;
-    overflow-x: auto;
+/* ── Example Grid ────────────────────────────────────────────────────── */
+.example-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
     padding: 1rem 0;
-    scroll-snap-type: x mandatory;
 }
 
-.carousel::-webkit-scrollbar { height: 6px; }
-.carousel::-webkit-scrollbar-track { background: var(--bg); }
-.carousel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+@media (max-width: 760px) {
+    .example-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 480px) {
+    .example-grid { grid-template-columns: 1fr; }
+}
 
 .example-card {
-    flex: 0 0 300px;
-    scroll-snap-align: start;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     overflow: hidden;
-    transition: border-color 0.2s;
+    transition: border-color 0.2s, transform 0.2s;
 }
-.example-card:hover { border-color: var(--accent); }
+.example-card:hover { border-color: var(--accent); transform: translateY(-2px); }
 a.example-card { color: inherit; text-decoration: none; display: block; }
 a.example-card:hover { color: inherit; text-decoration: none; }
 a.example-card:visited { color: inherit; }
 .example-card .thumb {
     width: 100%;
-    height: 170px;
+    height: 120px;
     object-fit: cover;
     background: var(--border);
     display: flex;

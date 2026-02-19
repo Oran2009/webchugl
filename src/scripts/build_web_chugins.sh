@@ -9,7 +9,7 @@ set -e
 CHUGINS_DIR="${1:?Usage: $0 /path/to/chugins}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-OUTPUT_DIR="$PROJECT_ROOT/chugins"
+OUTPUT_DIR="$PROJECT_ROOT/web/chugins"
 
 # Verify chugins repo
 if [ ! -f "$CHUGINS_DIR/chuck/include/chugin.h" ]; then

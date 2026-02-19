@@ -75,7 +75,7 @@
     var nav = document.createElement('div');
     nav.id = 'xcgl-nav';
     var back = document.createElement('a');
-    back.href = '../../';
+    back.href = '../../#' + folder;
     back.textContent = '\u2190 Back';
     back.title = 'Back to WebChuGL';
     var srcBtn = document.createElement('button');

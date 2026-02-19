@@ -13,7 +13,7 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SrcDir = Split-Path -Parent $ScriptDir
 $ProjectRoot = Split-Path -Parent $SrcDir
-$OutputDir = Join-Path $ProjectRoot "chugins"
+$OutputDir = Join-Path $ProjectRoot "web\chugins"
 $EmsdkDir = (Get-ChildItem -Path $ProjectRoot -Directory -Filter "emsdk-*" | Select-Object -First 1).FullName
 if (-not $EmsdkDir) { Write-Error "Emscripten SDK not found. Run setup.ps1 first."; exit 1 }
 $EmsdkDir = Join-Path $EmsdkDir "install\emscripten"
