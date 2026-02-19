@@ -444,12 +444,10 @@ function buildPage(chuckClass, chuckMethods, chuckMembers, chuglNamespace, chugl
     html += '});\n';
     html += '</script>\n';
 
-    // Back to Top button visibility + TOC active section highlight + sidebar positioning
+    // Back to Top button visibility + TOC active section highlight
     html += '<script>\n';
     html += '(function() {\n';
     html += '  var btn = document.querySelector(".back-to-top");\n';
-    html += '  var sidebar = document.querySelector(".sidebar");\n';
-    html += '  var hero = document.querySelector(".hero");\n';
     html += '  var tocLinks = document.querySelectorAll(".toc-sidebar a");\n';
     html += '  var sections = [];\n';
     html += '  tocLinks.forEach(function(a) {\n';
@@ -459,12 +457,6 @@ function buildPage(chuckClass, chuckMethods, chuckMembers, chuglNamespace, chugl
     html += '  });\n';
     html += '  function updateSidebar() {\n';
     html += '    btn.classList.toggle("visible", window.scrollY > 400);\n';
-    html += '    // Position sidebar below hero\n';
-    html += '    var heroBottom = hero.getBoundingClientRect().bottom;\n';
-    html += '    var minTop = 32; // 2rem\n';
-    html += '    var top = Math.max(minTop, heroBottom + 16);\n';
-    html += '    sidebar.style.top = top + "px";\n';
-    html += '    sidebar.style.height = "calc(100vh - " + (top + 32) + "px)";\n';
     html += '    // Active section highlight\n';
     html += '    var current = "";\n';
     html += '    sections.forEach(function(s) {\n';

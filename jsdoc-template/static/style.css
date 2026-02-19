@@ -307,7 +307,7 @@
     left: calc(50% + 510px);
     top: 2rem;
     width: 220px;
-    /* height is set dynamically by JS to fill from top to bottom with 2rem padding */
+    height: calc(100vh - 4rem);
     display: flex;
     flex-direction: column;
     text-align: right;
