@@ -263,6 +263,7 @@
             });
             canvas.classList.add('ready');
             ck.runCode([
+                'GWindow.title("WebChuGL");',
                 'GGen sunSystem, earthSystem, moonSystem;',
                 'GSphere sun, earth, moon;',
                 'for(auto x : [sun, earth, moon]) x.mat().wireframe(true);',

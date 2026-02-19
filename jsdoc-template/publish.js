@@ -542,6 +542,7 @@ function buildPage(chuckClass, chuckMethods, chuckMembers, chuglNamespace, chugl
     html += '        });\n';
     html += '        canvas.classList.add("ready");\n';
     html += '        ck.runCode([\n';
+    html += "            'GWindow.title(\"WebChuGL Documentation\");',\n";
     html += '            "GGen sunSystem, earthSystem, moonSystem;",\n';
     html += '            "GSphere sun, earth, moon;",\n';
     html += '            "for(auto x : [sun, earth, moon]) x.mat().wireframe(true);",\n';
