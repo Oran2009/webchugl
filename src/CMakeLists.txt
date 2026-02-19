@@ -83,6 +83,7 @@ set(CHUGL_SOURCES
     ${CHUGL_SRC_DIR}/vendor/cimgui/imgui/imgui_draw.cpp
     ${CHUGL_SRC_DIR}/vendor/cimgui/imgui/imgui_tables.cpp
     ${CHUGL_SRC_DIR}/vendor/cimgui/imgui/imgui_widgets.cpp
+    ${CHUGL_SRC_DIR}/vendor/cimgui/imgui/imgui_demo.cpp
     ${CHUGL_SRC_DIR}/vendor/cimgui/imgui/backends/imgui_impl_glfw.cpp
     ${CHUGL_SRC_DIR}/vendor/cimgui/imgui/backends/imgui_impl_wgpu.cpp
 )
