@@ -73,7 +73,7 @@ pre {
     overflow: auto;
     background: var(--code-bg);
     border-radius: var(--radius);
-    border: 1px solid var(--border);
+    border: 2px solid var(--border);
 }
 
 pre code {
@@ -133,7 +133,7 @@ pre code {
 .btn-green {
     background: transparent;
     color: var(--accent);
-    border: 1px solid var(--accent);
+    border: 2px solid var(--accent);
     padding: 10px 24px;
     border-radius: 6px;
     font-weight: 600;
@@ -147,7 +147,7 @@ pre code {
 .btn-orange {
     background: transparent;
     color: var(--accent2);
-    border: 1px solid var(--accent2);
+    border: 2px solid var(--accent2);
     padding: 10px 24px;
     border-radius: 6px;
     font-weight: 600;

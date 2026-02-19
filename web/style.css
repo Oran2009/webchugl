@@ -18,7 +18,7 @@
 
 .feature-card {
     background: var(--bg-card);
-    border: 1px solid var(--border);
+    border: 2px solid var(--border);
     border-radius: var(--radius);
     padding: 1.5rem;
     transition: border-color 0.2s, transform 0.2s;
@@ -45,7 +45,7 @@
 
 .example-card {
     background: var(--bg-card);
-    border: 1px solid var(--border);
+    border: 2px solid var(--border);
     border-radius: var(--radius);
     overflow: hidden;
     transition: border-color 0.2s, transform 0.2s;
@@ -124,7 +124,7 @@ a.example-card:visited { color: inherit; }
     margin: 2rem 0;
     padding: 1.5rem;
     background: var(--bg-card);
-    border: 1px solid var(--border);
+    border: 2px solid var(--border);
     border-radius: var(--radius);
     transition: border-color 0.2s;
 }
