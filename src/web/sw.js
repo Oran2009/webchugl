@@ -49,6 +49,9 @@ self.addEventListener('fetch', function(event) {
     // Chrome bug: only-if-cached with mode !== same-origin causes fetch to fail
     if (r.cache === 'only-if-cached' && r.mode !== 'same-origin') return;
 
+    // Don't intercept SSE / EventSource streams (causes CORS preflight issues)
+    if (r.headers.get('accept') === 'text/event-stream') return;
+
     // Strip credentials on no-cors requests for credentialless COEP
     var request = (r.mode === 'no-cors')
         ? new Request(r, { credentials: 'omit' })
