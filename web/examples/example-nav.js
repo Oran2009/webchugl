@@ -26,7 +26,7 @@
         '#xcgl-nav a, #xcgl-nav button {',
         '  background:rgba(15,15,25,0.88); color:#ccc; border:1px solid #444;',
         '  border-radius:5px; padding:6px 10px; text-decoration:none;',
-        '  font:12px/1 monospace; cursor:pointer; transition:background .15s,border-color .15s; }',
+        '  font:12px/1 monospace; cursor:pointer; margin:0; transition:background .15s,border-color .15s; }',
         '#xcgl-nav a:hover, #xcgl-nav button:hover { background:rgba(30,30,45,0.95); border-color:#888; color:#fff; }',
         '#xcgl-nav button.active { background:rgba(40,40,60,0.95); border-color:#f0c040; color:#f0c040; }',
         '',

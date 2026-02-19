@@ -7,9 +7,9 @@
     <style>
         * { box-sizing: border-box; margin: 0; }
         body { font: 14px/1.5 monospace; background: #111; color: #ccc; padding: 20px; }
-        h1 { font-size: 18px; color: #fff; margin-bottom: 16px; }
+        h1 { font-size: 18px; color: #fff; margin-bottom: 16px; text-align: right; }
         h2 { font-size: 14px; color: #aaa; margin: 20px 0 8px; }
-        canvas { width: 100%; height: 200px; display: block; background: #000; border-radius: 4px; }
+        canvas { width: 100% !important; height: 100px !important; display: block; background: #000; border-radius: 4px; }
         .section { background: #1a1a1a; padding: 16px; border-radius: 6px; margin-bottom: 12px; }
         button { font: 13px monospace; background: #333; color: #fff; border: 1px solid #555;
                  padding: 6px 14px; border-radius: 4px; cursor: pointer; margin: 4px 4px 4px 0; }
@@ -32,12 +32,12 @@
     <div class="section">
         <h2>Load ChuGin from URL</h2>
         <select id="chugin-select">
-            <option value="/chugins/Bitcrusher.chug.wasm">Bitcrusher</option>
-            <option value="/chugins/NHHall.chug.wasm">NHHall</option>
-            <option value="/chugins/Overdrive.chug.wasm">Overdrive</option>
-            <option value="/chugins/WPDiodeLadder.chug.wasm">WPDiodeLadder</option>
-            <option value="/chugins/GVerb.chug.wasm">GVerb</option>
-            <option value="/chugins/FoldbackSaturator.chug.wasm">FoldbackSaturator</option>
+            <option value="../../chugins/Bitcrusher.chug.wasm">Bitcrusher</option>
+            <option value="../../chugins/NHHall.chug.wasm">NHHall</option>
+            <option value="../../chugins/Overdrive.chug.wasm">Overdrive</option>
+            <option value="../../chugins/WPDiodeLadder.chug.wasm">WPDiodeLadder</option>
+            <option value="../../chugins/GVerb.chug.wasm">GVerb</option>
+            <option value="../../chugins/FoldbackSaturator.chug.wasm">FoldbackSaturator</option>
         </select>
         <button id="btn-load-url">Load from URL</button>
         <button id="btn-test" disabled>Test loaded ChuGin</button>

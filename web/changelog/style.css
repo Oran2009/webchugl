@@ -59,7 +59,6 @@ p { margin: 1em 0; }
 
 a { color: var(--link); text-decoration: none; transition: color 0.2s; }
 a:hover { color: var(--accent); text-decoration: underline; }
-a:visited:not([class*="btn-"]) { color: var(--link); }
 
 /* ── Code ────────────────────────────────────────────────────────────── */
 code {
