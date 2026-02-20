@@ -149,29 +149,6 @@ if (Test-Path $ChuglPatch) {
     Pop-Location
 }
 
-# Apply chuck patch
-$ChuckPatch = Join-Path $PatchDir "chuck.patch"
-if (Test-Path $ChuckPatch) {
-    Push-Location $ChuckDir
-    git apply --check --reverse $ChuckPatch 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "[chuck] Patch already applied" -ForegroundColor Green
-    } else {
-        git apply --check $ChuckPatch 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) {
-            git apply $ChuckPatch
-            Write-Host "[chuck] Patch applied successfully" -ForegroundColor Green
-        } else {
-            Write-Host "[chuck] ERROR: Patch does not apply cleanly." -ForegroundColor Red
-            Write-Host "[chuck] If you have local changes, stash them first: cd chuck; git stash" -ForegroundColor Red
-            Write-Host "[chuck] Then re-run setup.ps1" -ForegroundColor Red
-            Pop-Location
-            exit 1
-        }
-    }
-    Pop-Location
-}
-
 # Apply emscripten-glfw patch (contrib.glfw3 port)
 $GlfwPatch = Join-Path $PatchDir "emscripten-glfw.patch"
 $GlfwPortDir = Join-Path $EmsdkInstall "cache\ports\contrib.glfw3"

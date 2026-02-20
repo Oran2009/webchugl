@@ -136,24 +136,6 @@ if [ -f "$CHUGL_PATCH" ]; then
     cd "$PROJECT_ROOT"
 fi
 
-# Apply chuck patch
-CHUCK_PATCH="$PATCH_DIR/chuck.patch"
-if [ -f "$CHUCK_PATCH" ]; then
-    cd "$CHUCK_DIR"
-    if git apply --check --reverse "$CHUCK_PATCH" 2>/dev/null; then
-        echo "[chuck] Patch already applied"
-    elif git apply --check "$CHUCK_PATCH" 2>/dev/null; then
-        git apply "$CHUCK_PATCH"
-        echo "[chuck] Patch applied successfully"
-    else
-        echo "[chuck] ERROR: Patch does not apply cleanly."
-        echo "[chuck] If you have local changes, stash them first: cd chuck && git stash"
-        echo "[chuck] Then re-run setup.sh"
-        exit 1
-    fi
-    cd "$PROJECT_ROOT"
-fi
-
 # Apply emscripten-glfw patch (contrib.glfw3 port)
 GLFW_PATCH="$PATCH_DIR/emscripten-glfw.patch"
 GLFW_PORT_DIR="$EMSDK_INSTALL/cache/ports/contrib.glfw3"
