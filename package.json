@@ -15,15 +15,12 @@
         "dist/webchugl-esm.js"
     ],
     "keywords": [
-        "chuck",
-        "chugl",
-        "webgpu",
-        "web-audio",
-        "graphics",
-        "audio",
-        "music",
-        "wasm",
-        "webassembly"
+        "ChucK",
+        "ChuGL",
+        "WebChucK",
+        "WebGPU",
+        "Graphics",
+        "Audio"
     ],
     "scripts": {
         "docs": "jsdoc -c jsdoc.json"
@@ -33,7 +30,7 @@
     "homepage": "https://chuck.stanford.edu/webchugl/",
     "repository": {
         "type": "git",
-        "url": "https://github.com/ccrma/webchugl"
+        "url": "git+https://github.com/ccrma/webchugl.git"
     },
     "bugs": {
         "url": "https://github.com/ccrma/webchugl/issues"
