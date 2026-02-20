@@ -716,7 +716,7 @@ var ChuGL = {
             return Promise.reject(new Error('ChuGL.init() requires config.canvas'));
         }
 
-        var baseUrl = config.whereIsChuGL || 'https://ccrma.stanford.edu/~webchugl/v0.1/';
+        var baseUrl = config.whereIsChuGL || 'https://ccrma.stanford.edu/webchugl/src/';
         if (baseUrl[baseUrl.length - 1] !== '/') baseUrl += '/';
 
         // Validate baseUrl scheme to prevent loading scripts from untrusted origins

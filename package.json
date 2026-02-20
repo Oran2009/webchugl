@@ -20,6 +20,7 @@
         "webgpu",
         "web-audio",
         "graphics",
+        "audio",
         "music",
         "wasm",
         "webassembly"
@@ -27,10 +28,15 @@
     "scripts": {
         "docs": "jsdoc -c jsdoc.json"
     },
+    "author": "Ben Hoang",
     "license": "MIT",
+    "homepage": "https://chuck.stanford.edu/webchugl/",
     "repository": {
         "type": "git",
         "url": "https://github.com/ccrma/webchugl"
+    },
+    "bugs": {
+        "url": "https://github.com/ccrma/webchugl/issues"
     },
     "devDependencies": {
         "jsdoc": "^4.0.5"
