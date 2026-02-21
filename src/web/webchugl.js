@@ -1038,7 +1038,12 @@ function _initWebChuGL(config) {
             }))
             : Promise.resolve();
 
-        var gpuPromise = navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+        var gpuPromise = navigator.gpu.requestAdapter({ powerPreference: 'high-performance' })
+            .then(function(adapter) {
+                if (adapter) return adapter;
+                console.warn('[WebChuGL] high-performance adapter unavailable, trying default');
+                return navigator.gpu.requestAdapter();
+            });
 
         return Promise.all([chuginPromise, gpuPromise]).then(function(results) {
             var adapter = results[1];
