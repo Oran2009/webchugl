@@ -1,5 +1,5 @@
 import RAPIER from 'https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat/+esm';
-import ChuGL from '../../src/webchugl-esm.js';
+import ChuGL from 'https://cdn.jsdelivr.net/npm/webchugl/+esm';
 
 // Initialize Rapier WASM
 await RAPIER.init();

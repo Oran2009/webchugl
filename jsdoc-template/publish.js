@@ -534,7 +534,7 @@ function buildPage(chuckClass, chuckMethods, chuckMembers, chuglNamespace, chugl
     html += '    var canvas = document.getElementById("hero-canvas");\n';
     html += '    if (!canvas) return;\n';
     html += '    try {\n';
-    html += '        var mod = await import("../src/webchugl-esm.js");\n';
+    html += '        var mod = await import("https://cdn.jsdelivr.net/npm/webchugl/+esm");\n';
     html += '        var ck = await mod.default.init({\n';
     html += '            canvas: canvas,\n';
     html += '            whereIsChuGL: "../src/",\n';

@@ -1,4 +1,4 @@
-import ChuGL from '../../src/webchugl-esm.js';
+import ChuGL from 'https://cdn.jsdelivr.net/npm/webchugl/+esm';
 
 var logEl = document.getElementById('log');
 function log(msg, cls) {
