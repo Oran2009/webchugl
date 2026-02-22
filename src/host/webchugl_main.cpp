@@ -5,7 +5,7 @@
   Initializes ChucK VM, loads ChuGL module, compiles code/main.ck, and starts
   the graphics loop. Audio samples are passed to a JS AudioWorkletProcessor
   via SharedArrayBuffer ring buffers (see audio_ring_buffer.h and
-  audio-worklet-processor.js).
+  lib/audio-worklet-processor.js).
 
   Ring buffer format: Interleaved N-channel [ch0_s0, ch1_s0, ..., chN_s0, ...]
   ChucK VM format: Planar [ch0_s0, ch0_s1, ..., ch1_s0, ch1_s1, ...]

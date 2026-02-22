@@ -41,12 +41,12 @@ var METHOD_GROUPS = [
     },
     {
         title: 'Events',
-        methods: ['signalEvent', 'broadcastEvent', 'listenForEvent', 'listenForEventOnce',
+        methods: ['signalEvent', 'broadcastEvent', 'listenForEventOnce',
                   'stopListeningForEvent', 'startListeningForEvent']
     },
     {
         title: 'ChuGins & Packages',
-        methods: ['loadChugin', 'getLoadedChugins', 'loadedChugins', 'loadPackage']
+        methods: ['loadChugin', 'getLoadedChugins', 'loadPackage']
     },
     {
         title: 'VM',
