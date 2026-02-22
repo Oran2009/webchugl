@@ -7,8 +7,8 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = $PSScriptRoot
 
 # Dependency versions
-$CHUGL_REPO = "https://github.com/ccrma/chugl.git"
-$CHUGL_COMMIT = "9d6245a"  # short SHA; git checkout handles prefix matching
+$CHUGL_REPO = "https://github.com/Oran2009/chugl.git"
+$CHUGL_BRANCH = "webchugl"
 
 $CHUCK_REPO = "https://github.com/ccrma/chuck.git"
 $CHUCK_COMMIT = "60caede9"  # short SHA; git checkout handles prefix matching
@@ -25,23 +25,20 @@ Write-Host ""
 # ============================================================================
 $ChuglDir = Join-Path $ProjectRoot "chugl"
 if (Test-Path $ChuglDir) {
-    Write-Host "[chugl] Directory exists, checking commit..." -ForegroundColor Yellow
+    Write-Host "[chugl] Directory exists, checking branch..." -ForegroundColor Yellow
     Push-Location $ChuglDir
-    $currentCommit = git rev-parse --short=7 HEAD
-    if ($currentCommit -ne $CHUGL_COMMIT.Substring(0,7)) {
-        Write-Host "[chugl] Warning: Current commit ($currentCommit) differs from expected ($CHUGL_COMMIT)" -ForegroundColor Red
-        Write-Host "[chugl] You may need to: git checkout $CHUGL_COMMIT" -ForegroundColor Red
+    $currentBranch = git rev-parse --abbrev-ref HEAD
+    if ($currentBranch -ne $CHUGL_BRANCH) {
+        Write-Host "[chugl] Warning: Current branch ($currentBranch) differs from expected ($CHUGL_BRANCH)" -ForegroundColor Red
+        Write-Host "[chugl] You may need to: git checkout $CHUGL_BRANCH" -ForegroundColor Red
     } else {
-        Write-Host "[chugl] Already at correct commit" -ForegroundColor Green
+        Write-Host "[chugl] Already on branch $CHUGL_BRANCH" -ForegroundColor Green
     }
     Pop-Location
 } else {
-    Write-Host "[chugl] Cloning from $CHUGL_REPO..." -ForegroundColor Yellow
-    git clone --filter=blob:none $CHUGL_REPO $ChuglDir
-    Push-Location $ChuglDir
-    git checkout $CHUGL_COMMIT
-    Pop-Location
-    Write-Host "[chugl] Cloned and checked out $CHUGL_COMMIT" -ForegroundColor Green
+    Write-Host "[chugl] Cloning from $CHUGL_REPO (branch: $CHUGL_BRANCH)..." -ForegroundColor Yellow
+    git clone --filter=blob:none -b $CHUGL_BRANCH $CHUGL_REPO $ChuglDir
+    Write-Host "[chugl] Cloned branch $CHUGL_BRANCH" -ForegroundColor Green
 }
 
 # ============================================================================
@@ -125,29 +122,6 @@ $PatchDir = Join-Path $ProjectRoot "patches"
 
 Write-Host ""
 Write-Host "=== Applying Patches ===" -ForegroundColor Cyan
-
-# Apply chugl patch
-$ChuglPatch = Join-Path $PatchDir "chugl.patch"
-if (Test-Path $ChuglPatch) {
-    Push-Location $ChuglDir
-    git apply --check --reverse $ChuglPatch 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "[chugl] Patch already applied" -ForegroundColor Green
-    } else {
-        git apply --check $ChuglPatch 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) {
-            git apply $ChuglPatch
-            Write-Host "[chugl] Patch applied successfully" -ForegroundColor Green
-        } else {
-            Write-Host "[chugl] ERROR: Patch does not apply cleanly." -ForegroundColor Red
-            Write-Host "[chugl] If you have local changes, stash them first: cd chugl; git stash" -ForegroundColor Red
-            Write-Host "[chugl] Then re-run setup.ps1" -ForegroundColor Red
-            Pop-Location
-            exit 1
-        }
-    }
-    Pop-Location
-}
 
 # Apply emscripten-glfw patch (contrib.glfw3 port)
 $GlfwPatch = Join-Path $PatchDir "emscripten-glfw.patch"

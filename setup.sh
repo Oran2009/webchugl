@@ -9,8 +9,8 @@ set -e
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 
 # Dependency versions
-CHUGL_REPO="https://github.com/ccrma/chugl.git"
-CHUGL_COMMIT="9d6245a"  # short SHA; git checkout handles prefix matching
+CHUGL_REPO="https://github.com/Oran2009/chugl.git"
+CHUGL_BRANCH="webchugl"
 
 CHUCK_REPO="https://github.com/ccrma/chuck.git"
 CHUCK_COMMIT="60caede9"  # short SHA; git checkout handles prefix matching
@@ -27,23 +27,20 @@ echo ""
 # ============================================================================
 CHUGL_DIR="$PROJECT_ROOT/chugl"
 if [ -d "$CHUGL_DIR" ]; then
-    echo "[chugl] Directory exists, checking commit..."
+    echo "[chugl] Directory exists, checking branch..."
     cd "$CHUGL_DIR"
-    CURRENT_COMMIT=$(git rev-parse --short=7 HEAD)
-    if [ "$CURRENT_COMMIT" != "${CHUGL_COMMIT:0:7}" ]; then
-        echo "[chugl] Warning: Current commit ($CURRENT_COMMIT) differs from expected ($CHUGL_COMMIT)"
-        echo "[chugl] You may need to: git checkout $CHUGL_COMMIT"
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    if [ "$CURRENT_BRANCH" != "$CHUGL_BRANCH" ]; then
+        echo "[chugl] Warning: Current branch ($CURRENT_BRANCH) differs from expected ($CHUGL_BRANCH)"
+        echo "[chugl] You may need to: git checkout $CHUGL_BRANCH"
     else
-        echo "[chugl] Already at correct commit"
+        echo "[chugl] Already on branch $CHUGL_BRANCH"
     fi
     cd "$PROJECT_ROOT"
 else
-    echo "[chugl] Cloning from $CHUGL_REPO..."
-    git clone --filter=blob:none "$CHUGL_REPO" "$CHUGL_DIR"
-    cd "$CHUGL_DIR"
-    git checkout "$CHUGL_COMMIT"
-    cd "$PROJECT_ROOT"
-    echo "[chugl] Cloned and checked out $CHUGL_COMMIT"
+    echo "[chugl] Cloning from $CHUGL_REPO (branch: $CHUGL_BRANCH)..."
+    git clone --filter=blob:none -b "$CHUGL_BRANCH" "$CHUGL_REPO" "$CHUGL_DIR"
+    echo "[chugl] Cloned branch $CHUGL_BRANCH"
 fi
 
 # ============================================================================
@@ -117,24 +114,6 @@ PATCH_DIR="$PROJECT_ROOT/patches"
 
 echo ""
 echo "=== Applying Patches ==="
-
-# Apply chugl patch
-CHUGL_PATCH="$PATCH_DIR/chugl.patch"
-if [ -f "$CHUGL_PATCH" ]; then
-    cd "$CHUGL_DIR"
-    if git apply --check --reverse "$CHUGL_PATCH" 2>/dev/null; then
-        echo "[chugl] Patch already applied"
-    elif git apply --check "$CHUGL_PATCH" 2>/dev/null; then
-        git apply "$CHUGL_PATCH"
-        echo "[chugl] Patch applied successfully"
-    else
-        echo "[chugl] ERROR: Patch does not apply cleanly."
-        echo "[chugl] If you have local changes, stash them first: cd chugl && git stash"
-        echo "[chugl] Then re-run setup.sh"
-        exit 1
-    fi
-    cd "$PROJECT_ROOT"
-fi
 
 # Apply emscripten-glfw patch (contrib.glfw3 port)
 GLFW_PATCH="$PATCH_DIR/emscripten-glfw.patch"
