@@ -60,6 +60,8 @@ fi
 # Compile TypeScript
 echo "Compiling TypeScript..."
 (cd "$PROJECT_ROOT" && npx tsc)
+echo "Bundling webchugl.js..."
+(cd "$PROJECT_ROOT" && npx esbuild src/web/webchugl.ts --bundle --format=iife --outfile=src/web/webchugl.js --sourcemap)
 
 # Clean if requested
 if [ "$CLEAN" = true ]; then

@@ -43,6 +43,8 @@ Write-Host "Compiling TypeScript..." -ForegroundColor Yellow
 Push-Location $ProjectRoot
 npx tsc
 if ($LASTEXITCODE -ne 0) { throw "TypeScript compilation failed" }
+npx esbuild src/web/webchugl.ts --bundle --format=iife --outfile=src/web/webchugl.js --sourcemap
+if ($LASTEXITCODE -ne 0) { throw "esbuild bundling failed" }
 Pop-Location
 
 # Clean if requested
