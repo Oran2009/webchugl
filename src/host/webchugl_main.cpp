@@ -435,7 +435,7 @@ int main(int argc, char** argv)
 // Called from app.cpp's SG_COMMAND_WINDOW_SIZE_LIMITS handler.
 EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
     var STYLE_ID = 'chugl-aspect-style';
-    var canvas = document.getElementById('canvas');
+    var canvas = Module['canvas'];
     var hasAspect = (ar_x > 0 && ar_y > 0);
 
     // Manage centering CSS on body
