@@ -57,6 +57,10 @@ if [ -f "$GLFW_PATCH" ] && [ -f "$GLFW_JS_FILE" ]; then
     fi
 fi
 
+# Compile TypeScript
+echo "Compiling TypeScript..."
+(cd "$PROJECT_ROOT" && npx tsc)
+
 # Clean if requested
 if [ "$CLEAN" = true ]; then
     for d in "$BUILD_DIR" "$CMAKE_BUILD_DIR"; do
@@ -102,6 +106,8 @@ for f in index.js webchugl.wasm webchugl.js \
     [ -f "$BUILD_DIR/webchugl/$f" ] && cp "$BUILD_DIR/webchugl/$f" "$DIST_DIR/$f"
 done
 cp "$SRC_DIR/web/webchugl-esm.js" "$DIST_DIR/webchugl-esm.js"
+# Copy TypeScript declaration files for npm consumers
+[ -f "$SRC_DIR/web/webchugl-esm.d.ts" ] && cp "$SRC_DIR/web/webchugl-esm.d.ts" "$DIST_DIR/webchugl-esm.d.ts"
 
 # Inject package version into ESM (replaces __WEBCHUGL_VERSION__ placeholder)
 PKG_VERSION=$(node -p "require('$PROJECT_ROOT/package.json').version")

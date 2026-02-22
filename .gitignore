@@ -6,6 +6,16 @@ src/code/
 dist/
 web/src/
 
+# TypeScript compiled output (source is .ts files)
+src/web/webchugl-esm.js
+src/web/webchugl-esm.d.ts
+src/web/webchugl-esm.d.ts.map
+src/web/webchugl-esm.js.map
+src/web/webchugl.js
+src/web/webchugl.d.ts
+src/web/webchugl.d.ts.map
+src/web/webchugl.js.map
+
 # Test
 web/examples/test/
 

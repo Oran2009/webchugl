@@ -38,6 +38,13 @@ if ((Test-Path $GlfwPatch) -and (Test-Path $GlfwJsFile)) {
     }
 }
 
+# Compile TypeScript
+Write-Host "Compiling TypeScript..." -ForegroundColor Yellow
+Push-Location $ProjectRoot
+npx tsc
+if ($LASTEXITCODE -ne 0) { throw "TypeScript compilation failed" }
+Pop-Location
+
 # Clean if requested
 if ($Clean) {
     foreach ($d in @($BuildDir, $CMakeBuildDir)) {
@@ -120,6 +127,10 @@ foreach ($f in @("index.js", "webchugl.wasm", "webchugl.js",
     }
 }
 Copy-Item (Join-Path $SrcDir "web\webchugl-esm.js") (Join-Path $DistDir "webchugl-esm.js") -Force
+$DtsPath = Join-Path $SrcDir "web\webchugl-esm.d.ts"
+if (Test-Path $DtsPath) {
+    Copy-Item $DtsPath (Join-Path $DistDir "webchugl-esm.d.ts") -Force
+}
 
 # Inject package version into ESM (replaces __WEBCHUGL_VERSION__ placeholder)
 $PkgVersion = (Get-Content (Join-Path $ProjectRoot "package.json") | ConvertFrom-Json).version
