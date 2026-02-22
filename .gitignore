@@ -6,6 +6,9 @@ src/code/
 dist/
 web/src/
 
+# Test
+web/examples/test/
+
 # CMake generated
 CMakeCache.txt
 CMakeFiles/

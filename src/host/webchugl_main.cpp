@@ -304,6 +304,8 @@ static void run_vm_frame(void* data)
         // Planar buffers for ChucK: [ch0_s0..ch0_sN, ch1_s0..ch1_sN, ...]
         // Buffers are allocated once based on initial audio config.
         // Changing channel counts or sample rate at runtime is not supported.
+        // ==optimize== SAMPLE is always a float. can collapse these two input/output buffers into 1 pair.
+        // chuck output (interleaved) into floatBuffer --> directly into ringbuffer 
         static SAMPLE* inBuffer = nullptr;
         static SAMPLE* outBuffer = nullptr;
         static float* floatBuffer = nullptr;
@@ -407,22 +409,6 @@ int main(int argc, char** argv)
         !the_chuck->compileCode(k_GyroMsg_ck, "", 1, TRUE) ||
         !the_chuck->compileCode(k_Gyro_ck, "", 1, TRUE)) {
         printf("[WebChuGL] WARNING: Failed to compile built-in sensor classes\n");
-    }
-
-    // Compile main.ck if it exists (may not exist when using ESM runCode() API)
-    struct stat st;
-    if (stat("/code/main.ck", &st) == 0) {
-        if (!the_chuck->compileFile("/code/main.ck", "", 1, TRUE)) {
-            printf("[WebChuGL] ERROR: Failed to compile /code/main.ck\n");
-            return 1;
-        }
-
-        // Run VM briefly to execute initial setup code before GG.nextFrame()
-        SAMPLE* initIn = new SAMPLE[256 * g_numInputChannels]();
-        SAMPLE* initOut = new SAMPLE[256 * g_numOutputChannels]();
-        the_chuck->run(initIn, initOut, 256);
-        delete[] initIn;
-        delete[] initOut;
     }
 
     // Check if adc is used
