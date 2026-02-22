@@ -685,8 +685,8 @@ var ChuGL = {
      * @param {Object} config - Configuration options.
      * @param {HTMLCanvasElement} config.canvas - **Required.** Canvas element for WebGPU rendering.
      * @param {string} [config.whereIsChuGL] - Base URL where WebChuGL runtime
-     *   assets are hosted (`index.js`, `index.wasm`, `audio-worklet-processor.js`,
-     *   `jszip.min.js`). Must end with `/`. Defaults to the CCRMA-hosted runtime.
+     *   assets are hosted (`index.js`, `webchugl.wasm`, `audio-worklet-processor.js`,
+     *   `jszip.min.js`). Must end with `/`. Defaults to the jsdelivr CDN.
      * @param {string[]} [config.chugins] - Array of URLs to `.chug.wasm` files
      *   to load before the VM starts. Fetched in parallel with WebGPU init.
      * @param {boolean} [config.serviceWorker=true] - Register a service worker
@@ -716,7 +716,7 @@ var ChuGL = {
             return Promise.reject(new Error('ChuGL.init() requires config.canvas'));
         }
 
-        var baseUrl = config.whereIsChuGL || 'https://ccrma.stanford.edu/webchugl/src/';
+        var baseUrl = config.whereIsChuGL || 'https://cdn.jsdelivr.net/npm/webchugl@__WEBCHUGL_VERSION__/dist/';
         if (baseUrl[baseUrl.length - 1] !== '/') baseUrl += '/';
 
         // Validate baseUrl scheme to prevent loading scripts from untrusted origins

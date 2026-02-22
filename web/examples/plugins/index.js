@@ -12,7 +12,6 @@ function log(msg, cls) {
 log('Initializing WebChuGL...');
 var ck = await ChuGL.init({
     canvas: document.getElementById('canvas'),
-    whereIsChuGL: '../../src/',
 });
 log('WebChuGL ready.', 'log-ok');
 

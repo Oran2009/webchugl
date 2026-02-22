@@ -93,23 +93,20 @@ if [ ! -f "$BUILD_DIR/webchugl/index.js" ] || [ ! -f "$BUILD_DIR/webchugl/webchu
     exit 1
 fi
 
-# Copy runtime to web/src/ (for website deployment)
-echo "Copying to web/src/..."
-WEB_SRC_DIR="$PROJECT_ROOT/web/src"
-mkdir -p "$WEB_SRC_DIR"
-for f in index.js webchugl.wasm webchugl.js webchugl-esm.js \
-         audio-worklet-processor.js jszip.min.js \
-         chugl_logo_light.png chugl_logo_dark.png; do
-    [ -f "$BUILD_DIR/webchugl/$f" ] && cp "$BUILD_DIR/webchugl/$f" "$WEB_SRC_DIR/$f"
-done
-# sw.js goes one level up (web/) for broader scope
-[ -f "$BUILD_DIR/sw.js" ] && cp "$BUILD_DIR/sw.js" "$PROJECT_ROOT/web/sw.js"
-
-# Copy ESM entry point to dist/ (for npm publishing)
+# Copy runtime to dist/ (for npm publishing — includes all assets)
 echo "Preparing npm dist..."
 DIST_DIR="$PROJECT_ROOT/dist"
 mkdir -p "$DIST_DIR"
+for f in index.js webchugl.wasm webchugl.js \
+         audio-worklet-processor.js jszip.min.js; do
+    [ -f "$BUILD_DIR/webchugl/$f" ] && cp "$BUILD_DIR/webchugl/$f" "$DIST_DIR/$f"
+done
 cp "$SRC_DIR/web/webchugl-esm.js" "$DIST_DIR/webchugl-esm.js"
+
+# Inject package version into ESM (replaces __WEBCHUGL_VERSION__ placeholder)
+PKG_VERSION=$(node -p "require('$PROJECT_ROOT/package.json').version")
+sed -i "s/__WEBCHUGL_VERSION__/$PKG_VERSION/g" "$DIST_DIR/webchugl-esm.js"
+echo "Injected version $PKG_VERSION into webchugl-esm.js"
 
 echo ""
 echo "=== Build Complete ==="

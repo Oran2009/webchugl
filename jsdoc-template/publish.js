@@ -537,7 +537,6 @@ function buildPage(chuckClass, chuckMethods, chuckMembers, chuglNamespace, chugl
     html += '        var mod = await import("https://cdn.jsdelivr.net/npm/webchugl/+esm");\n';
     html += '        var ck = await mod.default.init({\n';
     html += '            canvas: canvas,\n';
-    html += '            whereIsChuGL: "../src/",\n';
     html += '            serviceWorker: false,\n';
     html += '        });\n';
     html += '        canvas.classList.add("ready");\n';

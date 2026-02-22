@@ -7,7 +7,6 @@ await RAPIER.init();
 // Initialize WebChuGL
 var ck = await ChuGL.init({
     canvas: document.getElementById('canvas'),
-    whereIsChuGL: '../../src/',
 });
 
 await ck.runFile('./main.ck');

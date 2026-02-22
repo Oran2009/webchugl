@@ -101,6 +101,22 @@ inline void ringWrite(const float* data, int samples) {
     g_ringWritePos.store(writePos + samples, std::memory_order_release);
 }
 
+// Write planar samples to output ring buffer, interleaving on the fly.
+// data: planar [ch0_s0..ch0_sN, ch1_s0..ch1_sN, ...], stride between channels = samples
+inline void ringWritePlanar(const float* data, int samples) {
+    uint32_t writePos = g_ringWritePos.load(std::memory_order_relaxed);
+    uint32_t nc = g_outChannels;
+
+    for (int i = 0; i < samples; i++) {
+        uint32_t idx = ((writePos + i) & (RING_CAPACITY - 1)) * nc;
+        for (uint32_t ch = 0; ch < nc; ch++) {
+            g_audioRingBuffer[idx + ch] = data[ch * samples + i];
+        }
+    }
+
+    g_ringWritePos.store(writePos + samples, std::memory_order_release);
+}
+
 // ============================================================================
 // INPUT Ring Buffer Operations
 // ============================================================================
@@ -113,10 +129,13 @@ inline uint32_t inputRingAvailableToRead() {
     return available;
 }
 
-// Read from input ring buffer, converting interleaved → planar for ChucK
+// Read from input ring buffer, converting interleaved → planar for ChucK.
 // outBuffer: planar [ch0_s0..ch0_sN, ch1_s0..ch1_sN, ...]
+// stride: distance between channels in outBuffer (typically samplesToGenerate).
+//   When stride > samples read, the extra slots are untouched (caller should
+//   zero the buffer beforehand).
 // Returns: number of sample frames read (not total floats)
-inline int inputRingRead(float* outBuffer, int samples) {
+inline int inputRingRead(float* outBuffer, int samples, int stride) {
     uint32_t available = inputRingAvailableToRead();
     if (available == 0) return 0;
     if ((uint32_t)samples > available) samples = available;
@@ -127,7 +146,7 @@ inline int inputRingRead(float* outBuffer, int samples) {
     for (int i = 0; i < samples; i++) {
         uint32_t idx = ((readPos + i) & (RING_CAPACITY - 1)) * nc;
         for (uint32_t ch = 0; ch < nc; ch++) {
-            outBuffer[ch * samples + i] = g_inputRingBuffer[idx + ch];
+            outBuffer[ch * stride + i] = g_inputRingBuffer[idx + ch];
         }
     }
 

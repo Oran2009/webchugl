@@ -302,47 +302,27 @@ static void run_vm_frame(void* data)
         int maxSPC = g_maxSamplesPerCall;
 
         // Planar buffers for ChucK: [ch0_s0..ch0_sN, ch1_s0..ch1_sN, ...]
-        // Buffers are allocated once based on initial audio config.
-        // Changing channel counts or sample rate at runtime is not supported.
-        // ==optimize== SAMPLE is always a float. can collapse these two input/output buffers into 1 pair.
-        // chuck output (interleaved) into floatBuffer --> directly into ringbuffer 
+        // SAMPLE == float on Emscripten, so these are used directly with
+        // the ring buffer functions (no intermediate conversion buffers).
         static SAMPLE* inBuffer = nullptr;
         static SAMPLE* outBuffer = nullptr;
-        static float* floatBuffer = nullptr;
-        static float* floatInBuffer = nullptr;
         if (!inBuffer) {
-            SAMPLE* nb = new SAMPLE[maxSPC * inCh]();
-            SAMPLE* ob = new SAMPLE[maxSPC * outCh]();
-            float*  fb = new float[maxSPC * outCh]();
-            float*  fib = new float[maxSPC * inCh]();
-            inBuffer = nb;
-            outBuffer = ob;
-            floatBuffer = fb;
-            floatInBuffer = fib;
+            inBuffer = new SAMPLE[maxSPC * inCh]();
+            outBuffer = new SAMPLE[maxSPC * outCh]();
         }
 
-        // Read mic input from input ring buffer (planar format)
-        int samplesRead = inputRingRead(floatInBuffer, samplesToGenerate);
-        for (int ch = 0; ch < inCh; ch++) {
-            for (int s = 0; s < samplesToGenerate; s++) {
-                inBuffer[ch * samplesToGenerate + s] =
-                    (s < samplesRead) ? (SAMPLE)floatInBuffer[ch * samplesRead + s] : 0;
-            }
-        }
+        // Read mic input from input ring buffer directly into ChucK's
+        // planar input buffer. Zero first so unread slots are silent.
+        memset(inBuffer, 0, samplesToGenerate * inCh * sizeof(SAMPLE));
+        inputRingRead(inBuffer, samplesToGenerate, samplesToGenerate);
 
         // Always run ChucK VM (needed for graphics via GG.nextFrame())
         ck->run(inBuffer, outBuffer, samplesToGenerate);
 
-        // Write to ring buffer if there's space (drop audio if full)
+        // Write planar output directly to ring buffer (interleaves on the fly)
         uint32_t available = ringAvailableToWrite();
         if (available >= (uint32_t)samplesToGenerate) {
-            // Convert from planar SAMPLE to interleaved float for ring buffer
-            for (int i = 0; i < samplesToGenerate; i++) {
-                for (int ch = 0; ch < outCh; ch++) {
-                    floatBuffer[i * outCh + ch] = (float)outBuffer[ch * samplesToGenerate + i];
-                }
-            }
-            ringWrite(floatBuffer, samplesToGenerate);
+            ringWritePlanar(outBuffer, samplesToGenerate);
         }
     }
 }

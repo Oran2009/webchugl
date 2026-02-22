@@ -106,33 +106,26 @@ if (-not (Test-Path $requiredJs) -or -not (Test-Path $requiredWasm)) {
     throw "Build outputs missing. Expected webchugl/index.js and webchugl/webchugl.wasm in $BuildDir"
 }
 
-# Copy runtime to web/src/ (for website deployment)
-Write-Host "Copying to web/src/..." -ForegroundColor Gray
-$WebSrcDir = Join-Path $ProjectRoot "web\src"
-if (-not (Test-Path $WebSrcDir)) {
-    New-Item -ItemType Directory -Path $WebSrcDir | Out-Null
-}
-foreach ($f in @("index.js", "webchugl.wasm", "webchugl.js", "webchugl-esm.js",
-                 "audio-worklet-processor.js", "jszip.min.js",
-                 "chugl_logo_light.png", "chugl_logo_dark.png")) {
-    $src = Join-Path $BuildWebchuglDir $f
-    if (Test-Path $src) {
-        Copy-Item $src (Join-Path $WebSrcDir $f) -Force
-    }
-}
-# sw.js goes one level up (web/) for broader scope
-$swSrc = Join-Path $BuildDir "sw.js"
-if (Test-Path $swSrc) {
-    Copy-Item $swSrc (Join-Path $ProjectRoot "web\sw.js") -Force
-}
-
-# Copy ESM entry point to dist/ (for npm publishing)
+# Copy runtime to dist/ (for npm publishing — includes all assets)
 Write-Host "Preparing npm dist..." -ForegroundColor Gray
 $DistDir = Join-Path $ProjectRoot "dist"
 if (-not (Test-Path $DistDir)) {
     New-Item -ItemType Directory -Path $DistDir | Out-Null
 }
+foreach ($f in @("index.js", "webchugl.wasm", "webchugl.js",
+                 "audio-worklet-processor.js", "jszip.min.js")) {
+    $src = Join-Path $BuildWebchuglDir $f
+    if (Test-Path $src) {
+        Copy-Item $src (Join-Path $DistDir $f) -Force
+    }
+}
 Copy-Item (Join-Path $SrcDir "web\webchugl-esm.js") (Join-Path $DistDir "webchugl-esm.js") -Force
+
+# Inject package version into ESM (replaces __WEBCHUGL_VERSION__ placeholder)
+$PkgVersion = (Get-Content (Join-Path $ProjectRoot "package.json") | ConvertFrom-Json).version
+$EsmPath = Join-Path $DistDir "webchugl-esm.js"
+(Get-Content $EsmPath -Raw).Replace('__WEBCHUGL_VERSION__', $PkgVersion) | Set-Content $EsmPath -NoNewline
+Write-Host "Injected version $PkgVersion into webchugl-esm.js" -ForegroundColor Gray
 
 Write-Host "`n=== Build Complete ===" -ForegroundColor Green
 Write-Host "Output: $BuildDir" -ForegroundColor Gray

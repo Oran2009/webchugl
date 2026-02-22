@@ -100,7 +100,6 @@
             var mod = await import('https://cdn.jsdelivr.net/npm/webchugl/+esm');
             var ck = await mod.default.init({
                 canvas: canvas,
-                whereIsChuGL: '../src/',
             });
             canvas.classList.add('ready');
             ck.runCode([
