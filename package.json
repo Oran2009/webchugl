@@ -5,6 +5,7 @@
     "type": "module",
     "main": "dist/webchugl-esm.js",
     "module": "dist/webchugl-esm.js",
+    "types": "dist/webchugl-esm.d.ts",
     "exports": {
         ".": {
             "import": "./dist/webchugl-esm.js",
@@ -23,7 +24,8 @@
         "Audio"
     ],
     "scripts": {
-        "docs": "jsdoc -c jsdoc.json"
+        "docs": "jsdoc -c jsdoc.json",
+        "build:ts": "tsc"
     },
     "author": "Ben Hoang",
     "license": "MIT",
@@ -36,6 +38,7 @@
         "url": "https://github.com/ccrma/webchugl/issues"
     },
     "devDependencies": {
-        "jsdoc": "^4.0.5"
+        "jsdoc": "^4.0.5",
+        "typescript": "^5.9.3"
     }
 }
