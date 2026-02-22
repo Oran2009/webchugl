@@ -197,7 +197,7 @@ document.getElementById('drum-clear').addEventListener('click', function() {
 });
 
 // Step highlight (ChucK -> JS)
-ck.listenForEvent('step', function() {
+ck.startListeningForEvent('step', function() {
     ck.getInt('currentStep').then(function(step) {
         cells.forEach(function(c) { c.classList.remove('playing'); });
         cells.forEach(function(c) {

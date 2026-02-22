@@ -24,6 +24,7 @@
         "Audio"
     ],
     "scripts": {
+        "dev": "node serve-dev.js",
         "docs": "jsdoc -c jsdoc.json",
         "build:ts": "tsc"
     },
