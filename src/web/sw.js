@@ -9,7 +9,7 @@
  * happens on first fetch regardless of deployment layout.
  */
 
-var CACHE_NAME = 'webchugl-v7';
+var CACHE_NAME = 'webchugl-v8';
 
 // ── Install ─────────────────────────────────────────────────────────
 self.addEventListener('install', function() { self.skipWaiting(); });
@@ -54,52 +54,41 @@ self.addEventListener('fetch', function(event) {
     // Don't intercept SSE / EventSource streams (causes CORS preflight issues)
     if (r.headers.get('accept') === 'text/event-stream') return;
 
-    // Strip credentials on no-cors requests for credentialless COEP
-    var request = (r.mode === 'no-cors')
-        ? new Request(r, { credentials: 'omit' })
-        : r;
-
     var isSameOrigin = new URL(r.url).origin === self.location.origin;
 
-    if (isSameOrigin) {
-        // Same-origin: stale-while-revalidate cache + COI headers
-        event.respondWith(
-            caches.match(r).then(function(cached) {
-                if (cached) {
-                    // Serve from cache now, refresh in background
-                    fetch(request).then(function(response) {
-                        if (response.ok) {
-                            caches.open(CACHE_NAME).then(function(cache) {
-                                cache.put(r, response);
-                            });
-                        }
-                    }).catch(function() {});
-                    return addCoiHeaders(cached);
-                }
+    // Only intercept same-origin requests. Cross-origin requests are left
+    // to the browser, which handles credential stripping natively under
+    // COEP credentialless. Intercepting them would break CORS proxies and
+    // legitimate cross-origin fetches.
+    if (!isSameOrigin) return;
 
-                // Not cached — fetch, cache, serve
-                return fetch(request).then(function(response) {
+    // Same-origin: stale-while-revalidate cache + COI headers
+    event.respondWith(
+        caches.match(r).then(function(cached) {
+            if (cached) {
+                // Serve from cache now, refresh in background
+                fetch(r).then(function(response) {
                     if (response.ok) {
-                        var clone = response.clone();
                         caches.open(CACHE_NAME).then(function(cache) {
-                            cache.put(r, clone);
+                            cache.put(r, response);
                         });
                     }
-                    return addCoiHeaders(response);
-                });
-            })
-        );
-    } else {
-        // Cross-origin: add COI headers only (no caching)
-        event.respondWith(
-            fetch(request).then(function(response) {
-                if (response.status === 0) return response;
+                }).catch(function() {});
+                return addCoiHeaders(cached);
+            }
+
+            // Not cached — fetch, cache, serve
+            return fetch(r).then(function(response) {
+                if (response.ok) {
+                    var clone = response.clone();
+                    caches.open(CACHE_NAME).then(function(cache) {
+                        cache.put(r, clone);
+                    });
+                }
                 return addCoiHeaders(response);
-            }).catch(function() {
-                return new Response('Network error', { status: 503, statusText: 'Service Unavailable' });
-            })
-        );
-    }
+            });
+        })
+    );
 });
 
 // ── Helpers ──────────────────────────────────────────────────────────
