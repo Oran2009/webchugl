@@ -14,6 +14,10 @@ src/web/webchugl.js.map
 
 # TypeScript compiled lib/ outputs (bundled by esbuild, not used directly)
 src/web/lib/**/*.js
+# Hand-written JS files in lib/ (not tsc output — keep tracked)
+!src/web/lib/audio-worklet-processor.js
+!src/web/lib/jszip.min.js
+!src/web/lib/sw.js
 
 # Test
 web/examples/test/

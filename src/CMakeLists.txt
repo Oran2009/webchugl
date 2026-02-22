@@ -239,23 +239,23 @@ add_custom_command(TARGET webchugl POST_BUILD
         ${CMAKE_CURRENT_SOURCE_DIR}/web/webchugl.js
         ${CMAKE_CURRENT_BINARY_DIR}/webchugl/webchugl.js
     COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/web/audio-worklet-processor.js
+        ${CMAKE_CURRENT_SOURCE_DIR}/web/lib/audio-worklet-processor.js
         ${CMAKE_CURRENT_BINARY_DIR}/webchugl/audio-worklet-processor.js
     COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/web/jszip.min.js
+        ${CMAKE_CURRENT_SOURCE_DIR}/web/lib/jszip.min.js
         ${CMAKE_CURRENT_BINARY_DIR}/webchugl/jszip.min.js
     COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/web/chugl_logo_light.png
+        ${CMAKE_CURRENT_SOURCE_DIR}/web/assets/chugl_logo_light.png
         ${CMAKE_CURRENT_BINARY_DIR}/webchugl/chugl_logo_light.png
     COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/web/chugl_logo_dark.png
+        ${CMAKE_CURRENT_SOURCE_DIR}/web/assets/chugl_logo_dark.png
         ${CMAKE_CURRENT_BINARY_DIR}/webchugl/chugl_logo_dark.png
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_SOURCE_DIR}/web/webchugl-esm.js
         ${CMAKE_CURRENT_BINARY_DIR}/webchugl/webchugl-esm.js
     # Copy root-level files
     COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/web/sw.js
+        ${CMAKE_CURRENT_SOURCE_DIR}/web/lib/sw.js
         ${CMAKE_CURRENT_BINARY_DIR}/sw.js
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_SOURCE_DIR}/web/manifest.json
