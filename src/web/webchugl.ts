@@ -872,27 +872,76 @@ class ChucK {
 
     // ── ChuMP Package Loading ───────────────────────────────────────────
 
+    private static readonly CHUMP_RAW = 'https://raw.githubusercontent.com/ccrma/chump-packages/main/packages';
+    private static readonly CHUMP_API = 'https://api.github.com/repos/ccrma/chump-packages/contents/packages';
+    private static readonly CORS_PROXY = 'https://cors.webchugl.workers.dev/?url=';
+
+    /**
+     * Resolve the latest version of a package by listing version directories
+     * from the GitHub API and picking the highest semver.
+     */
+    private resolveLatestVersion(name: string): Promise<string> {
+        return fetch(ChucK.CHUMP_API + '/' + name).then((r) => {
+            if (!r.ok) throw new Error('Package not found: ' + name);
+            return r.json();
+        }).then((entries: Array<{ name: string; type: string }>) => {
+            const versions = entries
+                .filter((e) => e.type === 'dir' && /^\d/.test(e.name))
+                .map((e) => e.name);
+            if (!versions.length) throw new Error('No versions found for package: ' + name);
+            versions.sort((a, b) => {
+                const pa = a.split('.').map(Number);
+                const pb = b.split('.').map(Number);
+                for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+                    const diff = (pa[i] || 0) - (pb[i] || 0);
+                    if (diff !== 0) return diff;
+                }
+                return 0;
+            });
+            return versions[versions.length - 1];
+        });
+    }
+
+    /**
+     * Fetch a URL, falling back to a CORS proxy if the direct request fails.
+     */
+    private fetchWithCorsProxy(url: string): Promise<Response> {
+        return fetch(url).then((r) => {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r;
+        }).catch(() => {
+            return fetch(ChucK.CORS_PROXY + encodeURIComponent(url)).then((r) => {
+                if (!r.ok) throw new Error('HTTP ' + r.status + ' (via CORS proxy)');
+                return r;
+            });
+        });
+    }
+
     loadPackage(name: string, version?: string, url?: string): Promise<string> {
         if (!name || !/^[a-zA-Z0-9_@\/-]+$/.test(name)) {
             return Promise.reject(new Error('Invalid package name: ' + name));
         }
-        const resolvedVersion = version || 'latest';
-        if (!/^[a-zA-Z0-9._-]+$/.test(resolvedVersion)) {
-            return Promise.reject(new Error('Invalid package version: ' + resolvedVersion));
+        if (version && !/^[a-zA-Z0-9._-]+$/.test(version)) {
+            return Promise.reject(new Error('Invalid package version: ' + version));
         }
 
         const jszipReady = this.ensureJSZip();
 
-        let zipPromise: Promise<ArrayBuffer>;
-        if (url) {
-            zipPromise = fetch(url).then((r) => {
-                if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + url);
-                return r.arrayBuffer();
-            });
-        } else {
-            const manifestUrl = 'https://raw.githubusercontent.com/ccrma/chump-packages/main/packages/'
-                + name + '/' + resolvedVersion + '/' + name + '.json';
-            zipPromise = fetch(manifestUrl).then((r) => {
+        // Resolve version: if not provided, find the latest from the registry
+        const versionPromise: Promise<string> = version
+            ? Promise.resolve(version)
+            : this.resolveLatestVersion(name);
+
+        let resolvedVersionStr = version || '';
+        const zipPromise: Promise<ArrayBuffer> = versionPromise.then((resolvedVersion) => {
+            resolvedVersionStr = resolvedVersion;
+
+            if (url) {
+                return this.fetchWithCorsProxy(url).then((r) => r.arrayBuffer());
+            }
+
+            const manifestUrl = ChucK.CHUMP_RAW + '/' + name + '/' + resolvedVersion + '/' + name + '.json';
+            return fetch(manifestUrl).then((r) => {
                 if (!r.ok) throw new Error('Package not found: ' + name + '@' + resolvedVersion);
                 return r.json();
             }).then((manifest: any) => {
@@ -900,12 +949,9 @@ class ChucK {
                 if (!files.length || !files[0].url) {
                     throw new Error('No download URL in manifest for ' + name);
                 }
-                return fetch(files[0].url).then((r) => {
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    return r.arrayBuffer();
-                });
+                return this.fetchWithCorsProxy(files[0].url).then((r) => r.arrayBuffer());
             });
-        }
+        });
 
         return Promise.all([jszipReady, zipPromise]).then(([, zipData]) =>
             JSZip.loadAsync(zipData)
@@ -934,7 +980,7 @@ class ChucK {
                 });
             }));
         }).then(() => {
-            console.log('[WebChuGL] Package loaded: ' + name + '@' + resolvedVersion);
+            console.log('[WebChuGL] Package loaded: ' + name + '@' + resolvedVersionStr);
             return name;
         });
     }
