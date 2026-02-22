@@ -9,14 +9,11 @@ web/src/
 # TypeScript compiled output (source is .ts files)
 src/web/webchugl-esm.js
 src/web/webchugl-esm.d.ts
-src/web/webchugl-esm.d.ts.map
-src/web/webchugl-esm.js.map
 src/web/webchugl.js
 src/web/webchugl.js.map
 
 # TypeScript compiled lib/ outputs (bundled by esbuild, not used directly)
 src/web/lib/**/*.js
-src/web/lib/**/*.map
 
 # Test
 web/examples/test/
