@@ -267,7 +267,6 @@ class ChucK {
 
             _ckCallbacks: instance.callbacks,
             _ckEventListeners: instance.eventListeners,
-            _onChuckPrint: null,
 
             _initAudio: (
                 sab: SharedArrayBuffer,
@@ -461,10 +460,20 @@ class ChucK {
 
     // ── Virtual Filesystem ──────────────────────────────────────────────
 
-    createFile(directory: string, filename: string, data: string | ArrayBuffer): void {
-        let dir = directory;
-        if (dir && dir[dir.length - 1] !== '/') dir += '/';
-        const path = dir + filename;
+    createFile(pathOrDir: string, filenameOrData: string | ArrayBuffer, maybeData?: string | ArrayBuffer): void {
+        let path: string;
+        let data: string | ArrayBuffer;
+        if (maybeData !== undefined) {
+            // 3-arg: createFile(directory, filename, data)
+            let dir = pathOrDir;
+            if (dir && dir[dir.length - 1] !== '/') dir += '/';
+            path = dir + (filenameOrData as string);
+            data = maybeData;
+        } else {
+            // 2-arg: createFile(path, data)
+            path = pathOrDir;
+            data = filenameOrData;
+        }
         this.defer(() => {
             ensureVfsDir(this.module!.FS, path);
             if (typeof data === 'string') {
@@ -724,7 +733,13 @@ class ChucK {
     }
 
     getLoadedChugins(): string[] {
-        return Object.keys(this.loadedChuginSet);
+        if (!this.module) return Object.keys(this.loadedChuginSet);
+        try {
+            const json: string = this.module.ccall('ck_get_loaded_chugins', 'string', [], []);
+            return JSON.parse(json);
+        } catch {
+            return Object.keys(this.loadedChuginSet);
+        }
     }
 
     // ── Shred Management ────────────────────────────────────────────────
