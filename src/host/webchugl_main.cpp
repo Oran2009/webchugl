@@ -754,14 +754,273 @@ EMSCRIPTEN_KEEPALIVE
 int ck_run_code(const char* code)
 {
     if (!the_chuck) return 0;
-    return the_chuck->compileCode(code, "", 1, TRUE) ? 1 : 0;
+    std::vector<t_CKUINT> shredIDs;
+    if (!the_chuck->compileCode(code, "", 1, TRUE, &shredIDs)) return 0;
+    return shredIDs.empty() ? 0 : (int)shredIDs[0];
 }
 
 EMSCRIPTEN_KEEPALIVE
 int ck_run_file(const char* path)
 {
     if (!the_chuck) return 0;
-    return the_chuck->compileFile(path, "", 1, TRUE) ? 1 : 0;
+    std::vector<t_CKUINT> shredIDs;
+    if (!the_chuck->compileFile(path, "", 1, TRUE, &shredIDs)) return 0;
+    return shredIDs.empty() ? 0 : (int)shredIDs[0];
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_run_file_with_args(const char* path, const char* colonSeparatedArgs)
+{
+    if (!the_chuck) return 0;
+    std::vector<t_CKUINT> shredIDs;
+    if (!the_chuck->compileFile(path, colonSeparatedArgs ? colonSeparatedArgs : "",
+                                1, TRUE, &shredIDs)) return 0;
+    return shredIDs.empty() ? 0 : (int)shredIDs[0];
+}
+
+// ---- Shred management -----------------------------------------------
+
+// Find the highest active shred ID (the "last" shred)
+static t_CKUINT _find_last_shred_id()
+{
+    if (!the_chuck) return 0;
+    // Iterate down from last_id to find the highest active shred
+    t_CKUINT xid = the_chuck->vm()->last_id();
+    while (xid > 0) {
+        if (the_chuck->vm()->shreduler()->lookup(xid)) return xid;
+        xid--;
+    }
+    return 0;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_remove_shred(unsigned int shredID)
+{
+    if (!the_chuck) return 0;
+    // Verify shred exists
+    if (!the_chuck->vm()->shreduler()->lookup(shredID)) return 0;
+    // Queue removal — processed on next vm run() call
+    Chuck_Msg* msg = new Chuck_Msg;
+    msg->type = CK_MSG_REMOVE;
+    msg->param = (t_CKUINT)shredID;
+    the_chuck->vm()->queue_msg(msg);
+    return (int)shredID;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_remove_last_code()
+{
+    if (!the_chuck) return 0;
+    t_CKUINT xid = _find_last_shred_id();
+    if (xid == 0) return 0;
+    // Queue removal with CK_NO_VALUE to use VM's "remove last" logic
+    Chuck_Msg* msg = new Chuck_Msg;
+    msg->type = CK_MSG_REMOVE;
+    msg->param = CK_NO_VALUE;
+    the_chuck->vm()->queue_msg(msg);
+    return (int)xid;
+}
+
+// Static storage for replace results (old/new shred IDs)
+static int g_replaceOldShred = 0;
+static int g_replaceNewShred = 0;
+
+EMSCRIPTEN_KEEPALIVE
+int ck_replace_code(const char* code)
+{
+    if (!the_chuck) return 0;
+    g_replaceOldShred = 0;
+    g_replaceNewShred = 0;
+
+    // Find last active shred
+    t_CKUINT oldXid = _find_last_shred_id();
+    if (oldXid == 0) return 0;
+
+    // Queue removal of old shred
+    Chuck_Msg* msg = new Chuck_Msg;
+    msg->type = CK_MSG_REMOVE;
+    msg->param = oldXid;
+    the_chuck->vm()->queue_msg(msg);
+
+    // Compile new code immediately
+    std::vector<t_CKUINT> newIDs;
+    if (!the_chuck->compileCode(code, "", 1, TRUE, &newIDs) || newIDs.empty())
+        return 0;
+
+    g_replaceOldShred = (int)oldXid;
+    g_replaceNewShred = (int)newIDs[0];
+    return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_replace_file(const char* path)
+{
+    if (!the_chuck) return 0;
+    g_replaceOldShred = 0;
+    g_replaceNewShred = 0;
+
+    t_CKUINT oldXid = _find_last_shred_id();
+    if (oldXid == 0) return 0;
+
+    Chuck_Msg* msg = new Chuck_Msg;
+    msg->type = CK_MSG_REMOVE;
+    msg->param = oldXid;
+    the_chuck->vm()->queue_msg(msg);
+
+    std::vector<t_CKUINT> newIDs;
+    if (!the_chuck->compileFile(path, "", 1, TRUE, &newIDs) || newIDs.empty())
+        return 0;
+
+    g_replaceOldShred = (int)oldXid;
+    g_replaceNewShred = (int)newIDs[0];
+    return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_replace_file_with_args(const char* path, const char* colonSeparatedArgs)
+{
+    if (!the_chuck) return 0;
+    g_replaceOldShred = 0;
+    g_replaceNewShred = 0;
+
+    t_CKUINT oldXid = _find_last_shred_id();
+    if (oldXid == 0) return 0;
+
+    Chuck_Msg* msg = new Chuck_Msg;
+    msg->type = CK_MSG_REMOVE;
+    msg->param = oldXid;
+    the_chuck->vm()->queue_msg(msg);
+
+    std::vector<t_CKUINT> newIDs;
+    if (!the_chuck->compileFile(path, colonSeparatedArgs ? colonSeparatedArgs : "",
+                                1, TRUE, &newIDs) || newIDs.empty())
+        return 0;
+
+    g_replaceOldShred = (int)oldXid;
+    g_replaceNewShred = (int)newIDs[0];
+    return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_get_replace_old_shred() { return g_replaceOldShred; }
+
+EMSCRIPTEN_KEEPALIVE
+int ck_get_replace_new_shred() { return g_replaceNewShred; }
+
+EMSCRIPTEN_KEEPALIVE
+int ck_is_shred_active(unsigned int shredID)
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm()->shreduler()->lookup(shredID) ? 1 : 0;
+}
+
+// ---- VM parameters --------------------------------------------------
+
+EMSCRIPTEN_KEEPALIVE
+void ck_set_param_int(const char* name, int val)
+{
+    if (!the_chuck) return;
+    the_chuck->setParam(name, (t_CKINT)val);
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_get_param_int(const char* name)
+{
+    if (!the_chuck) return 0;
+    return (int)the_chuck->getParamInt(name);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ck_set_param_float(const char* name, double val)
+{
+    if (!the_chuck) return;
+    the_chuck->setParamFloat(name, (t_CKFLOAT)val);
+}
+
+EMSCRIPTEN_KEEPALIVE
+double ck_get_param_float(const char* name)
+{
+    if (!the_chuck) return 0.0;
+    return (double)the_chuck->getParamFloat(name);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ck_set_param_string(const char* name, const char* val)
+{
+    if (!the_chuck) return;
+    the_chuck->setParam(name, std::string(val));
+}
+
+EMSCRIPTEN_KEEPALIVE
+const char* ck_get_param_string(const char* name)
+{
+    static std::string result;
+    if (!the_chuck) return "";
+    result = the_chuck->getParamString(name);
+    return result.c_str();
+}
+
+// ---- VM reset -------------------------------------------------------
+
+EMSCRIPTEN_KEEPALIVE
+void ck_clear_instance()
+{
+    if (!the_chuck) return;
+    the_chuck->removeAllShreds();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ck_clear_globals()
+{
+    if (!the_chuck) return;
+    Chuck_Msg* msg = new Chuck_Msg;
+    msg->type = CK_MSG_CLEARGLOBALS;
+    the_chuck->vm()->queue_msg(msg);
+}
+
+// ---- Print callback -------------------------------------------------
+// Redirects ChucK stdout (chout) to JS via Module._onChuckPrint
+
+EM_JS(void, _ck_dispatch_print, (const char* msg), {
+    if (Module._onChuckPrint) {
+        Module._onChuckPrint(UTF8ToString(msg));
+    }
+});
+
+static void _chout_callback(const char* msg) {
+    _ck_dispatch_print(msg);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ck_set_print_callback(int enabled)
+{
+    if (!the_chuck) return;
+    the_chuck->setChoutCallback(enabled ? _chout_callback : NULL);
+}
+
+// ---- ChuGin info ----------------------------------------------------
+
+EMSCRIPTEN_KEEPALIVE
+const char* ck_get_loaded_chugins()
+{
+    static std::string result;
+    result = "[";
+    bool first = true;
+    for (const auto& path : g_loadedChuginPaths) {
+        if (!first) result += ",";
+        first = false;
+        // Extract short name
+        size_t slashPos = path.rfind('/');
+        std::string name = (slashPos == std::string::npos)
+            ? path : path.substr(slashPos + 1);
+        size_t dotPos = name.find(".chug");
+        if (dotPos != std::string::npos) name = name.substr(0, dotPos);
+        result += "\"";
+        appendJsonEscaped(result, name);
+        result += "\"";
+    }
+    result += "]";
+    return result.c_str();
 }
 
 // ---- VM introspection -----------------------------------------------

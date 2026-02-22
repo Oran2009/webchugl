@@ -10,7 +10,12 @@ var env = require('jsdoc/env');
 var METHOD_GROUPS = [
     {
         title: 'Code Execution',
-        methods: ['runCode', 'runFile', 'runZip']
+        methods: ['runCode', 'runFile', 'runFileWithArgs', 'runZip']
+    },
+    {
+        title: 'Shred Management',
+        methods: ['replaceCode', 'replaceFile', 'replaceFileWithArgs',
+                  'removeLastCode', 'removeShred', 'isShredActive']
     },
     {
         title: 'Virtual Filesystem',
@@ -18,7 +23,7 @@ var METHOD_GROUPS = [
     },
     {
         title: 'Audio',
-        methods: ['loadAudio', 'initMidi', 'getSampleRate']
+        methods: ['loadAudio', 'initMidi', 'getSampleRate', 'connect', 'disconnect']
     },
     {
         title: 'Scalar Variables',
@@ -41,11 +46,14 @@ var METHOD_GROUPS = [
     },
     {
         title: 'ChuGins & Packages',
-        methods: ['loadChugin', 'getLoadedChugins', 'loadPackage']
+        methods: ['loadChugin', 'getLoadedChugins', 'loadedChugins', 'loadPackage']
     },
     {
         title: 'VM',
-        methods: ['getCurrentTime', 'getActiveShreds', 'getLastError', 'getGlobalVariables']
+        methods: ['getCurrentTime', 'now', 'getActiveShreds', 'getLastError', 'getGlobalVariables',
+                  'setParamInt', 'getParamInt', 'setParamFloat', 'getParamFloat',
+                  'setParamString', 'getParamString',
+                  'clearChuckInstance', 'clearGlobals']
     },
     {
         title: 'Persistent Storage',
