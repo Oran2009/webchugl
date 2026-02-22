@@ -93,14 +93,7 @@ interface ChucK {
 
     // ── Virtual Filesystem ──────────────────────────────────────────────
 
-    /**
-     * Write a file to the virtual filesystem.
-     *
-     * Supports two calling conventions:
-     * - **2-arg (WebChuGL):** `createFile(path, data)`
-     * - **3-arg (WebChucK):** `createFile(directory, filename, data)`
-     */
-    createFile(path: string, data: string | ArrayBuffer): void;
+    /** Write a file to the virtual filesystem. */
     createFile(directory: string, filename: string, data: string | ArrayBuffer): void;
 
     /** Remove a file or directory from the virtual filesystem recursively. */
@@ -134,7 +127,6 @@ interface ChucK {
 
     signalEvent(name: string): void;
     broadcastEvent(name: string): void;
-    listenForEvent(name: string, callback: () => void): number;
     listenForEventOnce(name: string, callback: () => void): number;
     stopListeningForEvent(name: string, listenerId: number): void;
     startListeningForEvent(name: string, callback: () => void): number;
@@ -211,7 +203,6 @@ interface ChucK {
 
     connect(destination: AudioNode): void;
     disconnect(): void;
-    loadedChugins(): string[];
 
     // ── Persistent Storage (IndexedDB) ──────────────────────────────────
 
