@@ -13,7 +13,7 @@
     "forceConsistentCasingInFileNames": true,
     "esModuleInterop": true,
     "moduleResolution": "node",
-    "typeRoots": ["src/web/types"]
+    "typeRoots": ["src/web/types", "node_modules/@webgpu"]
   },
   "include": ["src/web/webchugl-esm.ts", "src/web/webchugl.ts", "src/web/types/**/*.d.ts"],
   "exclude": ["node_modules", "emsdk-*", "chuck", "chugl", "dist"]

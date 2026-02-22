@@ -38,6 +38,7 @@
         "url": "https://github.com/ccrma/webchugl/issues"
     },
     "devDependencies": {
+        "@webgpu/types": "^0.1.69",
         "jsdoc": "^4.0.5",
         "typescript": "^5.9.3"
     }
