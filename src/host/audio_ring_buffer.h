@@ -19,13 +19,17 @@
   Uses atomic read/write positions. Global variables are automatically shared
   between main thread and Audio Worklet via Emscripten's SharedArrayBuffer.
 
-  Buffer format: Interleaved N-channel [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ...]
+  Buffer format: Planar N-channel — each channel occupies a contiguous plane
+  of RING_CAPACITY floats: [ch0: RING_CAPACITY][ch1: RING_CAPACITY]...
+  Both ChucK and Web Audio use planar buffers, so this layout avoids any
+  interleave/deinterleave conversions.
   Call initRingBuffers(outChannels, inChannels) before use.
 -----------------------------------------------------------------------------*/
 #pragma once
 
 #include <atomic>
 #include <cstdint>
+#include <cstring>
 
 // Ring buffer capacity in sample frames (not bytes, not individual floats).
 // ~170ms at 48kHz, large enough for variable FPS jitter.
@@ -84,33 +88,24 @@ inline uint32_t ringAvailableToWrite() {
     return RING_CAPACITY - used;
 }
 
-// Write interleaved samples to output ring buffer
-// data: interleaved samples, length = samples * g_outChannels
-inline void ringWrite(const float* data, int samples) {
+// Write planar samples to output ring buffer.
+// data: planar [ch0_s0..ch0_sN, ch1_s0..ch1_sN, ...] with `stride` floats
+//       between the start of each channel.
+inline void ringWrite(const float* data, int samples, int stride) {
     uint32_t writePos = g_ringWritePos.load(std::memory_order_relaxed);
+    uint32_t mask = RING_CAPACITY - 1;
+    uint32_t offset = writePos & mask;
+    uint32_t firstChunk = RING_CAPACITY - offset;
     uint32_t nc = g_outChannels;
 
-    for (int i = 0; i < samples; i++) {
-        uint32_t idx = ((writePos + i) & (RING_CAPACITY - 1)) * nc;
-        uint32_t srcIdx = i * nc;
-        for (uint32_t ch = 0; ch < nc; ch++) {
-            g_audioRingBuffer[idx + ch] = data[srcIdx + ch];
-        }
-    }
-
-    g_ringWritePos.store(writePos + samples, std::memory_order_release);
-}
-
-// Write planar samples to output ring buffer, interleaving on the fly.
-// data: planar [ch0_s0..ch0_sN, ch1_s0..ch1_sN, ...], stride between channels = samples
-inline void ringWritePlanar(const float* data, int samples) {
-    uint32_t writePos = g_ringWritePos.load(std::memory_order_relaxed);
-    uint32_t nc = g_outChannels;
-
-    for (int i = 0; i < samples; i++) {
-        uint32_t idx = ((writePos + i) & (RING_CAPACITY - 1)) * nc;
-        for (uint32_t ch = 0; ch < nc; ch++) {
-            g_audioRingBuffer[idx + ch] = data[ch * samples + i];
+    for (uint32_t ch = 0; ch < nc; ch++) {
+        const float* src = data + ch * stride;
+        float* plane = g_audioRingBuffer + ch * RING_CAPACITY;
+        if ((uint32_t)samples <= firstChunk) {
+            std::memcpy(plane + offset, src, samples * sizeof(float));
+        } else {
+            std::memcpy(plane + offset, src, firstChunk * sizeof(float));
+            std::memcpy(plane, src + firstChunk, (samples - firstChunk) * sizeof(float));
         }
     }
 
@@ -129,24 +124,29 @@ inline uint32_t inputRingAvailableToRead() {
     return available;
 }
 
-// Read from input ring buffer, converting interleaved → planar for ChucK.
-// outBuffer: planar [ch0_s0..ch0_sN, ch1_s0..ch1_sN, ...]
-// stride: distance between channels in outBuffer (typically samplesToGenerate).
-//   When stride > samples read, the extra slots are untouched (caller should
-//   zero the buffer beforehand).
-// Returns: number of sample frames read (not total floats)
-inline int inputRingRead(float* outBuffer, int samples, int stride) {
+// Read planar samples from input ring buffer.
+// data: planar destination [ch0_s0..ch0_sN, ch1_s0..ch1_sN, ...] with `stride`
+//       floats between the start of each channel.
+// Returns: number of sample frames actually read (not total floats)
+inline int inputRingRead(float* data, int samples, int stride) {
     uint32_t available = inputRingAvailableToRead();
     if (available == 0) return 0;
     if ((uint32_t)samples > available) samples = available;
 
     uint32_t readPos = g_inputRingReadPos.load(std::memory_order_relaxed);
+    uint32_t mask = RING_CAPACITY - 1;
+    uint32_t offset = readPos & mask;
+    uint32_t firstChunk = RING_CAPACITY - offset;
     uint32_t nc = g_inChannels;
 
-    for (int i = 0; i < samples; i++) {
-        uint32_t idx = ((readPos + i) & (RING_CAPACITY - 1)) * nc;
-        for (uint32_t ch = 0; ch < nc; ch++) {
-            outBuffer[ch * stride + i] = g_inputRingBuffer[idx + ch];
+    for (uint32_t ch = 0; ch < nc; ch++) {
+        float* dst = data + ch * stride;
+        const float* plane = g_inputRingBuffer + ch * RING_CAPACITY;
+        if ((uint32_t)samples <= firstChunk) {
+            std::memcpy(dst, plane + offset, samples * sizeof(float));
+        } else {
+            std::memcpy(dst, plane + offset, firstChunk * sizeof(float));
+            std::memcpy(dst + firstChunk, plane, (samples - firstChunk) * sizeof(float));
         }
     }
 

@@ -7,8 +7,9 @@
   via SharedArrayBuffer ring buffers (see audio_ring_buffer.h and
   lib/audio-worklet-processor.js).
 
-  Ring buffer format: Interleaved N-channel [ch0_s0, ch1_s0, ..., chN_s0, ...]
-  ChucK VM format: Planar [ch0_s0, ch0_s1, ..., ch1_s0, ch1_s1, ...]
+  Ring buffer format: Planar N-channel [ch0: RING_CAPACITY][ch1: RING_CAPACITY]...
+  ChucK VM format: Planar [ch0_s0..ch0_sN, ch1_s0..ch1_sN, ...]
+  Both use planar layout, so no format conversion is needed.
 -----------------------------------------------------------------------------*/
 #include "chuck.h"
 #include "chuck_globals.h"
@@ -302,8 +303,7 @@ static void run_vm_frame(void* data)
         int maxSPC = g_maxSamplesPerCall;
 
         // Planar buffers for ChucK: [ch0_s0..ch0_sN, ch1_s0..ch1_sN, ...]
-        // SAMPLE == float on Emscripten, so these are used directly with
-        // the ring buffer functions (no intermediate conversion buffers).
+        // Ring buffers are also planar, so no format conversion needed.
         static SAMPLE* inBuffer = nullptr;
         static SAMPLE* outBuffer = nullptr;
         if (!inBuffer) {
@@ -311,18 +311,18 @@ static void run_vm_frame(void* data)
             outBuffer = new SAMPLE[maxSPC * outCh]();
         }
 
-        // Read mic input from input ring buffer directly into ChucK's
-        // planar input buffer. Zero first so unread slots are silent.
+        // Read planar mic input directly from ring buffer into ChucK's buffer.
+        // Zero first so unread slots are silent.
         memset(inBuffer, 0, samplesToGenerate * inCh * sizeof(SAMPLE));
         inputRingRead(inBuffer, samplesToGenerate, samplesToGenerate);
 
         // Always run ChucK VM (needed for graphics via GG.nextFrame())
         ck->run(inBuffer, outBuffer, samplesToGenerate);
 
-        // Write planar output directly to ring buffer (interleaves on the fly)
+        // Write ChucK's planar output directly to ring buffer
         uint32_t available = ringAvailableToWrite();
         if (available >= (uint32_t)samplesToGenerate) {
-            ringWritePlanar(outBuffer, samplesToGenerate);
+            ringWrite(outBuffer, samplesToGenerate, samplesToGenerate);
         }
     }
 }
@@ -430,25 +430,71 @@ int main(int argc, char** argv)
 
 // --- EM_JS dispatchers: called from C++ callbacks, dispatch into JS --------
 
+// Parent-container resize: overrides contrib.glfw3's computeSize to track
+// canvas.parentElement instead of the browser window, and installs a
+// ResizeObserver so container size changes trigger the GLFW3 resize pipeline.
+EM_JS(void, _chugl_setup_parent_resize, (), {
+    var canvas = Module['canvas'];
+    if (!canvas) return;
+    var parent = canvas.parentElement;
+    if (!parent) return;
+
+    var glfwWindow = Module['glfwGetWindow'](canvas);
+    if (glfwWindow == null || typeof GLFW3 === 'undefined') return;
+    var ctx = GLFW3.fWindowContexts[glfwWindow];
+    if (!ctx || !ctx.fCanvasResize) return;
+
+    // Override computeSize to return parent container dimensions.
+    // Read canvas.parentElement dynamically so re-parenting is supported.
+    ctx.fCanvasResize.computeSize = function() {
+        var p = canvas.parentElement;
+        return p ? { width: p.clientWidth, height: p.clientHeight }
+                 : { width: window.innerWidth, height: window.innerHeight };
+    };
+
+    // Watch the parent for size changes and trigger GLFW3's resize handler.
+    // NOTE: The observer watches the parent at setup time. If the canvas is
+    // re-parented, call chugl_setup_parent_resize() again to observe the new
+    // parent. (computeSize reads canvas.parentElement dynamically, so sizing
+    // still works — only the observer would be stale.)
+    if (canvas._chuglParentObserver) {
+        canvas._chuglParentObserver.disconnect();
+    }
+    canvas._chuglParentObserver = new ResizeObserver(function() {
+        window.dispatchEvent(new Event('resize'));
+    });
+    canvas._chuglParentObserver.observe(parent);
+
+    // Trigger an initial resize so the canvas picks up the parent size now
+    window.dispatchEvent(new Event('resize'));
+});
+
+extern "C" EMSCRIPTEN_KEEPALIVE
+void chugl_setup_parent_resize()
+{
+    _chugl_setup_parent_resize();
+}
+
 // Letterbox setup for contrib.glfw3: overrides the resize observer's computeSize
-// to return shrink-to-fit dimensions, and injects body centering CSS.
+// to return shrink-to-fit dimensions, and centers the canvas in its parent.
 // Called from app.cpp's SG_COMMAND_WINDOW_SIZE_LIMITS handler.
 EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
-    var STYLE_ID = 'chugl-aspect-style';
     var canvas = Module['canvas'];
     var hasAspect = (ar_x > 0 && ar_y > 0);
 
-    // Manage centering CSS on body
-    var s = document.getElementById(STYLE_ID);
-    if (hasAspect) {
-        if (!s) {
-            s = document.createElement('style');
-            s.id = STYLE_ID;
-            document.head.appendChild(s);
+    // Center the canvas within its parent container via inline styles.
+    // This avoids injecting a global <style> that would affect the host page.
+    var parent = canvas ? canvas.parentElement : null;
+    if (parent) {
+        if (hasAspect) {
+            parent.style.display = 'flex';
+            parent.style.justifyContent = 'center';
+            parent.style.alignItems = 'center';
+        } else {
+            parent.style.display = '';
+            parent.style.justifyContent = '';
+            parent.style.alignItems = '';
         }
-        s.textContent = 'body { display:flex; justify-content:center; align-items:center; }';
-    } else {
-        if (s) s.remove();
     }
 
     // Override contrib.glfw3 resize observer's computeSize so it returns
@@ -460,8 +506,9 @@ EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
             if (hasAspect) {
                 var ar = ar_x / ar_y;
                 ctx.fCanvasResize.computeSize = function() {
-                    var vw = window.innerWidth;
-                    var vh = window.innerHeight;
+                    var p = canvas.parentElement;
+                    var vw = p ? p.clientWidth : window.innerWidth;
+                    var vh = p ? p.clientHeight : window.innerHeight;
                     if (vw / vh > ar) {
                         return {width: Math.round(vh * ar), height: vh};
                     } else {
@@ -470,7 +517,11 @@ EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
                 };
             } else {
                 ctx.fCanvasResize.computeSize = function() {
-                    return {width: window.innerWidth, height: window.innerHeight};
+                    var p = canvas.parentElement;
+                    return {
+                        width:  p ? p.clientWidth  : window.innerWidth,
+                        height: p ? p.clientHeight : window.innerHeight
+                    };
                 };
             }
             // Trigger immediate resize with new computeSize

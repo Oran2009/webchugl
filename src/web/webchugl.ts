@@ -33,6 +33,8 @@ class ChucK {
     private loadedChuginSet: Record<string, boolean> = {};
     private _audioCtx: AudioContext | null = null;
     private _audioNode: AudioWorkletNode | null = null;
+    private _audioReady: Promise<void> | null = null;
+    private _sampleRate = 48000;
     private _printCallback: ((msg: string) => void) | null = null;
     private baseUrl: string;
     private jszipPromise: Promise<void> | null = null;
@@ -63,9 +65,10 @@ class ChucK {
     }
 
     private flush(): void {
-        this.isReady = true;
-        for (const fn of this.deferQueue) fn();
+        const queue = this.deferQueue;
         this.deferQueue = [];
+        this.isReady = true;
+        for (const fn of queue) fn();
     }
 
     private flushCallbacks(): void {
@@ -144,7 +147,7 @@ class ChucK {
             return;
         }
 
-        ctx.audioWorklet.addModule(this.baseUrl + 'audio-worklet-processor.js').then(() => {
+        this._audioReady = ctx.audioWorklet.addModule(this.baseUrl + 'audio-worklet-processor.js').then(() => {
             const node = new AudioWorkletNode(ctx, 'chuck-processor', {
                 numberOfInputs: 1,
                 numberOfOutputs: 1,
@@ -167,7 +170,6 @@ class ChucK {
             });
 
             node.connect(ctx.destination);
-            this._audioCtx = ctx;
             this._audioNode = node;
 
             if (needsMic) {
@@ -202,6 +204,9 @@ class ChucK {
         }).catch((err) => {
             console.error('[WebChuGL] Audio worklet failed: ' + err.message);
         });
+        // Store AudioContext immediately (synchronously) so getSampleRate() works
+        // even before the worklet finishes loading. _audioNode is set in the .then().
+        this._audioCtx = ctx;
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -242,6 +247,7 @@ class ChucK {
             if (config.audioConfig.inputChannels && config.audioConfig.inputChannels > 0)
                 audioConfig.inChannels = config.audioConfig.inputChannels;
         }
+        instance._sampleRate = audioConfig.sampleRate;
 
         // ── Module Config ───────────────────────────────────────────
         const canvas = config.canvas;
@@ -332,6 +338,9 @@ class ChucK {
                     onReady();
                     instance.module!.callMain([]);
 
+                    // Make canvas track its parent container size instead of the window
+                    instance.module!.ccall('chugl_setup_parent_resize', null, [], []);
+
                     for (const entry of pendingChuginBuffers) {
                         const vfsPath = '/chugins/' + entry.name;
                         ensureVfsDir(instance.module!.FS, vfsPath);
@@ -342,8 +351,11 @@ class ChucK {
                     }
 
                     initSensors(instance, () => instance.module !== null);
-                    instance.flush();
-                    return instance;
+                    const audioReady = instance._audioReady || Promise.resolve();
+                    return audioReady.then(() => {
+                        instance.flush();
+                        return instance;
+                    });
                 });
             }).catch((e) => {
                 console.error('WebGPU pre-init failed:', e);
@@ -697,7 +709,7 @@ class ChucK {
                 return r.arrayBuffer();
             })
             .then((arrayBuffer) => {
-                const ctx: BaseAudioContext = this._audioCtx || new OfflineAudioContext(1, 1, 48000);
+                const ctx: BaseAudioContext = this._audioCtx || new OfflineAudioContext(1, 1, this._sampleRate);
                 return ctx.decodeAudioData(arrayBuffer);
             })
             .then((audioBuffer) => {

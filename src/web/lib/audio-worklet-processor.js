@@ -5,7 +5,10 @@
  * and writes them to Web Audio output. Optionally writes microphone input
  * to an input ring buffer for ChucK's ADC.
  *
- * Ring buffer format: interleaved N-channel [ch0_s0, ch1_s0, ..., chN_s0, ...]
+ * Ring buffer format: planar N-channel — each channel is a contiguous plane
+ * of `capacity` floats: [ch0: capacity][ch1: capacity]...
+ * This matches both ChucK and Web Audio's native planar format,
+ * eliminating interleave/deinterleave conversions.
  * Positions are sample counts (not byte offsets), monotonically increasing.
  */
 class ChucKProcessor extends AudioWorkletProcessor {
@@ -38,28 +41,30 @@ class ChucKProcessor extends AudioWorkletProcessor {
         if (!out || !out[0]) return true;
         const len = out[0].length;
 
-        // Read from output ring buffer → Web Audio output
+        // Read from output ring buffer → Web Audio output (planar → planar)
         const rp = Atomics.load(this.outReadPos, 0);
         const wp = Atomics.load(this.outWritePos, 0);
         const available = (wp - rp) >>> 0;
         const toRead = Math.min(len, available);
 
-        for (let i = 0; i < toRead; i++) {
-            const idx = ((rp + i) % cap) * outNc;
-            for (let ch = 0; ch < outNc && ch < out.length; ch++) {
-                out[ch][i] = this.outBuf[idx + ch];
+        const offset = rp % cap;
+        const firstChunk = cap - offset;
+        for (let ch = 0; ch < outNc && ch < out.length; ch++) {
+            const plane = ch * cap;
+            if (toRead <= firstChunk) {
+                out[ch].set(this.outBuf.subarray(plane + offset, plane + offset + toRead));
+            } else {
+                out[ch].set(this.outBuf.subarray(plane + offset, plane + cap));
+                out[ch].set(this.outBuf.subarray(plane, plane + toRead - firstChunk), firstChunk);
             }
-        }
-        for (let i = toRead; i < len; i++) {
-            for (let ch = 0; ch < outNc && ch < out.length; ch++) {
-                out[ch][i] = 0;
-            }
+            // Zero any remaining samples beyond what the ring buffer had
+            for (let i = toRead; i < len; i++) out[ch][i] = 0;
         }
         // Positions wrap at 2^32 via Uint32Array truncation — matches C++ uint32_t.
         // The (wp - rp) >>> 0 subtraction on read handles wrap correctly.
         Atomics.store(this.outReadPos, 0, (rp + toRead) >>> 0);
 
-        // Write microphone input → input ring buffer
+        // Write microphone input → input ring buffer (planar → planar)
         const inNc = this.inChannels;
         if (inputs[0] && inputs[0].length >= 1 && inputs[0][0].length > 0) {
             const inp = inputs[0];
@@ -70,10 +75,16 @@ class ChucKProcessor extends AudioWorkletProcessor {
             const avail = occupied > cap ? 0 : cap - occupied;
             const toWrite = Math.min(inLen, avail);
 
-            for (let i = 0; i < toWrite; i++) {
-                const idx = ((wrPos + i) % cap) * inNc;
-                for (let ch = 0; ch < inNc; ch++) {
-                    this.inBuf[idx + ch] = (ch < inp.length) ? inp[ch][i] : inp[0][i];
+            const inOffset = wrPos % cap;
+            const inFirstChunk = cap - inOffset;
+            for (let ch = 0; ch < inNc; ch++) {
+                const plane = ch * cap;
+                const src = (ch < inp.length) ? inp[ch] : inp[0];
+                if (toWrite <= inFirstChunk) {
+                    this.inBuf.set(src.subarray(0, toWrite), plane + inOffset);
+                } else {
+                    this.inBuf.set(src.subarray(0, inFirstChunk), plane + inOffset);
+                    this.inBuf.set(src.subarray(inFirstChunk, toWrite), plane);
                 }
             }
             // Position wraps at 2^32 — see output ring buffer comment above.
