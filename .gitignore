@@ -24,7 +24,6 @@ docs-model.json
 
 # Tests
 web/examples/test/
-web/examples/container-resize-test/
 
 # CMake generated
 CMakeCache.txt
