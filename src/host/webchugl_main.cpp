@@ -476,24 +476,25 @@ void chugl_setup_parent_resize()
 }
 
 // Letterbox setup for contrib.glfw3: overrides the resize observer's computeSize
-// to return shrink-to-fit dimensions, and injects body centering CSS.
+// to return shrink-to-fit dimensions, and centers the canvas in its parent.
 // Called from app.cpp's SG_COMMAND_WINDOW_SIZE_LIMITS handler.
 EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
-    var STYLE_ID = 'chugl-aspect-style';
     var canvas = Module['canvas'];
     var hasAspect = (ar_x > 0 && ar_y > 0);
 
-    // Manage centering CSS on body
-    var s = document.getElementById(STYLE_ID);
-    if (hasAspect) {
-        if (!s) {
-            s = document.createElement('style');
-            s.id = STYLE_ID;
-            document.head.appendChild(s);
+    // Center the canvas within its parent container via inline styles.
+    // This avoids injecting a global <style> that would affect the host page.
+    var parent = canvas ? canvas.parentElement : null;
+    if (parent) {
+        if (hasAspect) {
+            parent.style.display = 'flex';
+            parent.style.justifyContent = 'center';
+            parent.style.alignItems = 'center';
+        } else {
+            parent.style.display = '';
+            parent.style.justifyContent = '';
+            parent.style.alignItems = '';
         }
-        s.textContent = 'body { display:flex; justify-content:center; align-items:center; }';
-    } else {
-        if (s) s.remove();
     }
 
     // Override contrib.glfw3 resize observer's computeSize so it returns
