@@ -268,7 +268,10 @@ class ChucK {
                 else console.log(text);
             },
 
-            printErr: (text: string) => console.error(text),
+            printErr: (text: string) => {
+                if (instance._printCallback) instance._printCallback(text);
+                else console.error(text);
+            },
             setStatus: () => {},
 
             _ckCallbacks: instance.callbacks,
