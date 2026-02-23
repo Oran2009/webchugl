@@ -69,3 +69,4 @@ docs/
 .claude/
 imgui.ini
 CLAUDE.md
+*.htaccess
