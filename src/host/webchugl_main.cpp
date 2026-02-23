@@ -430,6 +430,47 @@ int main(int argc, char** argv)
 
 // --- EM_JS dispatchers: called from C++ callbacks, dispatch into JS --------
 
+// Parent-container resize: overrides contrib.glfw3's computeSize to track
+// canvas.parentElement instead of the browser window, and installs a
+// ResizeObserver so container size changes trigger the GLFW3 resize pipeline.
+EM_JS(void, _chugl_setup_parent_resize, (), {
+    var canvas = Module['canvas'];
+    if (!canvas) return;
+    var parent = canvas.parentElement;
+    if (!parent) return;
+
+    var glfwWindow = Module['glfwGetWindow'](canvas);
+    if (glfwWindow == null || typeof GLFW3 === 'undefined') return;
+    var ctx = GLFW3.fWindowContexts[glfwWindow];
+    if (!ctx || !ctx.fCanvasResize) return;
+
+    // Override computeSize to return parent container dimensions.
+    // Read canvas.parentElement dynamically so re-parenting is supported.
+    ctx.fCanvasResize.computeSize = function() {
+        var p = canvas.parentElement;
+        return p ? { width: p.clientWidth, height: p.clientHeight }
+                 : { width: window.innerWidth, height: window.innerHeight };
+    };
+
+    // Watch the parent for size changes and trigger GLFW3's resize handler
+    if (canvas._chuglParentObserver) {
+        canvas._chuglParentObserver.disconnect();
+    }
+    canvas._chuglParentObserver = new ResizeObserver(function() {
+        window.dispatchEvent(new Event('resize'));
+    });
+    canvas._chuglParentObserver.observe(parent);
+
+    // Trigger an initial resize so the canvas picks up the parent size now
+    window.dispatchEvent(new Event('resize'));
+});
+
+extern "C" EMSCRIPTEN_KEEPALIVE
+void chugl_setup_parent_resize()
+{
+    _chugl_setup_parent_resize();
+}
+
 // Letterbox setup for contrib.glfw3: overrides the resize observer's computeSize
 // to return shrink-to-fit dimensions, and injects body centering CSS.
 // Called from app.cpp's SG_COMMAND_WINDOW_SIZE_LIMITS handler.
