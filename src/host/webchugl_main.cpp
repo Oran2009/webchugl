@@ -7,8 +7,9 @@
   via SharedArrayBuffer ring buffers (see audio_ring_buffer.h and
   lib/audio-worklet-processor.js).
 
-  Ring buffer format: Interleaved N-channel [ch0_s0, ch1_s0, ..., chN_s0, ...]
-  ChucK VM format: Planar [ch0_s0, ch0_s1, ..., ch1_s0, ch1_s1, ...]
+  Ring buffer format: Planar N-channel [ch0: RING_CAPACITY][ch1: RING_CAPACITY]...
+  ChucK VM format: Planar [ch0_s0..ch0_sN, ch1_s0..ch1_sN, ...]
+  Both use planar layout, so no format conversion is needed.
 -----------------------------------------------------------------------------*/
 #include "chuck.h"
 #include "chuck_globals.h"
@@ -302,8 +303,7 @@ static void run_vm_frame(void* data)
         int maxSPC = g_maxSamplesPerCall;
 
         // Planar buffers for ChucK: [ch0_s0..ch0_sN, ch1_s0..ch1_sN, ...]
-        // SAMPLE == float on Emscripten, so these are used directly with
-        // the ring buffer functions (no intermediate conversion buffers).
+        // Ring buffers are also planar, so no format conversion needed.
         static SAMPLE* inBuffer = nullptr;
         static SAMPLE* outBuffer = nullptr;
         if (!inBuffer) {
@@ -311,18 +311,18 @@ static void run_vm_frame(void* data)
             outBuffer = new SAMPLE[maxSPC * outCh]();
         }
 
-        // Read mic input from input ring buffer directly into ChucK's
-        // planar input buffer. Zero first so unread slots are silent.
+        // Read planar mic input directly from ring buffer into ChucK's buffer.
+        // Zero first so unread slots are silent.
         memset(inBuffer, 0, samplesToGenerate * inCh * sizeof(SAMPLE));
         inputRingRead(inBuffer, samplesToGenerate, samplesToGenerate);
 
         // Always run ChucK VM (needed for graphics via GG.nextFrame())
         ck->run(inBuffer, outBuffer, samplesToGenerate);
 
-        // Write planar output directly to ring buffer (interleaves on the fly)
+        // Write ChucK's planar output directly to ring buffer
         uint32_t available = ringAvailableToWrite();
         if (available >= (uint32_t)samplesToGenerate) {
-            ringWritePlanar(outBuffer, samplesToGenerate);
+            ringWrite(outBuffer, samplesToGenerate, samplesToGenerate);
         }
     }
 }
