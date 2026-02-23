@@ -1,0 +1,18 @@
+{
+    "$schema": "https://developer.microsoft.com/json-schemas/tsdoc/v0/tsdoc.schema.json",
+    "tagDefinitions": [],
+    "supportForTags": {
+        "@defaultValue": true,
+        "@deprecated": true,
+        "@example": true,
+        "@inheritDoc": true,
+        "@internal": true,
+        "@link": true,
+        "@override": true,
+        "@param": true,
+        "@remarks": true,
+        "@returns": true,
+        "@see": true,
+        "@throws": true
+    }
+}

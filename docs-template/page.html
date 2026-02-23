@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebChuGL Documentation</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/androidstudio.min.css">
+</head>
+<body>
+<a href="#getting-started" class="skip-link">Skip to main content</a>
+<div class="page-layout">
+<main class="content">
+
+<!-- ── Hero ──────────────────────────────────────────────────────────── -->
+<header class="hero">
+<canvas id="hero-canvas"></canvas>
+<div class="hero-overlay">
+<h1>docs =&gt; now</h1>
+<p class="tagline">WebChuGL Documentation</p>
+<nav class="nav-links" aria-label="Primary">
+<a href="https://chuck.stanford.edu/chugl/api/" target="_blank" class="btn-orange">ChuGL API</a>
+<a href="http://chuck.stanford.edu/doc/reference" target="_blank" class="btn-green">ChucK API</a>
+<a href="../" class="btn-orange">Back to WebChuGL</a>
+</nav>
+</div>
+</header>
+
+<!-- ── Getting Started ───────────────────────────────────────────────── -->
+<details class="top-section" id="getting-started" open>
+<summary><h2>Getting Started</h2></summary>
+<div class="details-content" style="grid-template-rows:1fr"><div class="details-inner">
+
+<h3 id="quick-start-esm">Quick Start (ESM)</h3>
+<p>All you need is a browser with <a href="https://caniuse.com/webgpu" target="_blank">WebGPU support</a> (Chrome 113+, Edge 113+, Firefox Nightly).</p>
+<p>1. Create an <code>index.html</code>:</p>
+<pre><code class="language-html">&lt;canvas id="canvas"&gt;&lt;/canvas&gt;
+&lt;script type="module"&gt;
+    import ChuGL from 'https://cdn.jsdelivr.net/npm/webchugl/+esm';
+
+    var ck = await ChuGL.init({
+        canvas: document.getElementById('canvas'),
+    });
+
+    // Run ChucK code directly
+    ck.runCode('SinOsc s =&gt; dac; while(true) GG.nextFrame() =&gt; now;');
+
+    // Or run a .ck file (fetched automatically)
+    await ck.runFile('./main.ck');
+&lt;/script&gt;</code></pre>
+
+<p>2. Serve with any HTTP server. See <a href="#cross-origin-isolation">Cross-Origin Isolation</a> below for enabling <code>SharedArrayBuffer</code>.</p>
+
+<p>You can also import from a self-hosted build:</p>
+<pre><code class="language-js">import ChuGL from './webchugl/webchugl-esm.js';
+
+var ck = await ChuGL.init({
+    canvas: document.getElementById('canvas'),
+    whereIsChuGL: './webchugl/',
+});</code></pre>
+
+<h3 id="deploying-a-project">Deploying a Project</h3>
+<p>Package your <code>.ck</code> files, assets (audio, textures, data), and any <code>.chug.wasm</code> ChuGins into a zip file. Use <code>main.ck</code> as the entry point.</p>
+<pre><code class="language-bash">zip -r bundle.zip main.ck lib/ assets/</code></pre>
+<p>Then create an <code>index.html</code>:</p>
+<pre><code class="language-html">&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+    &lt;meta charset="utf-8"&gt;
+    &lt;style&gt;
+        body { margin: 0; background: #000; }
+        canvas { width: 100%; height: 100vh; display: block; }
+    &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+    &lt;canvas id="canvas"&gt;&lt;/canvas&gt;
+    &lt;script type="module"&gt;
+        import ChuGL from 'https://cdn.jsdelivr.net/npm/webchugl/+esm';
+
+        var ck = await ChuGL.init({
+            canvas: document.getElementById('canvas'),
+        });
+
+        await ck.runZip('./bundle.zip');
+    &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+<p>Download <a href="https://ccrma.stanford.edu/~hoangben/webchugl/sw.js" target="_blank">sw.js</a> and place it in the same directory as your <code>index.html</code> (or configure your server to send <a href="#cross-origin-isolation">COOP/COEP headers</a> directly). Then upload <code>index.html</code>, <code>bundle.zip</code>, and <code>sw.js</code> to any static hosting provider (Netlify, Vercel, GitHub Pages, etc.) and share the URL!</p>
+
+<h3 id="building-from-source">Building from Source</h3>
+<p>To build WebChuGL from source (for development or custom builds):</p>
+<h4>Prerequisites</h4>
+<ul><li><a href="https://git-scm.com/" target="_blank">Git</a></li><li><a href="https://www.python.org/" target="_blank">Python 3</a> (for Emscripten)</li><li>CMake</li></ul>
+<h4>Setup &amp; Build</h4>
+<pre><code class="language-bash">git clone https://github.com/ccrma/webchugl.git
+cd webchugl
+./setup.sh          # Linux/macOS (or ./setup.ps1 on Windows)
+
+cd src/scripts
+./build.sh          # compiles C++/WASM (or ./build.ps1 on Windows)</code></pre>
+<p>Output goes to <code>src/build/</code>. The <code>webchugl/</code> subdirectory contains the runtime assets.</p>
+
+</div></div>
+</details>
+
+<!-- ── Cross-Origin Isolation ────────────────────────────────────────── -->
+<details class="top-section" id="cross-origin-isolation" open>
+<summary><h2>Cross-Origin Isolation</h2></summary>
+<div class="details-content" style="grid-template-rows:1fr"><div class="details-inner">
+
+<p>WebChuGL&rsquo;s audio engine uses <code>SharedArrayBuffer</code>, which browsers only enable in <a href="https://developer.mozilla.org/en-US/docs/Web/API/crossOriginIsolated" target="_blank">cross-origin isolated</a> contexts. There are two easy ways to enable this:</p>
+
+<h3>Option 1: Service Worker (default)</h3>
+<p>WebChuGL ships with <a href="https://ccrma.stanford.edu/~hoangben/webchugl/sw.js" target="_blank"><code>sw.js</code></a>, a service worker that injects the required headers on every response. Download it, place it at the root of your site, and serve with any HTTP server. WebChuGL registers it automatically.</p>
+<p>The service worker adds these headers:</p>
+<pre><code>Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: credentialless</code></pre>
+<p>On first load, the page may reload once to activate the service worker. To disable it (e.g., if your server already sends headers), pass <code>serviceWorker: false</code> in the init config.</p>
+
+<h3>Option 2: Server Headers</h3>
+<p>Configure your server to send these headers on all HTML responses:</p>
+<pre><code>Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: credentialless</code></pre>
+
+</div></div>
+</details>
+
+<!-- ── ChuGL Entry Point ─────────────────────────────────────────────── -->
+<details class="top-section" id="ChuGL" open>
+<summary><h2>ChuGL Entry Point</h2></summary>
+<div class="details-content" style="grid-template-rows:1fr"><div class="details-inner">
+<!-- CHUGL_CONTENT -->
+</div></div>
+</details>
+
+<!-- ── ChucK Instance ────────────────────────────────────────────────── -->
+<details class="top-section" id="ChucK" open>
+<summary><h2>ChucK Instance</h2></summary>
+<div class="details-content" style="grid-template-rows:1fr"><div class="details-inner">
+<!-- CHUCK_CONTENT -->
+</div></div>
+</details>
+
+<!-- ── Footer ────────────────────────────────────────────────────────── -->
+<footer class="footer">
+<nav aria-label="Footer">
+<a href="../">Back to WebChuGL</a> &middot;
+<a href="https://github.com/ccrma/webchugl">GitHub</a> &middot;
+<a href="https://chuck.stanford.edu/chugl/">ChuGL</a> &middot;
+<a href="https://chuck.stanford.edu/">ChucK</a>
+</nav>
+</footer>
+
+</main>
+
+<!-- ── Sidebar ───────────────────────────────────────────────────────── -->
+<aside class="sidebar">
+<nav class="toc-sidebar" aria-label="Table of contents">
+<a href="#getting-started">Getting Started</a>
+<a href="#quick-start-esm" class="toc-sub">Quick Start (ESM)</a>
+<a href="#deploying-a-project" class="toc-sub">Deploying a Project</a>
+<a href="#building-from-source" class="toc-sub">Building from Source</a>
+<a href="#cross-origin-isolation">Cross-Origin Isolation</a>
+<a href="#ChuGL">ChuGL Entry Point</a>
+<a href="#ChucK">ChucK Instance</a>
+<!-- SIDEBAR_GROUPS -->
+</nav>
+<a href="#" class="back-to-top" aria-label="Back to top">&#x25B2;</a>
+</aside>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+
+<!-- Animated <details> open/close -->
+<script>
+document.querySelectorAll("details").forEach(function(d) {
+  var content = d.querySelector(".details-content");
+  if (!content) return;
+  d.querySelector("summary").addEventListener("click", function(e) {
+    e.preventDefault();
+    if (d.open) {
+      content.style.gridTemplateRows = "0fr";
+      content.addEventListener("transitionend", function handler() {
+        d.removeAttribute("open");
+        content.removeEventListener("transitionend", handler);
+      });
+    } else {
+      d.setAttribute("open", "");
+      requestAnimationFrame(function() {
+        content.style.gridTemplateRows = "1fr";
+      });
+    }
+  });
+});
+</script>
+
+<!-- Back to Top + TOC active section highlight -->
+<script>
+(function() {
+  var btn = document.querySelector(".back-to-top");
+  var tocLinks = document.querySelectorAll(".toc-sidebar a");
+  var sections = [];
+  tocLinks.forEach(function(a) {
+    var id = a.getAttribute("href").slice(1);
+    var el = document.getElementById(id);
+    if (el) sections.push({ id: id, el: el, link: a });
+  });
+  function updateSidebar() {
+    btn.classList.toggle("visible", window.scrollY > 400);
+    var current = "";
+    sections.forEach(function(s) {
+      if (s.el.getBoundingClientRect().top <= 120) current = s.id;
+    });
+    tocLinks.forEach(function(a) {
+      a.classList.toggle("active", a.getAttribute("href") === "#" + current);
+    });
+  }
+  window.addEventListener("scroll", updateSidebar, { passive: true });
+  updateSidebar();
+  btn.addEventListener("click", function(e) {
+    e.preventDefault();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+
+  var tocGroups = [];
+  var currentGroup = null;
+  tocLinks.forEach(function(a) {
+    if (!a.classList.contains("toc-sub")) {
+      var id = a.getAttribute("href").slice(1);
+      currentGroup = { parent: a, subs: [], details: document.getElementById(id) };
+      tocGroups.push(currentGroup);
+    } else if (currentGroup) {
+      currentGroup.subs.push(a);
+    }
+  });
+
+  function updateTocCollapse() {
+    tocGroups.forEach(function(g) {
+      if (!g.details || g.details.tagName !== "DETAILS") return;
+      var isOpen = g.details.hasAttribute("open");
+      g.subs.forEach(function(s) { s.classList.toggle("collapsed", !isOpen); });
+    });
+  }
+
+  var obs = new MutationObserver(updateTocCollapse);
+  tocGroups.forEach(function(g) {
+    if (g.details && g.details.tagName === "DETAILS")
+      obs.observe(g.details, { attributes: true, attributeFilter: ["open"] });
+  });
+  updateTocCollapse();
+
+  tocLinks.forEach(function(a) {
+    if (!a.classList.contains("toc-sub")) return;
+    a.addEventListener("click", function(e) {
+      var targetId = a.getAttribute("href").slice(1);
+      var parentGroup = null;
+      tocGroups.forEach(function(g) {
+        g.subs.forEach(function(s) { if (s === a) parentGroup = g; });
+      });
+      if (parentGroup && parentGroup.details && !parentGroup.details.hasAttribute("open")) {
+        e.preventDefault();
+        var content = parentGroup.details.querySelector(".details-content");
+        parentGroup.details.setAttribute("open", "");
+        requestAnimationFrame(function() {
+          if (content) content.style.gridTemplateRows = "1fr";
+          setTimeout(function() {
+            var target = document.getElementById(targetId);
+            if (target) target.scrollIntoView({ behavior: "smooth" });
+          }, 550);
+        });
+      }
+    });
+  });
+})();
+</script>
+
+<!-- Hero WebChuGL embed (progressive enhancement) -->
+<script type="module">
+(async function() {
+    if (!navigator.gpu) return;
+    var canvas = document.getElementById("hero-canvas");
+    if (!canvas) return;
+    try {
+        var mod = await import("https://cdn.jsdelivr.net/npm/webchugl/+esm");
+        var ck = await mod.default.init({
+            canvas: canvas,
+            serviceWorker: false,
+        });
+        canvas.classList.add("ready");
+        ck.runCode([
+            'GWindow.title("WebChuGL Documentation");',
+            "GGen sunSystem, earthSystem, moonSystem;",
+            "GSphere sun, earth, moon;",
+            "for(auto x : [sun, earth, moon]) x.mat().wireframe(true);",
+            "GG.scene().ambient(@(.5,.5,.5));",
+            "sun.color(Color.YELLOW);",
+            "earth.color((Color.SKYBLUE + Color.BLUE) / 2);",
+            "moon.color(Color.GRAY);",
+            "earthSystem.pos(@(2.2, 0.0, 0.0));",
+            "moonSystem.pos(@(.55, 0.0, 0.0));",
+            "sun.sca(@(2.0, 2.0, 2.0));",
+            "earth.sca(@(0.4, 0.4, 0.4));",
+            "moon.sca(@(0.12, 0.12, 0.12));",
+            "moonSystem --> earthSystem --> sunSystem --> GG.scene();",
+            "sun --> sunSystem; earth --> earthSystem; moon --> moonSystem;",
+            "GG.camera().pos(@(0, 5, 7));",
+            "GG.camera().lookAt(@(0, 0, 0));",
+            "0.0 => float angle;",
+            "while(true) {",
+            "  GG.nextFrame() => now;",
+            "  sunSystem.rotateY(.5 * GG.dt());",
+            "  earthSystem.rotateY(.7 * GG.dt());",
+            "  sun.rotateY(-1 * GG.dt());",
+            "  earth.rotateY(.4 * GG.dt());",
+            "  moon.rotateY(.9 * GG.dt());",
+            "  .08 * GG.dt() +=> angle;",
+            "  GG.camera().pos(@(7*Math.cos(angle), 5, 7*Math.sin(angle)));",
+            "  GG.camera().lookAt(@(0, 0, 0));",
+            "}",
+        ].join("\n"));
+    } catch(e) {
+        console.log("[webchugl] Hero demo unavailable:", e.message);
+    }
+})();
+</script>
+
+</body>
+</html>

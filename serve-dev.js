@@ -83,6 +83,12 @@ const server = createServer(async (req, res) => {
     try {
         const s = await stat(filePath);
         if (s.isDirectory()) {
+            // Redirect /dir to /dir/ so relative paths resolve correctly
+            if (!pathname.endsWith('/')) {
+                res.writeHead(301, { Location: pathname + '/' });
+                res.end();
+                return;
+            }
             // Try index.html
             return serveFile(join(filePath, 'index.html'), res);
         }

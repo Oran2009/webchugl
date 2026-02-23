@@ -1,0 +1,13 @@
+{
+    "$schema": "https://typedoc.org/schema.json",
+    "entryPoints": [
+        "src/web/webchugl-esm.ts",
+        "src/web/types/chuck.d.ts"
+    ],
+    "tsconfig": "tsconfig.json",
+    "json": "docs-model.json",
+    "pretty": true,
+    "excludePrivate": true,
+    "excludeInternal": true,
+    "excludeNotDocumented": false
+}

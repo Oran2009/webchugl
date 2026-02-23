@@ -53,7 +53,7 @@ interface GlobalVariableInfo {
 // ============================================================================
 
 /**
- * The ChucK instance returned by {@link ChuGL.init}. Provides the full
+ * The ChucK instance returned by `ChuGL.init()`. Provides the full
  * JavaScript-to-ChucK bridge: run code, get/set global variables, listen
  * for events, load files and audio, and more.
  *
