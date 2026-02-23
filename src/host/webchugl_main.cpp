@@ -501,8 +501,9 @@ EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
             if (hasAspect) {
                 var ar = ar_x / ar_y;
                 ctx.fCanvasResize.computeSize = function() {
-                    var vw = window.innerWidth;
-                    var vh = window.innerHeight;
+                    var p = canvas.parentElement;
+                    var vw = p ? p.clientWidth : window.innerWidth;
+                    var vh = p ? p.clientHeight : window.innerHeight;
                     if (vw / vh > ar) {
                         return {width: Math.round(vh * ar), height: vh};
                     } else {
@@ -511,7 +512,11 @@ EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
                 };
             } else {
                 ctx.fCanvasResize.computeSize = function() {
-                    return {width: window.innerWidth, height: window.innerHeight};
+                    var p = canvas.parentElement;
+                    return {
+                        width:  p ? p.clientWidth  : window.innerWidth,
+                        height: p ? p.clientHeight : window.innerHeight
+                    };
                 };
             }
             // Trigger immediate resize with new computeSize
