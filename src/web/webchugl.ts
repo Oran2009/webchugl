@@ -338,6 +338,9 @@ class ChucK {
                     onReady();
                     instance.module!.callMain([]);
 
+                    // Make canvas track its parent container size instead of the window
+                    instance.module!.ccall('chugl_setup_parent_resize', null, [], []);
+
                     for (const entry of pendingChuginBuffers) {
                         const vfsPath = '/chugins/' + entry.name;
                         ensureVfsDir(instance.module!.FS, vfsPath);

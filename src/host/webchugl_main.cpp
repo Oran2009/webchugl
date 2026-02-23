@@ -452,7 +452,11 @@ EM_JS(void, _chugl_setup_parent_resize, (), {
                  : { width: window.innerWidth, height: window.innerHeight };
     };
 
-    // Watch the parent for size changes and trigger GLFW3's resize handler
+    // Watch the parent for size changes and trigger GLFW3's resize handler.
+    // NOTE: The observer watches the parent at setup time. If the canvas is
+    // re-parented, call chugl_setup_parent_resize() again to observe the new
+    // parent. (computeSize reads canvas.parentElement dynamically, so sizing
+    // still works — only the observer would be stale.)
     if (canvas._chuglParentObserver) {
         canvas._chuglParentObserver.disconnect();
     }
