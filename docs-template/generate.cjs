@@ -164,6 +164,31 @@ function extractPropertyInfo(member) {
     };
 }
 
+function extractInterfaceProperties(iface, sourceOrder) {
+    if (!iface || !iface.children) return [];
+    var byName = {};
+    iface.children.forEach(function (child) {
+        if (child.kind !== KIND.PROPERTY) return;
+        var comment = child.comment || {};
+        byName[child.name] = {
+            name: child.name,
+            description: comment.summary ? renderComment(comment.summary) : '',
+            type: typeToString(child.type),
+            optional: !!(child.flags && child.flags.isOptional),
+        };
+    });
+    if (sourceOrder) {
+        var ordered = [];
+        sourceOrder.forEach(function (name) {
+            if (byName[name]) ordered.push(byName[name]);
+        });
+        return ordered;
+    }
+    return iface.children
+        .filter(function (c) { return c.kind === KIND.PROPERTY; })
+        .map(function (c) { return byName[c.name]; });
+}
+
 function extractChuGLInit(chuglVar) {
     if (!chuglVar) return null;
     var typeLiteral = chuglVar.type && chuglVar.type.declaration;
@@ -202,6 +227,7 @@ function extractChuGLInit(chuglVar) {
         returnType: returnType,
         returnsDescription: returnsTag ? renderComment(returnsTag.content) : null,
         examples: examples,
+        configProperties: [],
     };
 }
 
@@ -227,6 +253,17 @@ function renderMethod(method) {
             html += '<tr><td><code>' + esc(p.name) + '</code>';
             if (p.optional) html += ' <span class="opt">optional</span>';
             if (p.defaultValue != null) html += ' <span class="def">= ' + esc(String(p.defaultValue)) + '</span>';
+            html += '</td><td><code class="type">' + esc(p.type) + '</code></td><td>' + (p.description || '') + '</td></tr>';
+        });
+        html += '</tbody></table>';
+    }
+
+    if (method.configProperties && method.configProperties.length > 0) {
+        html += '<h5>Config Properties</h5>';
+        html += '<table class="params-table"><thead><tr><th scope="col">Property</th><th scope="col">Type</th><th scope="col">Description</th></tr></thead><tbody>';
+        method.configProperties.forEach(function (p) {
+            html += '<tr><td><code>' + esc(p.name) + '</code>';
+            if (p.optional) html += ' <span class="opt">optional</span>';
             html += '</td><td><code class="type">' + esc(p.type) + '</code></td><td>' + (p.description || '') + '</td></tr>';
         });
         html += '</tbody></table>';
@@ -358,7 +395,15 @@ function main() {
         if (chuglVar.comment && chuglVar.comment.summary)
             chuglDesc = renderComment(chuglVar.comment.summary);
         var initMethod = extractChuGLInit(chuglVar);
-        if (initMethod) chuglMethods.push(initMethod);
+        if (initMethod) {
+            // Expand ChuGLConfig properties inline
+            var chuglConfigIface = findChild(esmModule, 'ChuGLConfig', KIND.INTERFACE);
+            if (chuglConfigIface) {
+                var sourceOrder = ['canvas', 'whereIsChuGL', 'chugins', 'serviceWorker', 'audioConfig', 'onProgress', 'onError', 'onReady'];
+                initMethod.configProperties = extractInterfaceProperties(chuglConfigIface, sourceOrder);
+            }
+            chuglMethods.push(initMethod);
+        }
     }
 
     // ── Inject into template ──

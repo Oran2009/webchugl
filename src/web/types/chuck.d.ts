@@ -184,6 +184,11 @@ interface ChucK {
 
     // ── Print Callback ──────────────────────────────────────────────────
 
+    /**
+     * Callback for intercepting all ChucK output (both `<<<` print and
+     * error/warning messages). Set to a function to capture output, or
+     * `null` to restore default `console.log`/`console.error` behavior.
+     */
     chuckPrint: ((msg: string) => void) | null;
 
     // ── VM Engine Parameters ────────────────────────────────────────────
