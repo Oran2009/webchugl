@@ -478,25 +478,44 @@ void chugl_setup_parent_resize()
 // Letterbox setup for contrib.glfw3: overrides the resize observer's computeSize
 // to return shrink-to-fit dimensions, and centers the canvas in its parent.
 // Called from app.cpp's SG_COMMAND_WINDOW_SIZE_LIMITS handler.
+//
+// Instead of modifying the parent element's inline styles (which would override
+// host-application CSS like Tailwind's .hidden), we insert an owned wrapper
+// <div> between the parent and the canvas.
 EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
     var canvas = Module['canvas'];
+    if (!canvas) return;
     var hasAspect = (ar_x > 0 && ar_y > 0);
 
-    // Center the canvas within its parent container via inline styles.
-    // This avoids injecting a global <style> that would affect the host page.
-    var parent = canvas ? canvas.parentElement : null;
-    if (parent) {
-        if (hasAspect) {
-            parent.style.display = 'flex';
-            parent.style.justifyContent = 'center';
-            parent.style.alignItems = 'center';
-        } else {
-            parent.style.display = '';
-            parent.style.justifyContent = '';
-            parent.style.alignItems = '';
+    // -- Wrapper management ------------------------------------------------
+    // Create or remove a wrapper <div> owned by WebChuGL for flex centering.
+    // The host's parent element is never touched.
+    if (hasAspect) {
+        var wrapper = canvas._chuglWrapper;
+        if (!wrapper) {
+            wrapper = document.createElement('div');
+            canvas._chuglWrapper = wrapper;
+            var parent = canvas.parentElement;
+            if (parent) {
+                parent.insertBefore(wrapper, canvas);
+                wrapper.appendChild(canvas);
+            }
         }
+        wrapper.style.display = 'flex';
+        wrapper.style.justifyContent = 'center';
+        wrapper.style.alignItems = 'center';
+        wrapper.style.width = '100%';
+        wrapper.style.height = '100%';
+    } else {
+        var wrapper = canvas._chuglWrapper;
+        if (wrapper && wrapper.parentElement) {
+            wrapper.parentElement.insertBefore(canvas, wrapper);
+            wrapper.parentElement.removeChild(wrapper);
+        }
+        canvas._chuglWrapper = null;
     }
 
+    // -- computeSize override ----------------------------------------------
     // Override contrib.glfw3 resize observer's computeSize so it returns
     // letterboxed (shrink-to-fit) dimensions instead of full viewport.
     var glfwWindow = Module['glfwGetWindow'](canvas);
@@ -506,7 +525,10 @@ EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
             if (hasAspect) {
                 var ar = ar_x / ar_y;
                 ctx.fCanvasResize.computeSize = function() {
-                    var p = canvas.parentElement;
+                    // Read the wrapper's parent (the host container) for
+                    // available space, since the wrapper fills it at 100%.
+                    var w = canvas._chuglWrapper;
+                    var p = w ? w.parentElement : canvas.parentElement;
                     var vw = p ? p.clientWidth : window.innerWidth;
                     var vh = p ? p.clientHeight : window.innerHeight;
                     if (vw / vh > ar) {
@@ -1018,6 +1040,8 @@ void ck_clear_instance()
 {
     if (!the_chuck) return;
     the_chuck->removeAllShreds();
+    // Reset letterbox state so the next program starts with default sizing.
+    _chugl_setup_letterbox(0, 0);
 }
 
 EMSCRIPTEN_KEEPALIVE
