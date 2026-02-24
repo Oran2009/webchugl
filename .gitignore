@@ -46,7 +46,6 @@ emsdk*/
 # OS files
 .DS_Store
 Thumbs.db
-nul
 
 # Large binary files
 *.o
@@ -66,7 +65,5 @@ chuck/
 chugl/
 webchuck/
 docs/
-.claude/
 imgui.ini
-CLAUDE.md
 *.htaccess
