@@ -65,6 +65,10 @@
             <ul>
                 <li>TypeScript types (<code>ChucK</code>, <code>AudioConfig</code>, <code>ShredInfo</code>, etc.) are now included in the npm package</li>
             </ul>
+            <h3>Changed</h3>
+            <ul>
+                <li>ChuGL no longer overwrites <code>document.title</code> with the FPS counter on web builds. The page's <code>&lt;title&gt;</code> is now preserved by default. Use <code>GWindow.title()</code> to set a custom title from ChucK code.</li>
+            </ul>
             <h3>Fixed</h3>
             <ul>
                 <li><code>printErr</code> now uses <code>_printCallback</code>, falling back to <code>console.error</code></li>
@@ -207,7 +211,6 @@
             });
             canvas.classList.add('ready');
             ck.runCode([
-                'GWindow.title("WebChuGL Changelog");',
                 'GGen sunSystem, earthSystem, moonSystem;',
                 'GSphere sun, earth, moon;',
                 'for(auto x : [sun, earth, moon]) x.mat().wireframe(true);',

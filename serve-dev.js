@@ -35,69 +35,38 @@ const MIME = {
 const CDN_ESM = '/npm/webchugl/+esm';
 const CDN_VERSIONED = /^\/npm\/webchugl@[^/]+\/dist\//;
 
-const server = createServer(async (req, res) => {
-    let url = new URL(req.url, `http://localhost:${PORT}`);
-    let pathname = decodeURIComponent(url.pathname);
+// Rewrite CDN URLs to local /dist/ paths in file content
+function rewriteCdnUrls(content) {
+    content = content.replace(
+        /https:\/\/cdn\.jsdelivr\.net\/npm\/webchugl\/\+esm/g,
+        '/dist/webchugl-esm.js'
+    );
+    content = content.replace(
+        /https:\/\/cdn\.jsdelivr\.net\/npm\/webchugl@[^'"]+\/dist\//g,
+        '/dist/'
+    );
+    return content;
+}
 
-    // --- CDN rewrites ---
-
-    // Rewrite jsdelivr CDN host requests (shouldn't happen with same-origin,
-    // but handle the ESM +esm redirect pattern)
-    if (pathname === CDN_ESM || pathname === '/npm/webchugl/+esm') {
-        // Serve local ESM entry point
-        pathname = '/dist/webchugl-esm.js';
-    } else if (CDN_VERSIONED.test(pathname)) {
-        // Rewrite /npm/webchugl@x.y.z/dist/foo -> /dist/foo
-        pathname = pathname.replace(CDN_VERSIONED, '/dist/');
-    }
-
-    // --- Rewrite JS files to intercept CDN imports ---
-    // For .js files under /web/examples/, rewrite the CDN import URL inline
-    const filePath = join(ROOT, pathname);
+function needsRewrite(filePath, pathname) {
     const ext = extname(filePath);
+    return (ext === '.js' && (pathname.startsWith('/web/examples/') || pathname === '/dist/webchugl-esm.js'))
+        || (ext === '.html' && pathname.startsWith('/web/'));
+}
 
-    if (ext === '.js' && (pathname.startsWith('/web/examples/') || pathname === '/dist/webchugl-esm.js')) {
-        try {
-            let content = await readFile(filePath, 'utf-8');
-            // Replace CDN URLs with local paths
-            content = content.replace(
-                /https:\/\/cdn\.jsdelivr\.net\/npm\/webchugl\/\+esm/g,
-                '/dist/webchugl-esm.js'
-            );
-            content = content.replace(
-                /https:\/\/cdn\.jsdelivr\.net\/npm\/webchugl@[^'"]+\/dist\//g,
-                '/dist/'
-            );
-            setCOIHeaders(res);
-            res.writeHead(200, { 'Content-Type': 'application/javascript' });
-            res.end(content);
-            return;
-        } catch {
-            res.writeHead(404);
-            res.end('Not found');
-            return;
-        }
-    }
-
-    // --- Serve static files ---
+async function serveWithRewrite(filePath, res) {
     try {
-        const s = await stat(filePath);
-        if (s.isDirectory()) {
-            // Redirect /dir to /dir/ so relative paths resolve correctly
-            if (!pathname.endsWith('/')) {
-                res.writeHead(301, { Location: pathname + '/' });
-                res.end();
-                return;
-            }
-            // Try index.html
-            return serveFile(join(filePath, 'index.html'), res);
-        }
-        return serveFile(filePath, res);
+        const ext = extname(filePath);
+        let content = await readFile(filePath, 'utf-8');
+        content = rewriteCdnUrls(content);
+        setCOIHeaders(res);
+        res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+        res.end(content);
     } catch {
         res.writeHead(404);
         res.end('Not found');
     }
-});
+}
 
 async function serveFile(filePath, res) {
     try {
@@ -119,6 +88,53 @@ function setCOIHeaders(res) {
     // Allow CDN resources (mediapipe, rapier, highlight.js, etc.)
     res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');
 }
+
+const server = createServer(async (req, res) => {
+    let url = new URL(req.url, `http://localhost:${PORT}`);
+    let pathname = decodeURIComponent(url.pathname);
+
+    // --- CDN rewrites ---
+
+    // Rewrite jsdelivr CDN host requests (shouldn't happen with same-origin,
+    // but handle the ESM +esm redirect pattern)
+    if (pathname === CDN_ESM || pathname === '/npm/webchugl/+esm') {
+        // Serve local ESM entry point
+        pathname = '/dist/webchugl-esm.js';
+    } else if (CDN_VERSIONED.test(pathname)) {
+        // Rewrite /npm/webchugl@x.y.z/dist/foo -> /dist/foo
+        pathname = pathname.replace(CDN_VERSIONED, '/dist/');
+    }
+
+    // --- Rewrite JS/HTML files to intercept CDN imports ---
+    const filePath = join(ROOT, pathname);
+
+    if (needsRewrite(filePath, pathname)) {
+        return serveWithRewrite(filePath, res);
+    }
+
+    // --- Serve static files ---
+    try {
+        const s = await stat(filePath);
+        if (s.isDirectory()) {
+            // Redirect /dir to /dir/ so relative paths resolve correctly
+            if (!pathname.endsWith('/')) {
+                res.writeHead(301, { Location: pathname + '/' });
+                res.end();
+                return;
+            }
+            // Try index.html — rewrite if under /web/
+            const indexPath = join(filePath, 'index.html');
+            if (pathname.startsWith('/web/')) {
+                return serveWithRewrite(indexPath, res);
+            }
+            return serveFile(indexPath, res);
+        }
+        return serveFile(filePath, res);
+    } catch {
+        res.writeHead(404);
+        res.end('Not found');
+    }
+});
 
 server.listen(PORT, () => {
     console.log(`WebChuGL dev server: http://localhost:${PORT}`);
