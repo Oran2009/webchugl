@@ -112,6 +112,10 @@ done
 cp "$SRC_DIR/web/webchugl-esm.js" "$DIST_DIR/webchugl-esm.js"
 # Copy TypeScript declaration files for npm consumers
 [ -f "$SRC_DIR/web/webchugl-esm.d.ts" ] && cp "$SRC_DIR/web/webchugl-esm.d.ts" "$DIST_DIR/webchugl-esm.d.ts"
+if [ -f "$SRC_DIR/web/types/chuck.d.ts" ]; then
+    mkdir -p "$DIST_DIR/types"
+    cp "$SRC_DIR/web/types/chuck.d.ts" "$DIST_DIR/types/chuck.d.ts"
+fi
 
 # Inject package version into ESM (replaces __WEBCHUGL_VERSION__ placeholder)
 PKG_VERSION=$(node -p "require('$PROJECT_ROOT/package.json').version")

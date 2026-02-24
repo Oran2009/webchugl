@@ -1,11 +1,11 @@
-// Shared type declarations used by both webchugl.ts (script) and
-// webchugl-esm.ts (module).  Declared here so they are ambient and
-// visible to all compilation units without needing import/export.
+// Shared type declarations used by webchugl.ts and webchugl-esm.ts.
+// Exported as a module so TypeScript's declaration emitter includes
+// them in the published .d.ts files.
 
 // ── Audio configuration options ──────────────────────────────────────────
 
 /** Audio configuration options. */
-interface AudioConfig {
+export interface AudioConfig {
     /** Audio sample rate in Hz. Defaults to `48000`. */
     sampleRate?: number;
     /** Number of output channels. Defaults to `2`. */
@@ -16,7 +16,7 @@ interface AudioConfig {
 
 // ── Internal config passed to _initWebChuGL ─────────────────────────────
 
-interface WebChuGLInternalConfig {
+export interface WebChuGLInternalConfig {
     canvas: HTMLCanvasElement;
     baseUrl: string;
     chugins: string[];
@@ -31,19 +31,19 @@ interface WebChuGLInternalConfig {
 // ── Shred info returned by getActiveShreds ──────────────────────────────
 
 /** Information about an active shred in the ChucK VM. */
-interface ShredInfo {
+export interface ShredInfo {
     id: number;
     name: string;
 }
 
 /** Result of a replace operation (replaceCode, replaceFile, etc.). */
-interface ReplaceResult {
+export interface ReplaceResult {
     oldShred: number;
     newShred: number;
 }
 
 /** Information about a global variable in the ChucK VM. */
-interface GlobalVariableInfo {
+export interface GlobalVariableInfo {
     type: string;
     name: string;
 }
@@ -60,7 +60,7 @@ interface GlobalVariableInfo {
  * All methods auto-queue until the ChucK VM is ready, so you can call them
  * immediately after `ChuGL.init()` resolves.
  */
-interface ChucK {
+export interface ChucK {
     // ── Code Execution ──────────────────────────────────────────────────
 
     /**
