@@ -1,6 +1,7 @@
 // WebChuGL Runtime — ChucK class
 // Bundled by esbuild into a single IIFE. Exposes _initWebChuGL global.
 
+import type { ShredInfo, ReplaceResult, GlobalVariableInfo, WebChuGLInternalConfig } from './types/chuck.js';
 import { ensureVfsDir, isBinaryFile } from './lib/vfs';
 import { audioBufferToWav } from './lib/audio-utils';
 import { initSensors } from './lib/sensors';
@@ -268,7 +269,10 @@ class ChucK {
                 else console.log(text);
             },
 
-            printErr: (text: string) => console.error(text),
+            printErr: (text: string) => {
+                if (instance._printCallback) instance._printCallback(text);
+                else console.error(text);
+            },
             setStatus: () => {},
 
             _ckCallbacks: instance.callbacks,

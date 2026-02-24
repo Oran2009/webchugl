@@ -131,9 +131,18 @@ foreach ($f in @("index.js", "webchugl.wasm", "webchugl.js",
     }
 }
 Copy-Item (Join-Path $SrcDir "web\webchugl-esm.js") (Join-Path $DistDir "webchugl-esm.js") -Force
+# Copy TypeScript declaration files for npm consumers
 $DtsPath = Join-Path $SrcDir "web\webchugl-esm.d.ts"
 if (Test-Path $DtsPath) {
     Copy-Item $DtsPath (Join-Path $DistDir "webchugl-esm.d.ts") -Force
+}
+$ChuckDtsPath = Join-Path $SrcDir "web\types\chuck.d.ts"
+if (Test-Path $ChuckDtsPath) {
+    $DistTypesDir = Join-Path $DistDir "types"
+    if (-not (Test-Path $DistTypesDir)) {
+        New-Item -ItemType Directory -Path $DistTypesDir | Out-Null
+    }
+    Copy-Item $ChuckDtsPath (Join-Path $DistTypesDir "chuck.d.ts") -Force
 }
 
 # Inject package version into ESM (replaces __WEBCHUGL_VERSION__ placeholder)

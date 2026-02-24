@@ -2,6 +2,15 @@
 // WebChuGL ESM Entry Point
 // ============================================================================
 
+import type {
+    ChucK,
+    AudioConfig,
+    ShredInfo,
+    ReplaceResult,
+    GlobalVariableInfo,
+    WebChuGLInternalConfig,
+} from './types/chuck.js';
+
 // -- Ambient declaration for _initWebChuGL (defined in webchugl.ts, loaded
 //    via <script> before this module's init() runs) -------------------------
 
@@ -164,19 +173,11 @@ const ChuGL = {
 export default ChuGL;
 export { ChuGL };
 
-// Re-export ambient types from chuck.d.ts so npm consumers can import them.
-// Ambient (global) declarations cannot be exported directly from a module, so
-// we create local type aliases that reference the global interfaces.
-type _ChucK = ChucK;
-type _AudioConfig = AudioConfig;
-type _ShredInfo = ShredInfo;
-type _ReplaceResult = ReplaceResult;
-type _GlobalVariableInfo = GlobalVariableInfo;
 export type {
-    _ChucK as ChucK,
+    ChucK,
     ChuGLConfig,
-    _AudioConfig as AudioConfig,
-    _ShredInfo as ShredInfo,
-    _ReplaceResult as ReplaceResult,
-    _GlobalVariableInfo as GlobalVariableInfo,
+    AudioConfig,
+    ShredInfo,
+    ReplaceResult,
+    GlobalVariableInfo,
 };
