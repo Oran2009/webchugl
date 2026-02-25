@@ -37,7 +37,6 @@ emsdk*/
 # Editor/IDE
 .vscode/
 .idea/
-.claude/
 *.suo
 *.user
 *.swp
