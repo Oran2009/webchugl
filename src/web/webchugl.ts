@@ -35,6 +35,7 @@ class ChucK {
     private _audioCtx: AudioContext | null = null;
     private _audioNode: AudioWorkletNode | null = null;
     private _audioReady: Promise<void> | null = null;
+    private _micConnected = false;
     private _sampleRate = 48000;
     private _printCallback: ((msg: string) => void) | null = null;
     private baseUrl: string;
@@ -131,6 +132,24 @@ class ChucK {
         return null;
     }
 
+    // ── Microphone connection (called from C++ when adc is used) ────────
+
+    private connectMic(): void {
+        if (this._micConnected || !this._audioCtx || !this._audioNode) return;
+        this._micConnected = true;
+
+        const ctx = this._audioCtx;
+        const node = this._audioNode;
+        navigator.mediaDevices.getUserMedia({ audio: true })
+            .then((stream) => {
+                ctx.createMediaStreamSource(stream).connect(node);
+                console.log('[WebChuGL] Microphone connected');
+            })
+            .catch((err) => {
+                console.log('[WebChuGL] Microphone not available: ' + err.message);
+            });
+    }
+
     // ── Audio init (called from C++ via Module._initAudio) ──────────────
 
     private handleInitAudio(
@@ -174,6 +193,7 @@ class ChucK {
             this._audioNode = node;
 
             if (needsMic) {
+                this._micConnected = true;
                 navigator.mediaDevices.getUserMedia({ audio: true })
                     .then((stream) => {
                         ctx.createMediaStreamSource(stream).connect(node);
@@ -291,6 +311,8 @@ class ChucK {
                     capacity, needsMic, sampleRate, outChannels, inChannels,
                 );
             },
+
+            _connectMic: () => { instance.connectMic(); },
 
             preRun: [(mod: EmscriptenModule) => {
                 instance.module = mod;
