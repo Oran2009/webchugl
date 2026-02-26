@@ -57,6 +57,32 @@
 
     <div class="release">
         <div class="release-header">
+            <h3 class="release-version">v0.1.6</h3>
+            <span class="release-date">2026-02-26</span>
+        </div>
+        <div class="release-body">
+            <h3>Added</h3>
+            <ul>
+                <li><code>fps()</code> &mdash; returns the current rendering frames per second</li>
+                <li><code>dt()</code> &mdash; returns the frame delta time in seconds</li>
+                <li><code>frameCount()</code> &mdash; returns the total number of rendered frames since startup</li>
+                <li><code>isRunning()</code> &mdash; returns whether the ChucK VM is currently running</li>
+                <li><code>ChuGL.destroy()</code> &mdash; tears down the current instance (audio, canvas, etc...) so <code>ChuGL.init()</code> can be called again</li>
+            </ul>
+            <h3>Changed</h3>
+            <ul>
+                <li><code>createFile()</code> now accepts <code>Uint8Array</code> in addition to <code>string</code> and <code>ArrayBuffer</code></li>
+            </ul>
+            <h3>Fixed</h3>
+            <ul>
+                <li>Letterbox no longer sets inline styles on the host&rsquo;s parent element and now resets on VM clear</li>
+                <li>Microphone now properly auto-connects when code using <code>adc</code> is run after init (e.g. via <code>runCode()</code> / <code>runFile()</code>)</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="release">
+        <div class="release-header">
             <h3 class="release-version">v0.1.5</h3>
             <span class="release-date">2026-02-23</span>
         </div>

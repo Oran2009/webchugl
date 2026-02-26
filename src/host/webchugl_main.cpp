@@ -41,6 +41,16 @@ extern t_CKBOOL chugl_main_loop_hook(void* bindle);
 // Pre-frame callback registration (defined in app.cpp under __EMSCRIPTEN__)
 extern "C" void webchugl_set_pre_frame_callback(void (*fn)(void*), void* data);
 
+// Stop the emscripten main loop (defined in app.cpp under __EMSCRIPTEN__)
+extern "C" void webchugl_stop_main_loop();
+
+// FPS and dt getters (defined in ChuGL sync.cpp)
+extern double CHUGL_Window_fps();
+extern double CHUGL_Window_dt();
+
+// Frame count (defined in ChuGL ulib_helper.h)
+extern long long g_frame_count;
+
 // The ChucK instance
 static ChucK* the_chuck = nullptr;
 
@@ -248,6 +258,7 @@ static int g_maxSamplesPerCall = 4800;  // derived: g_sampleRate / 10 (100ms cap
 static std::chrono::high_resolution_clock::time_point g_lastAudioTime;
 
 static bool g_needsMicrophone = false;
+static bool g_micRequested = false;
 
 // Initialize the audio system via JS AudioWorkletProcessor
 // The JS worklet reads/writes directly from WASM shared memory ring buffers
@@ -280,6 +291,42 @@ void initAudio()
     g_sampleRate,
     g_numOutputChannels,
     g_numInputChannels);
+}
+
+// Check if adc is now in use and request microphone if needed.
+// Called each frame after ck->run() so that UGen connections (adc => ...)
+// established during shred execution are detected.  Guarded by
+// g_micRequested so it becomes a single boolean check after the first trigger.
+static void checkAndRequestMic()
+{
+    if (g_micRequested) return;
+    if (!the_chuck) return;
+
+    Chuck_UGen* adc = the_chuck->vm()->m_adc;
+    if (!adc) return;
+
+    bool needsMic = false;
+    if (adc->m_num_dest > 0) {
+        needsMic = true;
+    }
+    if (!needsMic && adc->m_multi_chan) {
+        for (t_CKUINT i = 0; i < adc->m_multi_chan_size; i++) {
+            if (adc->m_multi_chan[i] && adc->m_multi_chan[i]->m_num_dest > 0) {
+                needsMic = true;
+                break;
+            }
+        }
+    }
+
+    if (needsMic) {
+        g_micRequested = true;
+        printf("[WebChuGL] ADC in use — requesting microphone\n");
+        EM_ASM({
+            if (typeof Module._connectMic === 'function') {
+                Module._connectMic();
+            }
+        });
+    }
 }
 
 // Pre-frame callback: advances the ChucK VM based on elapsed time
@@ -318,6 +365,9 @@ static void run_vm_frame(void* data)
 
         // Always run ChucK VM (needed for graphics via GG.nextFrame())
         ck->run(inBuffer, outBuffer, samplesToGenerate);
+
+        // UGen connections (adc => ...) happen during ck->run(), so check here
+        checkAndRequestMic();
 
         // Write ChucK's planar output directly to ring buffer
         uint32_t available = ringAvailableToWrite();
@@ -407,6 +457,7 @@ int main(int argc, char** argv)
             }
         }
         if (g_needsMicrophone) {
+            g_micRequested = true;
             printf("[WebChuGL] ADC in use - microphone will be requested\n");
         }
     }
@@ -478,25 +529,44 @@ void chugl_setup_parent_resize()
 // Letterbox setup for contrib.glfw3: overrides the resize observer's computeSize
 // to return shrink-to-fit dimensions, and centers the canvas in its parent.
 // Called from app.cpp's SG_COMMAND_WINDOW_SIZE_LIMITS handler.
+//
+// Instead of modifying the parent element's inline styles (which would override
+// host-application CSS like Tailwind's .hidden), we insert an owned wrapper
+// <div> between the parent and the canvas.
 EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
     var canvas = Module['canvas'];
+    if (!canvas) return;
     var hasAspect = (ar_x > 0 && ar_y > 0);
 
-    // Center the canvas within its parent container via inline styles.
-    // This avoids injecting a global <style> that would affect the host page.
-    var parent = canvas ? canvas.parentElement : null;
-    if (parent) {
-        if (hasAspect) {
-            parent.style.display = 'flex';
-            parent.style.justifyContent = 'center';
-            parent.style.alignItems = 'center';
-        } else {
-            parent.style.display = '';
-            parent.style.justifyContent = '';
-            parent.style.alignItems = '';
+    // -- Wrapper management ------------------------------------------------
+    // Create or remove a wrapper <div> owned by WebChuGL for flex centering.
+    // The host's parent element is never touched.
+    if (hasAspect) {
+        var wrapper = canvas._chuglWrapper;
+        if (!wrapper) {
+            wrapper = document.createElement('div');
+            canvas._chuglWrapper = wrapper;
+            var parent = canvas.parentElement;
+            if (parent) {
+                parent.insertBefore(wrapper, canvas);
+                wrapper.appendChild(canvas);
+            }
         }
+        wrapper.style.display = 'flex';
+        wrapper.style.justifyContent = 'center';
+        wrapper.style.alignItems = 'center';
+        wrapper.style.width = '100%';
+        wrapper.style.height = '100%';
+    } else {
+        var wrapper = canvas._chuglWrapper;
+        if (wrapper && wrapper.parentElement) {
+            wrapper.parentElement.insertBefore(canvas, wrapper);
+            wrapper.parentElement.removeChild(wrapper);
+        }
+        canvas._chuglWrapper = null;
     }
 
+    // -- computeSize override ----------------------------------------------
     // Override contrib.glfw3 resize observer's computeSize so it returns
     // letterboxed (shrink-to-fit) dimensions instead of full viewport.
     var glfwWindow = Module['glfwGetWindow'](canvas);
@@ -506,7 +576,10 @@ EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
             if (hasAspect) {
                 var ar = ar_x / ar_y;
                 ctx.fCanvasResize.computeSize = function() {
-                    var p = canvas.parentElement;
+                    // Read the wrapper's parent (the host container) for
+                    // available space, since the wrapper fills it at 100%.
+                    var w = canvas._chuglWrapper;
+                    var p = w ? w.parentElement : canvas.parentElement;
                     var vw = p ? p.clientWidth : window.innerWidth;
                     var vh = p ? p.clientHeight : window.innerHeight;
                     if (vw / vh > ar) {
@@ -1018,6 +1091,8 @@ void ck_clear_instance()
 {
     if (!the_chuck) return;
     the_chuck->removeAllShreds();
+    // Reset letterbox state so the next program starts with default sizing.
+    _chugl_setup_letterbox(0, 0);
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -1027,6 +1102,12 @@ void ck_clear_globals()
     Chuck_Msg* msg = new Chuck_Msg;
     msg->type = CK_MSG_CLEARGLOBALS;
     the_chuck->vm()->queue_msg(msg);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ck_stop_render_loop()
+{
+    webchugl_stop_main_loop();
 }
 
 // ---- Print callback -------------------------------------------------
@@ -1075,6 +1156,31 @@ const char* ck_get_loaded_chugins()
 }
 
 // ---- VM introspection -----------------------------------------------
+
+EMSCRIPTEN_KEEPALIVE
+double ck_get_fps()
+{
+    return CHUGL_Window_fps();
+}
+
+EMSCRIPTEN_KEEPALIVE
+double ck_get_dt()
+{
+    return CHUGL_Window_dt();
+}
+
+EMSCRIPTEN_KEEPALIVE
+double ck_get_frame_count()
+{
+    return (double)g_frame_count;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_is_vm_running()
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm_running() ? 1 : 0;
+}
 
 EMSCRIPTEN_KEEPALIVE
 double ck_get_now()

@@ -1,6 +1,6 @@
 {
     "name": "webchugl",
-    "version": "0.1.5",
+    "version": "0.1.6",
     "description": "ChuGL real-time graphics + ChucK audio, in the browser via WebAssembly + WebGPU",
     "type": "module",
     "main": "dist/webchugl-esm.js",

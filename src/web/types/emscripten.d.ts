@@ -180,6 +180,12 @@ interface EmscriptenModule {
     ): void;
 
     /**
+     * Connect the microphone to the audio worklet on demand.
+     * Called from C++ (via EM_ASM) when compiled code uses `adc` after init.
+     */
+    _connectMic(): void;
+
+    /**
      * Callback for ChucK print output (`chout` / `<<< >>>`).
      * Set to a function to intercept print messages, or `null` to use `console.log`.
      */

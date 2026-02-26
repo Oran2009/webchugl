@@ -94,8 +94,8 @@ export interface ChucK {
     // ── Virtual Filesystem ──────────────────────────────────────────────
 
     /** Write a file to the virtual filesystem. */
-    createFile(path: string, data: string | ArrayBuffer): void;
-    createFile(directory: string, filename: string, data: string | ArrayBuffer): void;
+    createFile(path: string, data: string | ArrayBuffer | Uint8Array): void;
+    createFile(directory: string, filename: string, data: string | ArrayBuffer | Uint8Array): void;
 
     /** Remove a file or directory from the virtual filesystem recursively. */
     removeFile(path: string): boolean;
@@ -117,69 +117,126 @@ export interface ChucK {
 
     // ── Scalar Variables ────────────────────────────────────────────────
 
+    /** Set a global `int` variable in ChucK. */
     setInt(name: string, val: number): void;
+    /** Set a global `float` variable in ChucK. */
     setFloat(name: string, val: number): void;
+    /** Set a global `string` variable in ChucK. */
     setString(name: string, val: string): void;
+    /** Get a global `int` variable from ChucK. */
     getInt(name: string): Promise<number>;
+    /** Get a global `float` variable from ChucK. */
     getFloat(name: string): Promise<number>;
+    /** Get a global `string` variable from ChucK. */
     getString(name: string): Promise<string>;
 
     // ── Events ──────────────────────────────────────────────────────────
 
+    /** Signal (wake one waiting shred on) a global ChucK event. */
     signalEvent(name: string): void;
+    /** Broadcast (wake all waiting shreds on) a global ChucK event. */
     broadcastEvent(name: string): void;
+    /** Listen for a global ChucK event once, then auto-remove the listener. Returns a listener ID. */
     listenForEventOnce(name: string, callback: () => void): number;
+    /** Stop listening for a global ChucK event by listener ID. */
     stopListeningForEvent(name: string, listenerId: number): void;
+    /** Start listening for a global ChucK event. The callback fires every time the event is broadcast. Returns a listener ID. */
     startListeningForEvent(name: string, callback: () => void): number;
 
     // ── Int Array Variables ─────────────────────────────────────────────
 
+    /** Set an entire global `int` array in ChucK. */
     setIntArray(name: string, arr: number[]): void;
+    /** Get an entire global `int` array from ChucK. */
     getIntArray(name: string): Promise<number[]>;
+    /** Set a single value in a global `int` array by index. */
     setIntArrayValue(name: string, index: number, value: number): void;
+    /** Get a single value from a global `int` array by index. */
     getIntArrayValue(name: string, index: number): Promise<number>;
+    /** Set a value in a global associative `int` array by key. */
     setAssocIntArrayValue(name: string, key: string, value: number): void;
+    /** Get a value from a global associative `int` array by key. */
     getAssocIntArrayValue(name: string, key: string): Promise<number>;
 
     // ── Float Array Variables ───────────────────────────────────────────
 
+    /** Set an entire global `float` array in ChucK. */
     setFloatArray(name: string, arr: number[]): void;
+    /** Get an entire global `float` array from ChucK. */
     getFloatArray(name: string): Promise<number[]>;
+    /** Set a single value in a global `float` array by index. */
     setFloatArrayValue(name: string, index: number, value: number): void;
+    /** Get a single value from a global `float` array by index. */
     getFloatArrayValue(name: string, index: number): Promise<number>;
+    /** Set a value in a global associative `float` array by key. */
     setAssocFloatArrayValue(name: string, key: string, value: number): void;
+    /** Get a value from a global associative `float` array by key. */
     getAssocFloatArrayValue(name: string, key: string): Promise<number>;
 
     // ── ChuGin & Package Loading ────────────────────────────────────────
 
+    /** Fetch and load a ChuGin (`.chug.wasm`) from a URL. Returns the ChuGin short name. */
     loadChugin(url: string): Promise<string>;
+    /** Get the list of currently loaded ChuGin names. */
     getLoadedChugins(): string[];
+    /** Load a ChuMP package by name. Resolves the latest version if none is specified. */
     loadPackage(name: string, version?: string, url?: string): Promise<string>;
 
     // ── Audio ───────────────────────────────────────────────────────────
 
+    /** Fetch an audio file, decode it to WAV, and write it to the virtual filesystem. */
     loadAudio(url: string, vfsPath?: string): Promise<string>;
+    /** Initialize Web MIDI access for ChucK MIDI input/output. */
     initMidi(access: MIDIAccess): void;
+    /** Get the audio sample rate, or `null` if audio is not yet initialized. */
     getSampleRate(): number | null;
+    /** The underlying Web Audio `AudioContext`, or `null` before audio init. */
     audioContext: AudioContext | null;
+    /** The `AudioWorkletNode` running ChucK audio, or `null` before audio init. */
     audioNode: AudioWorkletNode | null;
 
     // ── VM Introspection ────────────────────────────────────────────────
 
+    /** Get the current ChucK time in samples. */
     getCurrentTime(): number;
+    /** Returns the current rendering frames per second. Updated once per second. */
+    fps(): number;
+    /** Returns the frame delta time in seconds (time since last frame). */
+    dt(): number;
+    /** Returns the total number of rendered frames since startup. */
+    frameCount(): number;
+    /** Returns whether the ChucK VM is currently running. */
+    isRunning(): boolean;
+    /** Get all currently active shreds. */
     getActiveShreds(): ShredInfo[];
+    /** Get the error or warning output from the last compile attempt. */
     getLastError(): string;
+    /** Get all global variables currently registered in the ChucK VM. */
     getGlobalVariables(): GlobalVariableInfo[];
 
     // ── Shred Management ────────────────────────────────────────────────
 
+    /** Replace the most recently added shred with new code. */
     replaceCode(code: string): Promise<ReplaceResult>;
+    /** Replace the most recently added shred with a file from the VFS. */
     replaceFile(filename: string): Promise<ReplaceResult>;
+    /** Replace the most recently added shred with a file and arguments. */
     replaceFileWithArgs(filename: string, colonSeparatedArgs: string): Promise<ReplaceResult>;
+    /** Remove the most recently added shred. Returns the removed shred ID. */
     removeLastCode(): Promise<number>;
+    /** Remove a shred by ID. Returns the removed shred ID. */
     removeShred(shredID: number): Promise<number>;
+    /** Check if a shred is currently active. Returns 1 if active, 0 otherwise. */
     isShredActive(shredID: number): Promise<number>;
+    /**
+     * Run a ChucK file with colon-separated arguments.
+     *
+     * @param filename - VFS path to the `.ck` file.
+     * @param colonSeparatedArgs - Arguments separated by colons (e.g. `"1:foo:3.14"`).
+     * @returns The shred ID on success, 0 on failure.
+     */
     runFileWithArgs(filename: string, colonSeparatedArgs: string): Promise<number>;
+    /** Get the current ChucK time in samples (async version of `getCurrentTime`). */
     now(): Promise<number>;
 
     // ── Print Callback ──────────────────────────────────────────────────
@@ -193,27 +250,47 @@ export interface ChucK {
 
     // ── VM Engine Parameters ────────────────────────────────────────────
 
+    /** Set a VM engine parameter (int). */
     setParamInt(name: string, val: number): void;
+    /** Get a VM engine parameter (int). */
     getParamInt(name: string): number;
+    /** Set a VM engine parameter (float). */
     setParamFloat(name: string, val: number): void;
+    /** Get a VM engine parameter (float). */
     getParamFloat(name: string): number;
+    /** Set a VM engine parameter (string). */
     setParamString(name: string, val: string): void;
+    /** Get a VM engine parameter (string). */
     getParamString(name: string): string;
 
     // ── VM Reset ────────────────────────────────────────────────────────
 
+    /** Remove all shreds and reset the ChucK VM to its initial state. */
     clearChuckInstance(): void;
+    /** Clear all global variables in the ChucK VM. */
     clearGlobals(): void;
+    /**
+     * Destroy the ChucK instance, releasing all resources (audio, canvas
+     * observers, sensors). After calling this, `ChuGL.init()` can be
+     * called again to create a fresh instance.
+     */
+    destroy(): void;
 
     // ── Web Audio Graph ─────────────────────────────────────────────────
 
+    /** Connect ChucK audio output to a Web Audio destination node. */
     connect(destination: AudioNode): void;
+    /** Disconnect ChucK audio output from all destinations. */
     disconnect(): void;
 
     // ── Persistent Storage (IndexedDB) ──────────────────────────────────
 
+    /** Save a value to persistent storage (IndexedDB). */
     save(key: string, value: unknown): Promise<void>;
+    /** Load a value from persistent storage (IndexedDB). */
     load(key: string): Promise<unknown>;
+    /** Delete a value from persistent storage (IndexedDB). */
     delete(key: string): Promise<void>;
+    /** List all keys in persistent storage (IndexedDB). */
     listKeys(): Promise<string[]>;
 }
