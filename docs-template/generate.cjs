@@ -24,7 +24,7 @@ var METHOD_GROUPS = [
     { title: 'Float Arrays',        methods: ['setFloatArray', 'getFloatArray', 'setFloatArrayValue', 'getFloatArrayValue', 'setAssocFloatArrayValue', 'getAssocFloatArrayValue'] },
     { title: 'Events',              methods: ['signalEvent', 'broadcastEvent', 'listenForEventOnce', 'stopListeningForEvent', 'startListeningForEvent'] },
     { title: 'ChuGins & Packages',  methods: ['loadChugin', 'getLoadedChugins', 'loadPackage'] },
-    { title: 'VM',                  methods: ['getCurrentTime', 'fps', 'dt', 'frameCount', 'isRunning', 'now', 'getActiveShreds', 'getLastError', 'getGlobalVariables', 'setParamInt', 'getParamInt', 'setParamFloat', 'getParamFloat', 'setParamString', 'getParamString', 'clearChuckInstance', 'clearGlobals', 'destroy'] },
+    { title: 'VM',                  methods: ['getCurrentTime', 'fps', 'dt', 'frameCount', 'isRunning', 'now', 'getActiveShreds', 'getLastError', 'getGlobalVariables', 'setParamInt', 'getParamInt', 'setParamFloat', 'getParamFloat', 'setParamString', 'getParamString', 'clearChuckInstance', 'clearGlobals'] },
     { title: 'Persistent Storage',  methods: ['save', 'load', 'delete', 'listKeys'] },
 ];
 
@@ -189,17 +189,17 @@ function extractInterfaceProperties(iface, sourceOrder) {
         .map(function (c) { return byName[c.name]; });
 }
 
-function extractChuGLInit(chuglVar) {
+function extractChuGLMethod(chuglVar, methodName) {
     if (!chuglVar) return null;
     var typeLiteral = chuglVar.type && chuglVar.type.declaration;
     if (!typeLiteral || !typeLiteral.children) return null;
-    var initProp = findChild(typeLiteral, 'init');
-    if (!initProp) return null;
+    var prop = findChild(typeLiteral, methodName);
+    if (!prop) return null;
 
-    var comment = initProp.comment || {};
+    var comment = prop.comment || {};
     var sig = null;
-    if (initProp.type && initProp.type.declaration && initProp.type.declaration.signatures)
-        sig = initProp.type.declaration.signatures[0];
+    if (prop.type && prop.type.declaration && prop.type.declaration.signatures)
+        sig = prop.type.declaration.signatures[0];
 
     var params = [];
     var returnType = '';
@@ -221,7 +221,7 @@ function extractChuGLInit(chuglVar) {
     });
 
     return {
-        name: 'init',
+        name: methodName,
         description: comment.summary ? renderComment(comment.summary) : '',
         params: params,
         returnType: returnType,
@@ -394,7 +394,7 @@ function main() {
     if (chuglVar) {
         if (chuglVar.comment && chuglVar.comment.summary)
             chuglDesc = renderComment(chuglVar.comment.summary);
-        var initMethod = extractChuGLInit(chuglVar);
+        var initMethod = extractChuGLMethod(chuglVar, 'init');
         if (initMethod) {
             // Expand ChuGLConfig properties inline
             var chuglConfigIface = findChild(esmModule, 'ChuGLConfig', KIND.INTERFACE);
@@ -404,6 +404,8 @@ function main() {
             }
             chuglMethods.push(initMethod);
         }
+        var destroyMethod = extractChuGLMethod(chuglVar, 'destroy');
+        if (destroyMethod) chuglMethods.push(destroyMethod);
     }
 
     // ── Inject into template ──
