@@ -94,8 +94,8 @@ export interface ChucK {
     // ── Virtual Filesystem ──────────────────────────────────────────────
 
     /** Write a file to the virtual filesystem. */
-    createFile(path: string, data: string | ArrayBuffer): void;
-    createFile(directory: string, filename: string, data: string | ArrayBuffer): void;
+    createFile(path: string, data: string | ArrayBuffer | Uint8Array): void;
+    createFile(directory: string, filename: string, data: string | ArrayBuffer | Uint8Array): void;
 
     /** Remove a file or directory from the virtual filesystem recursively. */
     removeFile(path: string): boolean;

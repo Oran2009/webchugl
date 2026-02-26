@@ -518,9 +518,9 @@ class ChucK {
 
     // ── Virtual Filesystem ──────────────────────────────────────────────
 
-    createFile(pathOrDir: string, filenameOrData: string | ArrayBuffer, maybeData?: string | ArrayBuffer): void {
+    createFile(pathOrDir: string, filenameOrData: string | ArrayBuffer | Uint8Array, maybeData?: string | ArrayBuffer | Uint8Array): void {
         let path: string;
-        let data: string | ArrayBuffer;
+        let data: string | ArrayBuffer | Uint8Array;
         if (maybeData !== undefined) {
             // 3-arg: createFile(directory, filename, data)
             let dir = pathOrDir;
