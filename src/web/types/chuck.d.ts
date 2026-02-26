@@ -269,6 +269,12 @@ export interface ChucK {
     clearChuckInstance(): void;
     /** Clear all global variables in the ChucK VM. */
     clearGlobals(): void;
+    /**
+     * Destroy the ChucK instance, releasing all resources (audio, canvas
+     * observers, sensors). After calling this, `ChuGL.init()` can be
+     * called again to create a fresh instance.
+     */
+    destroy(): void;
 
     // ── Web Audio Graph ─────────────────────────────────────────────────
 

@@ -58,6 +58,7 @@ interface ChuGLConfig {
 // ============================================================================
 
 let _initPromise: Promise<ChucK> | null = null;
+let _instance: ChucK | null = null;
 
 function _loadScript(url: string): Promise<void> {
     return new Promise(function (resolve, reject) {
@@ -161,12 +162,28 @@ const ChuGL = {
                     onReady: config.onReady,
                 });
             })
+            .then(function (ck: ChucK) {
+                _instance = ck;
+                return ck;
+            })
             .catch(function (e: Error) {
                 _initPromise = null;
                 throw e;
             });
 
         return _initPromise;
+    },
+
+    /**
+     * Destroy the current WebChuGL instance, releasing all resources
+     * (audio, canvas observers, sensors). After calling this,
+     * `ChuGL.init()` can be called again to create a fresh instance.
+     */
+    destroy: function (): void {
+        if (!_instance) return;
+        (_instance as any).destroy();
+        _instance = null;
+        _initPromise = null;
     },
 };
 

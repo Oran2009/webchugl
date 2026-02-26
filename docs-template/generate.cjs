@@ -24,7 +24,7 @@ var METHOD_GROUPS = [
     { title: 'Float Arrays',        methods: ['setFloatArray', 'getFloatArray', 'setFloatArrayValue', 'getFloatArrayValue', 'setAssocFloatArrayValue', 'getAssocFloatArrayValue'] },
     { title: 'Events',              methods: ['signalEvent', 'broadcastEvent', 'listenForEventOnce', 'stopListeningForEvent', 'startListeningForEvent'] },
     { title: 'ChuGins & Packages',  methods: ['loadChugin', 'getLoadedChugins', 'loadPackage'] },
-    { title: 'VM',                  methods: ['getCurrentTime', 'fps', 'dt', 'frameCount', 'isRunning', 'now', 'getActiveShreds', 'getLastError', 'getGlobalVariables', 'setParamInt', 'getParamInt', 'setParamFloat', 'getParamFloat', 'setParamString', 'getParamString', 'clearChuckInstance', 'clearGlobals'] },
+    { title: 'VM',                  methods: ['getCurrentTime', 'fps', 'dt', 'frameCount', 'isRunning', 'now', 'getActiveShreds', 'getLastError', 'getGlobalVariables', 'setParamInt', 'getParamInt', 'setParamFloat', 'getParamFloat', 'setParamString', 'getParamString', 'clearChuckInstance', 'clearGlobals', 'destroy'] },
     { title: 'Persistent Storage',  methods: ['save', 'load', 'delete', 'listKeys'] },
 ];
 

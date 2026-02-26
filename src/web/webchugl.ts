@@ -41,6 +41,8 @@ class ChucK {
     private baseUrl: string;
     private jszipPromise: Promise<void> | null = null;
     private _storage = new Storage();
+    private _removeAudioListeners: (() => void) | null = null;
+    private _cleanupSensors: (() => void) | null = null;
 
     private constructor(baseUrl: string) {
         this.baseUrl = baseUrl;
@@ -209,6 +211,7 @@ class ChucK {
                 document.removeEventListener('click', startAudio);
                 document.removeEventListener('keydown', startAudio);
                 document.removeEventListener('touchstart', startAudio);
+                this._removeAudioListeners = null;
             };
             const startAudio = (): void => {
                 if (ctx.state === 'running') { removeListeners(); return; }
@@ -220,6 +223,7 @@ class ChucK {
             document.addEventListener('click', startAudio);
             document.addEventListener('keydown', startAudio);
             document.addEventListener('touchstart', startAudio);
+            this._removeAudioListeners = removeListeners;
 
             console.log('[WebChuGL] Audio initialized (JS AudioWorklet)');
         }).catch((err) => {
@@ -376,7 +380,7 @@ class ChucK {
                         }
                     }
 
-                    initSensors(instance, () => instance.module !== null);
+                    instance._cleanupSensors = initSensors(instance, () => instance.module !== null);
                     const audioReady = instance._audioReady || Promise.resolve();
                     return audioReady.then(() => {
                         instance.flush();
@@ -917,6 +921,61 @@ class ChucK {
     }
     clearGlobals(): void {
         this.defer(() => this.module!.ccall('ck_clear_globals', null, [], []));
+    }
+
+    destroy(): void {
+        if (!this.module) return;
+
+        // Stop the C++ render loop so it doesn't try to render after teardown
+        this.module.ccall('ck_stop_render_loop', null, [], []);
+
+        // Clear ChucK VM state
+        this.module.ccall('ck_clear_instance', null, [], []);
+        this.module.ccall('ck_clear_globals', null, [], []);
+
+        // Clean up audio
+        if (this._removeAudioListeners) this._removeAudioListeners();
+        if (this._audioNode) { this._audioNode.disconnect(); this._audioNode = null; }
+        if (this._audioCtx) { this._audioCtx.close(); this._audioCtx = null; }
+        this._audioReady = null;
+
+        // Clean up canvas (observer, wrapper)
+        const canvas = this.module.canvas as HTMLCanvasElement;
+        if (canvas) {
+            if ((canvas as any)._chuglParentObserver) {
+                (canvas as any)._chuglParentObserver.disconnect();
+                delete (canvas as any)._chuglParentObserver;
+            }
+            if ((canvas as any)._chuglWrapper) {
+                const wrapper = (canvas as any)._chuglWrapper;
+                if (wrapper.parentElement) {
+                    wrapper.parentElement.insertBefore(canvas, wrapper);
+                    wrapper.parentElement.removeChild(wrapper);
+                }
+                delete (canvas as any)._chuglWrapper;
+            }
+            // Unconfigure WebGPU context so the next init gets a clean surface
+            const gpuCtx = canvas.getContext('webgpu');
+            if (gpuCtx) gpuCtx.unconfigure();
+        }
+
+        // Clean up sensors
+        if (this._cleanupSensors) { this._cleanupSensors(); this._cleanupSensors = null; }
+
+        // Flush pending callbacks
+        this.flushCallbacks();
+
+        // Null out module and reset state
+        this.module = null;
+        this.isReady = false;
+        this.deferQueue = [];
+        this.callbacks = {};
+        this.eventListeners = {};
+        this.loadedChuginSet = {};
+        this._micConnected = false;
+        this._printCallback = null;
+
+        console.log('[WebChuGL] Instance destroyed');
     }
 
     // ── Web Audio Graph ─────────────────────────────────────────────────

@@ -41,6 +41,9 @@ extern t_CKBOOL chugl_main_loop_hook(void* bindle);
 // Pre-frame callback registration (defined in app.cpp under __EMSCRIPTEN__)
 extern "C" void webchugl_set_pre_frame_callback(void (*fn)(void*), void* data);
 
+// Stop the emscripten main loop (defined in app.cpp under __EMSCRIPTEN__)
+extern "C" void webchugl_stop_main_loop();
+
 // FPS and dt getters (defined in ChuGL sync.cpp)
 extern double CHUGL_Window_fps();
 extern double CHUGL_Window_dt();
@@ -1099,6 +1102,12 @@ void ck_clear_globals()
     Chuck_Msg* msg = new Chuck_Msg;
     msg->type = CK_MSG_CLEARGLOBALS;
     the_chuck->vm()->queue_msg(msg);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ck_stop_render_loop()
+{
+    webchugl_stop_main_loop();
 }
 
 // ---- Print callback -------------------------------------------------
