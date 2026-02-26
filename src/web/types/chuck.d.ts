@@ -167,6 +167,8 @@ export interface ChucK {
     // ── VM Introspection ────────────────────────────────────────────────
 
     getCurrentTime(): number;
+    /** Returns the current rendering frames per second. Updated once per second. */
+    fps(): number;
     getActiveShreds(): ShredInfo[];
     getLastError(): string;
     getGlobalVariables(): GlobalVariableInfo[];

@@ -412,6 +412,11 @@ class ChucK {
         return this.module.ccall('ck_get_now', 'number', [], []);
     }
 
+    fps(): number {
+        if (!this.module) return 0;
+        return this.module.ccall('ck_get_fps', 'number', [], []);
+    }
+
     getActiveShreds(): ShredInfo[] {
         if (!this.module) return [];
         const json: string = this.module.ccall('ck_get_active_shreds', 'string', [], []);
