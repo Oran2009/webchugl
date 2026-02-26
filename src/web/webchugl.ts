@@ -417,6 +417,21 @@ class ChucK {
         return this.module.ccall('ck_get_fps', 'number', [], []);
     }
 
+    dt(): number {
+        if (!this.module) return 0;
+        return this.module.ccall('ck_get_dt', 'number', [], []);
+    }
+
+    frameCount(): number {
+        if (!this.module) return 0;
+        return this.module.ccall('ck_get_frame_count', 'number', [], []);
+    }
+
+    isRunning(): boolean {
+        if (!this.module) return false;
+        return !!this.module.ccall('ck_is_vm_running', 'number', [], []);
+    }
+
     getActiveShreds(): ShredInfo[] {
         if (!this.module) return [];
         const json: string = this.module.ccall('ck_get_active_shreds', 'string', [], []);

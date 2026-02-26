@@ -169,6 +169,12 @@ export interface ChucK {
     getCurrentTime(): number;
     /** Returns the current rendering frames per second. Updated once per second. */
     fps(): number;
+    /** Returns the frame delta time in seconds (time since last frame). */
+    dt(): number;
+    /** Returns the total number of rendered frames since startup. */
+    frameCount(): number;
+    /** Returns whether the ChucK VM is currently running. */
+    isRunning(): boolean;
     getActiveShreds(): ShredInfo[];
     getLastError(): string;
     getGlobalVariables(): GlobalVariableInfo[];

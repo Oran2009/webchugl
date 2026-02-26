@@ -41,8 +41,12 @@ extern t_CKBOOL chugl_main_loop_hook(void* bindle);
 // Pre-frame callback registration (defined in app.cpp under __EMSCRIPTEN__)
 extern "C" void webchugl_set_pre_frame_callback(void (*fn)(void*), void* data);
 
-// FPS getter (defined in ChuGL sync.cpp)
+// FPS and dt getters (defined in ChuGL sync.cpp)
 extern double CHUGL_Window_fps();
+extern double CHUGL_Window_dt();
+
+// Frame count (defined in ChuGL ulib_helper.h)
+extern long long g_frame_count;
 
 // The ChucK instance
 static ChucK* the_chuck = nullptr;
@@ -1148,6 +1152,25 @@ EMSCRIPTEN_KEEPALIVE
 double ck_get_fps()
 {
     return CHUGL_Window_fps();
+}
+
+EMSCRIPTEN_KEEPALIVE
+double ck_get_dt()
+{
+    return CHUGL_Window_dt();
+}
+
+EMSCRIPTEN_KEEPALIVE
+double ck_get_frame_count()
+{
+    return (double)g_frame_count;
+}
+
+EMSCRIPTEN_KEEPALIVE
+int ck_is_vm_running()
+{
+    if (!the_chuck) return 0;
+    return the_chuck->vm_running() ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE
