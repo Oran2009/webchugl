@@ -4,6 +4,7 @@
 
 import type {
     ChucK,
+    ChuginEntry,
     AudioConfig,
     ShredInfo,
     ReplaceResult,
@@ -33,10 +34,11 @@ interface ChuGLConfig {
      */
     whereIsChuGL?: string;
     /**
-     * Array of URLs to `.chug.wasm` files to load before the VM starts.
-     * Fetched in parallel with WebGPU init.
+     * Array of ChuGins to load before the VM starts. Each entry is either
+     * a URL string (fetched automatically) or a `{ name, buf }` object
+     * with a pre-fetched ArrayBuffer. Loaded in parallel with WebGPU init.
      */
-    chugins?: string[];
+    chugins?: ChuginEntry[];
     /**
      * Register a service worker that injects COOP/COEP headers for
      * cross-origin isolation. Set to `false` if your server already
@@ -193,6 +195,7 @@ export { ChuGL };
 export type {
     ChucK,
     ChuGLConfig,
+    ChuginEntry,
     AudioConfig,
     ShredInfo,
     ReplaceResult,

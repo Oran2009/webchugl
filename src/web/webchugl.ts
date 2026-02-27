@@ -1,7 +1,7 @@
 // WebChuGL Runtime — ChucK class
 // Bundled by esbuild into a single IIFE. Exposes _initWebChuGL global.
 
-import type { ShredInfo, ReplaceResult, GlobalVariableInfo, WebChuGLInternalConfig } from './types/chuck.js';
+import type { ShredInfo, ReplaceResult, GlobalVariableInfo, WebChuGLInternalConfig, ChuginEntry } from './types/chuck.js';
 import { ensureVfsDir, isBinaryFile } from './lib/vfs';
 import { audioBufferToWav } from './lib/audio-utils';
 import { initSensors } from './lib/sensors';
@@ -335,9 +335,20 @@ class ChucK {
             }
 
             const pendingChuginBuffers: Array<{ name: string; buf: ArrayBuffer }> = [];
-            const chuginUrls = config.chugins || [];
-            const chuginPromise: Promise<void[] | void> = chuginUrls.length > 0
-                ? Promise.all(chuginUrls.map((url) =>
+            const chuginEntries: ChuginEntry[] = config.chugins || [];
+
+            // Partition into pre-fetched buffers and URLs to fetch
+            const urlsToFetch: string[] = [];
+            for (const entry of chuginEntries) {
+                if (typeof entry === 'string') {
+                    urlsToFetch.push(entry);
+                } else {
+                    pendingChuginBuffers.push(entry);
+                }
+            }
+
+            const chuginPromise: Promise<void[] | void> = urlsToFetch.length > 0
+                ? Promise.all(urlsToFetch.map((url) =>
                     fetch(url).then((r) => {
                         if (!r.ok) throw new Error('Failed to fetch chugin: ' + url);
                         return r.arrayBuffer();

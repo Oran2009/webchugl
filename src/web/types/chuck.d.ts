@@ -14,12 +14,17 @@ export interface AudioConfig {
     inputChannels?: number;
 }
 
+// ── ChuGin entry (URL string or pre-fetched buffer) ─────────────────────
+
+/** A ChuGin to load: either a URL string or a pre-fetched ArrayBuffer with a filename. */
+export type ChuginEntry = string | { name: string; buf: ArrayBuffer };
+
 // ── Internal config passed to _initWebChuGL ─────────────────────────────
 
 export interface WebChuGLInternalConfig {
     canvas: HTMLCanvasElement;
     baseUrl: string;
-    chugins: string[];
+    chugins: ChuginEntry[];
     serviceWorker: boolean;
     serviceWorkerUrl?: string;
     audioConfig?: AudioConfig;
