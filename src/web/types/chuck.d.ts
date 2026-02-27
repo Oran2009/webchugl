@@ -274,6 +274,8 @@ export interface ChucK {
     clearChuckInstance(): void;
     /** Clear all global variables in the ChucK VM. */
     clearGlobals(): void;
+    /** Remove all shreds, clear globals, and reset the ChuGL graphics state to defaults (scene, camera, render pipeline, FPS). */
+    reset(): void;
     /**
      * Destroy the ChucK instance, releasing all resources (audio, canvas
      * observers, sensors). After calling this, `ChuGL.init()` can be

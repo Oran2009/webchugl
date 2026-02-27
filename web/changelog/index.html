@@ -63,6 +63,7 @@
         <div class="release-body">
             <h3>Added</h3>
             <ul>
+                <li><code>reset()</code> / <code>ChuGL.reset()</code> &mdash; removes all shreds, clears globals, and resets the ChuGL graphics state to defaults (scene, camera, render pipeline, FPS). Useful for switching between examples without a full <code>destroy()</code>/<code>init()</code> cycle</li>
                 <li><code>chugins</code> config now accepts pre-fetched <code>{ name: string; buf: ArrayBuffer }</code> objects in addition to URL strings, enabling user-side ChuGin caching (useful for <code>destroy()</code>/<code>init()</code> cycles)</li>
             </ul>
         </div>

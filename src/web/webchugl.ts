@@ -933,6 +933,11 @@ class ChucK {
     clearGlobals(): void {
         this.defer(() => this.module!.ccall('ck_clear_globals', null, [], []));
     }
+    reset(): void {
+        this.clearChuckInstance();
+        this.clearGlobals();
+        this.defer(() => this.module!.ccall('ck_reset_graphics', null, [], []));
+    }
 
     destroy(): void {
         if (!this.module) return;

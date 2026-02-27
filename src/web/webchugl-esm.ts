@@ -177,6 +177,15 @@ const ChuGL = {
     },
 
     /**
+     * Remove all shreds, clear globals, and reset the ChuGL graphics
+     * state to defaults (scene, camera, render pipeline, FPS).
+     */
+    reset: function (): void {
+        if (!_instance) return;
+        (_instance as any).reset();
+    },
+
+    /**
      * Destroy the current WebChuGL instance, releasing all resources
      * (audio, canvas observers, sensors). After calling this,
      * `ChuGL.init()` can be called again to create a fresh instance.
