@@ -4,6 +4,7 @@
 
 import type {
     ChucK,
+    ChuginEntry,
     AudioConfig,
     ShredInfo,
     ReplaceResult,
@@ -33,10 +34,11 @@ interface ChuGLConfig {
      */
     whereIsChuGL?: string;
     /**
-     * Array of URLs to `.chug.wasm` files to load before the VM starts.
-     * Fetched in parallel with WebGPU init.
+     * Array of ChuGins to load before the VM starts. Each entry is either
+     * a URL string (fetched automatically) or a `{ name, buf }` object
+     * with a pre-fetched ArrayBuffer. Loaded in parallel with WebGPU init.
      */
-    chugins?: string[];
+    chugins?: ChuginEntry[];
     /**
      * Register a service worker that injects COOP/COEP headers for
      * cross-origin isolation. Set to `false` if your server already
@@ -175,6 +177,15 @@ const ChuGL = {
     },
 
     /**
+     * Remove all shreds, clear globals, and reset the ChuGL graphics
+     * state to defaults (scene, camera, render pipeline, FPS).
+     */
+    reset: function (): void {
+        if (!_instance) return;
+        (_instance as any).reset();
+    },
+
+    /**
      * Destroy the current WebChuGL instance, releasing all resources
      * (audio, canvas observers, sensors). After calling this,
      * `ChuGL.init()` can be called again to create a fresh instance.
@@ -193,6 +204,7 @@ export { ChuGL };
 export type {
     ChucK,
     ChuGLConfig,
+    ChuginEntry,
     AudioConfig,
     ShredInfo,
     ReplaceResult,

@@ -1104,6 +1104,15 @@ void ck_clear_globals()
     the_chuck->vm()->queue_msg(msg);
 }
 
+// Defined in ChuGL.cpp — resets scene, camera, render pipeline, FPS to defaults.
+extern void chugl_init_default_setup_impl();
+
+EMSCRIPTEN_KEEPALIVE
+void ck_reset_graphics()
+{
+    chugl_init_default_setup_impl();
+}
+
 EMSCRIPTEN_KEEPALIVE
 void ck_stop_render_loop()
 {

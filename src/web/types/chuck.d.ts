@@ -14,12 +14,17 @@ export interface AudioConfig {
     inputChannels?: number;
 }
 
+// ── ChuGin entry (URL string or pre-fetched buffer) ─────────────────────
+
+/** A ChuGin to load: either a URL string or a pre-fetched ArrayBuffer with a filename. */
+export type ChuginEntry = string | { name: string; buf: ArrayBuffer };
+
 // ── Internal config passed to _initWebChuGL ─────────────────────────────
 
 export interface WebChuGLInternalConfig {
     canvas: HTMLCanvasElement;
     baseUrl: string;
-    chugins: string[];
+    chugins: ChuginEntry[];
     serviceWorker: boolean;
     serviceWorkerUrl?: string;
     audioConfig?: AudioConfig;
@@ -269,6 +274,8 @@ export interface ChucK {
     clearChuckInstance(): void;
     /** Clear all global variables in the ChucK VM. */
     clearGlobals(): void;
+    /** Remove all shreds, clear globals, and reset the ChuGL graphics state to defaults (scene, camera, render pipeline, FPS). */
+    reset(): void;
     /**
      * Destroy the ChucK instance, releasing all resources (audio, canvas
      * observers, sensors). After calling this, `ChuGL.init()` can be
