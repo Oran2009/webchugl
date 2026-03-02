@@ -511,13 +511,19 @@ EM_JS(void, _chugl_setup_parent_resize, (), {
     if (canvas._chuglParentObserver) {
         canvas._chuglParentObserver.disconnect();
     }
+    // Helper: trigger GLFW3's resize pipeline directly (no global event).
+    function triggerGLFWResize() {
+        var size = ctx.fCanvasResize.computeSize();
+        GLFW3.onWindowResize(glfwWindow, size.width, size.height);
+    }
+
     canvas._chuglParentObserver = new ResizeObserver(function() {
-        window.dispatchEvent(new Event('resize'));
+        triggerGLFWResize();
     });
     canvas._chuglParentObserver.observe(parent);
 
     // Trigger an initial resize so the canvas picks up the parent size now
-    window.dispatchEvent(new Event('resize'));
+    triggerGLFWResize();
 });
 
 extern "C" EMSCRIPTEN_KEEPALIVE
@@ -597,8 +603,9 @@ EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
                     };
                 };
             }
-            // Trigger immediate resize with new computeSize
-            window.dispatchEvent(new Event('resize'));
+            // Trigger immediate resize with new computeSize (no global event)
+            var size = ctx.fCanvasResize.computeSize();
+            GLFW3.onWindowResize(glfwWindow, size.width, size.height);
         }
     }
 });
