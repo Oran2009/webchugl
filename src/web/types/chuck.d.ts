@@ -53,6 +53,21 @@ export interface GlobalVariableInfo {
     name: string;
 }
 
+/**
+ * Result of a code/file execution. Contains the shred ID and any
+ * compile error. The `.valueOf()` override returns `shredId`, so
+ * existing code that uses arithmetic (`+result`, `result > 0`) or
+ * loose equality continues to work.
+ */
+export interface RunResult {
+    /** The shred ID on success, or `0` on compile failure. */
+    shredId: number;
+    /** The compile error message on failure, or `null` on success. */
+    error: string | null;
+    /** Returns `shredId` for backward-compatible arithmetic. */
+    valueOf(): number;
+}
+
 // ============================================================================
 // ChucK Interface
 // ============================================================================
@@ -72,9 +87,9 @@ export interface ChucK {
      * Compile and run ChucK code.
      *
      * @param code - ChucK source code to compile and run.
-     * @returns The shred ID on success, 0 on failure.
+     * @returns A {@link RunResult} with `shredId` and `error`.
      */
-    runCode(code: string): Promise<number>;
+    runCode(code: string): Promise<RunResult>;
 
     /**
      * Run a ChucK file. Accepts three kinds of input:
@@ -83,9 +98,9 @@ export interface ChucK {
      * - **URL** (`./main.ck`) -- fetches the file, writes it to the VFS, then runs it.
      *
      * @param pathOrUrl - A VFS path, filename, or URL.
-     * @returns The shred ID on success, 0 on failure.
+     * @returns A {@link RunResult} with `shredId` and `error`.
      */
-    runFile(pathOrUrl: string): Promise<number>;
+    runFile(pathOrUrl: string): Promise<RunResult>;
 
     /**
      * Fetch a zip archive, extract to VFS, and run the main ChucK file.
@@ -191,8 +206,23 @@ export interface ChucK {
 
     /** Fetch an audio file, decode it to WAV, and write it to the virtual filesystem. */
     loadAudio(url: string, vfsPath?: string): Promise<string>;
+    /**
+     * Fetch an MPEG-1 video file and write it to the virtual filesystem.
+     *
+     * @param url - URL of the `.mpg` file.
+     * @param vfsPath - Destination path in the VFS. Defaults to `/code/<filename>`.
+     * @returns The VFS path where the video was written.
+     */
+    loadVideo(url: string, vfsPath?: string): Promise<string>;
     /** Initialize Web MIDI access for ChucK MIDI input/output. */
     initMidi(access: MIDIAccess): void;
+    /**
+     * Request Web MIDI access and initialize ChucK MIDI input/output.
+     * Convenience wrapper around `navigator.requestMIDIAccess()` + `initMidi()`.
+     *
+     * @throws If the browser does not support the Web MIDI API.
+     */
+    requestMidi(): Promise<void>;
     /** Get the audio sample rate, or `null` if audio is not yet initialized. */
     getSampleRate(): number | null;
     /** The underlying Web Audio `AudioContext`, or `null` before audio init. */
@@ -238,9 +268,9 @@ export interface ChucK {
      *
      * @param filename - VFS path to the `.ck` file.
      * @param colonSeparatedArgs - Arguments separated by colons (e.g. `"1:foo:3.14"`).
-     * @returns The shred ID on success, 0 on failure.
+     * @returns A {@link RunResult} with `shredId` and `error`.
      */
-    runFileWithArgs(filename: string, colonSeparatedArgs: string): Promise<number>;
+    runFileWithArgs(filename: string, colonSeparatedArgs: string): Promise<RunResult>;
     /** Get the current ChucK time in samples (async version of `getCurrentTime`). */
     now(): Promise<number>;
 

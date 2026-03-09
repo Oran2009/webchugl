@@ -13,6 +13,7 @@
 -----------------------------------------------------------------------------*/
 #include "chuck.h"
 #include "chuck_globals.h"
+#include "chuck_errmsg.h"
 #include "audio_ring_buffer.h"
 #include "sg_command.h"
 #include "core/log.h"
@@ -879,14 +880,19 @@ int ck_get_assoc_float_array_value(const char* name, const char* key, int callba
         name, (t_CKINT)callback_id, key, _cb_get_float);
 }
 
+// ---- Compilation diagnostics (shared buffer + callback) -------------
+
 // ---- Code execution -------------------------------------------------
 
 EMSCRIPTEN_KEEPALIVE
 int ck_run_code(const char* code)
 {
     if (!the_chuck) return 0;
+
     std::vector<t_CKUINT> shredIDs;
-    if (!the_chuck->compileCode(code, "", 1, TRUE, &shredIDs)) return 0;
+    bool ok = the_chuck->compileCode(code, "", 1, TRUE, &shredIDs);
+
+    if (!ok) return 0;
     return shredIDs.empty() ? 0 : (int)shredIDs[0];
 }
 
@@ -894,8 +900,11 @@ EMSCRIPTEN_KEEPALIVE
 int ck_run_file(const char* path)
 {
     if (!the_chuck) return 0;
+
     std::vector<t_CKUINT> shredIDs;
-    if (!the_chuck->compileFile(path, "", 1, TRUE, &shredIDs)) return 0;
+    bool ok = the_chuck->compileFile(path, "", 1, TRUE, &shredIDs);
+
+    if (!ok) return 0;
     return shredIDs.empty() ? 0 : (int)shredIDs[0];
 }
 
@@ -903,9 +912,12 @@ EMSCRIPTEN_KEEPALIVE
 int ck_run_file_with_args(const char* path, const char* colonSeparatedArgs)
 {
     if (!the_chuck) return 0;
+
     std::vector<t_CKUINT> shredIDs;
-    if (!the_chuck->compileFile(path, colonSeparatedArgs ? colonSeparatedArgs : "",
-                                1, TRUE, &shredIDs)) return 0;
+    bool ok = the_chuck->compileFile(path, colonSeparatedArgs ? colonSeparatedArgs : "",
+                                     1, TRUE, &shredIDs);
+
+    if (!ok) return 0;
     return shredIDs.empty() ? 0 : (int)shredIDs[0];
 }
 
@@ -1249,34 +1261,17 @@ const char* ck_get_all_globals()
     return result.c_str();
 }
 
-// ---- Compilation diagnostics ----------------------------------------
-
-// Buffer to capture compiler error output
-static std::string g_lastCompileOutput;
-
-static void _cherr_capture(const char* msg) {
-    g_lastCompileOutput += msg;
-}
-
 EMSCRIPTEN_KEEPALIVE
 int ck_run_code_ex(const char* code)
 {
     if (!the_chuck) return 0;
 
-    g_lastCompileOutput.clear();
-    the_chuck->setCherrCallback(_cherr_capture);
-
     int result = 0;
     try {
         result = the_chuck->compileCode(code, "", 1, TRUE) ? 1 : 0;
-    } catch (const std::exception& e) {
-        g_lastCompileOutput += "[exception] ";
-        g_lastCompileOutput += e.what();
     } catch (...) {
-        g_lastCompileOutput += "[unknown exception]";
+        result = 0;
     }
-
-    the_chuck->setCherrCallback(NULL);
 
     return result;
 }
@@ -1284,7 +1279,7 @@ int ck_run_code_ex(const char* code)
 EMSCRIPTEN_KEEPALIVE
 const char* ck_get_last_compile_output()
 {
-    return g_lastCompileOutput.c_str();
+    return EM_lasterror();
 }
 
 // ---- ChuGin loading (post-init) ------------------------------------

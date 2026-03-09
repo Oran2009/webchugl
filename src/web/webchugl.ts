@@ -20,6 +20,24 @@ interface RtMidiWindow extends Window {
 }
 
 // ============================================================================
+// RunResult — wraps code execution results with backward-compatible valueOf()
+// ============================================================================
+
+class RunResult {
+    shredId: number;
+    error: string | null;
+
+    constructor(shredId: number, getError: () => string) {
+        this.shredId = shredId;
+        this.error = shredId === 0 ? getError() : null;
+    }
+
+    valueOf(): number {
+        return this.shredId;
+    }
+}
+
+// ============================================================================
 // ChucK Class
 // ============================================================================
 
@@ -466,31 +484,35 @@ class ChucK {
 
     // ── Code Execution ──────────────────────────────────────────────────
 
-    runCode(code: string): Promise<number> {
-        return this.deferPromise(() =>
-            Promise.resolve(this.module!.ccall('ck_run_code', 'number', ['string'], [code]))
-        );
+    runCode(code: string): Promise<RunResult> {
+        return this.deferPromise(() => {
+            const shredId = this.module!.ccall('ck_run_code', 'number', ['string'], [code]);
+            return Promise.resolve(new RunResult(shredId, () => this.getLastError()));
+        });
     }
 
-    runFile(pathOrUrl: string): Promise<number> {
+    runFile(pathOrUrl: string): Promise<RunResult> {
         if (pathOrUrl[0] === '/') {
-            return this.deferPromise(() =>
-                Promise.resolve(this.module!.ccall('ck_run_file', 'number', ['string'], [pathOrUrl]))
-            );
+            return this.deferPromise(() => {
+                const shredId = this.module!.ccall('ck_run_file', 'number', ['string'], [pathOrUrl]);
+                return Promise.resolve(new RunResult(shredId, () => this.getLastError()));
+            });
         }
         const parts = pathOrUrl.split('/');
         const filename = parts[parts.length - 1];
         const vfsCheck = '/code/' + filename;
         try {
             this.module!.FS.stat(vfsCheck);
-            return this.deferPromise(() =>
-                Promise.resolve(this.module!.ccall('ck_run_file', 'number', ['string'], [vfsCheck]))
-            );
+            return this.deferPromise(() => {
+                const shredId = this.module!.ccall('ck_run_file', 'number', ['string'], [vfsCheck]);
+                return Promise.resolve(new RunResult(shredId, () => this.getLastError()));
+            });
         } catch {
             return this.loadFile(pathOrUrl).then((vfsPath) =>
-                this.deferPromise(() =>
-                    Promise.resolve(this.module!.ccall('ck_run_file', 'number', ['string'], [vfsPath]))
-                )
+                this.deferPromise(() => {
+                    const shredId = this.module!.ccall('ck_run_file', 'number', ['string'], [vfsPath]);
+                    return Promise.resolve(new RunResult(shredId, () => this.getLastError()));
+                })
             );
         }
     }
@@ -753,6 +775,14 @@ class ChucK {
         };
     }
 
+    async requestMidi(): Promise<void> {
+        if (!navigator.requestMIDIAccess) {
+            throw new Error('Web MIDI API is not supported in this browser');
+        }
+        const access = await navigator.requestMIDIAccess();
+        this.initMidi(access);
+    }
+
     // ── Dynamic Audio Import ────────────────────────────────────────────
 
     loadAudio(url: string, vfsPath?: string): Promise<string> {
@@ -782,6 +812,28 @@ class ChucK {
                 console.log('[WebChuGL] Audio loaded: ' + finalPath +
                     ' (' + audioBuffer.duration.toFixed(2) + 's, ' +
                     audioBuffer.numberOfChannels + 'ch)');
+                return finalPath;
+            });
+    }
+
+    loadVideo(url: string, vfsPath?: string): Promise<string> {
+        let resolvedPath = vfsPath;
+        if (!resolvedPath) {
+            const parts = url.split('/');
+            resolvedPath = '/code/' + parts[parts.length - 1];
+        }
+        const finalPath = resolvedPath;
+        return fetch(url)
+            .then(res => {
+                if (!res.ok) throw new Error('Failed to fetch video: ' + res.status);
+                return res.arrayBuffer();
+            })
+            .then(buf => {
+                this.defer(() => {
+                    ensureVfsDir(this.module!.FS, finalPath);
+                    this.module!.FS.writeFile(finalPath, new Uint8Array(buf));
+                });
+                console.log('[WebChuGL] Video loaded: ' + finalPath);
                 return finalPath;
             });
     }
@@ -870,11 +922,12 @@ class ChucK {
         );
     }
 
-    runFileWithArgs(filename: string, colonSeparatedArgs: string): Promise<number> {
-        return this.deferPromise(() =>
-            Promise.resolve(this.module!.ccall('ck_run_file_with_args', 'number',
-                ['string', 'string'], [filename, colonSeparatedArgs]))
-        );
+    runFileWithArgs(filename: string, colonSeparatedArgs: string): Promise<RunResult> {
+        return this.deferPromise(() => {
+            const shredId = this.module!.ccall('ck_run_file_with_args', 'number',
+                ['string', 'string'], [filename, colonSeparatedArgs]);
+            return Promise.resolve(new RunResult(shredId, () => this.getLastError()));
+        });
     }
 
     now(): Promise<number> {

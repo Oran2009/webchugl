@@ -4,6 +4,7 @@
 
 import type {
     ChucK,
+    RunResult,
     ChuginEntry,
     AudioConfig,
     ShredInfo,
@@ -59,8 +60,7 @@ interface ChuGLConfig {
 // ChuGL -- initialization
 // ============================================================================
 
-let _initPromise: Promise<ChucK> | null = null;
-let _instance: ChucK | null = null;
+let _scriptsLoaded: Promise<void> | null = null;
 
 function _loadScript(url: string): Promise<void> {
     return new Promise(function (resolve, reject) {
@@ -88,8 +88,8 @@ function _loadScript(url: string): Promise<void> {
 const ChuGL = {
     /**
      * Initialize WebChuGL and return a {@link ChucK} instance.
-     * Only one instance is supported -- calling `init()` a second time
-     * returns a rejected promise.
+     * Multiple instances are supported — each call creates an independent
+     * ChucK VM with its own canvas, audio, and graphics state.
      *
      * @param config - Configuration options.
      * @returns Resolves to a {@link ChucK} instance.
@@ -102,13 +102,6 @@ const ChuGL = {
      * });
      */
     init: function (config: ChuGLConfig): Promise<ChucK> {
-        if (_initPromise) {
-            return Promise.reject(
-                new Error(
-                    'ChuGL.init() has already been called. Only one instance is supported.',
-                ),
-            );
-        }
         if (!config || !config.canvas) {
             return Promise.reject(
                 new Error('ChuGL.init() requires config.canvas'),
@@ -143,58 +136,43 @@ const ChuGL = {
             );
         }
 
-        _initPromise = _loadScript(baseUrl + 'index.js')
-            .then(function () {
-                return _loadScript(baseUrl + 'webchugl.js');
-            })
-            .then(function () {
-                if (typeof _initWebChuGL !== 'function') {
-                    throw new Error(
-                        'webchugl.js did not define _initWebChuGL',
-                    );
-                }
-                return _initWebChuGL({
-                    canvas: config.canvas,
-                    baseUrl: baseUrl,
-                    chugins: config.chugins || [],
-                    serviceWorker: config.serviceWorker !== false,
-                    audioConfig: config.audioConfig,
-                    onProgress: config.onProgress,
-                    onError: config.onError,
-                    onReady: config.onReady,
+        // Load scripts once (shared across all instances)
+        if (!_scriptsLoaded) {
+            _scriptsLoaded = _loadScript(baseUrl + 'index.js')
+                .then(function () {
+                    return _loadScript(baseUrl + 'webchugl.js');
+                })
+                .then(function () {
+                    // XR modules are optional — not an error if missing
+                    return _loadScript(baseUrl + 'xr/xr-webgl-bridge.js')
+                        .then(function () {
+                            return _loadScript(baseUrl + 'xr/webchugl-xr.js');
+                        })
+                        .catch(function () {});
+                })
+                .catch(function (e: Error) {
+                    _scriptsLoaded = null;
+                    throw e;
                 });
-            })
-            .then(function (ck: ChucK) {
-                _instance = ck;
-                return ck;
-            })
-            .catch(function (e: Error) {
-                _initPromise = null;
-                throw e;
+        }
+
+        return _scriptsLoaded.then(function () {
+            if (typeof _initWebChuGL !== 'function') {
+                throw new Error(
+                    'webchugl.js did not define _initWebChuGL',
+                );
+            }
+            return _initWebChuGL({
+                canvas: config.canvas,
+                baseUrl: baseUrl,
+                chugins: config.chugins || [],
+                serviceWorker: config.serviceWorker !== false,
+                audioConfig: config.audioConfig,
+                onProgress: config.onProgress,
+                onError: config.onError,
+                onReady: config.onReady,
             });
-
-        return _initPromise;
-    },
-
-    /**
-     * Remove all shreds, clear globals, and reset the ChuGL graphics
-     * state to defaults (scene, camera, render pipeline, FPS).
-     */
-    reset: function (): void {
-        if (!_instance) return;
-        (_instance as any).reset();
-    },
-
-    /**
-     * Destroy the current WebChuGL instance, releasing all resources
-     * (audio, canvas observers, sensors). After calling this,
-     * `ChuGL.init()` can be called again to create a fresh instance.
-     */
-    destroy: function (): void {
-        if (!_instance) return;
-        (_instance as any).destroy();
-        _instance = null;
-        _initPromise = null;
+        });
     },
 };
 
@@ -203,6 +181,7 @@ export { ChuGL };
 
 export type {
     ChucK,
+    RunResult,
     ChuGLConfig,
     ChuginEntry,
     AudioConfig,
