@@ -76,6 +76,7 @@
             <h3>Fixed</h3>
             <ul>
                 <li>Canvas resize no longer dispatches global <code>window</code> resize events. Resize triggers now call GLFW3&rsquo;s internal handler directly, preventing interference with other resize listeners on the host page</li>
+                <li>Fixed canvas resize feedback loop when the canvas was inside flex, grid, or aspect-ratio containers. GLFW no longer sets inline CSS pixel dimensions on the canvas; display size is now controlled entirely by CSS</li>
                 <li><code>getLastError()</code> now returns the actual compile error message (was returning empty string)</li>
             </ul>
         </div>

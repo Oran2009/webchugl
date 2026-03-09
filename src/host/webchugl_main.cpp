@@ -496,6 +496,23 @@ EM_JS(void, _chugl_setup_parent_resize, (), {
     var ctx = GLFW3.fWindowContexts[glfwWindow];
     if (!ctx || !ctx.fCanvasResize) return;
 
+    // Prevent GLFW from setting inline CSS width/height on the canvas.
+    // By default, contrib.glfw3's onSizeChanged sets pixel values like
+    // `width: 640px; height: 480px` on the canvas element. When the
+    // canvas is in normal flow, this affects the parent's layout →
+    // the ResizeObserver fires → reads new parent size → GLFW sets
+    // new pixel values → infinite loop. By no-opping onSizeChanged,
+    // GLFW still updates the canvas buffer resolution (canvas.width /
+    // canvas.height attributes) but never touches CSS display size.
+    // The canvas fills its parent via the CSS set below.
+    ctx.fCanvasResize.onSizeChanged = function() {};
+
+    // Set canvas to fill its parent. display:block prevents the inline
+    // element's default baseline gap from adding extra height.
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.display = 'block';
+
     // Override computeSize to return parent container dimensions.
     // Read canvas.parentElement dynamically so re-parenting is supported.
     ctx.fCanvasResize.computeSize = function() {
@@ -518,7 +535,12 @@ EM_JS(void, _chugl_setup_parent_resize, (), {
         GLFW3.onWindowResize(glfwWindow, size.width, size.height);
     }
 
+    var lastW = 0, lastH = 0;
     canvas._chuglParentObserver = new ResizeObserver(function() {
+        var size = ctx.fCanvasResize.computeSize();
+        if (size.width === lastW && size.height === lastH) return;
+        lastW = size.width;
+        lastH = size.height;
         triggerGLFWResize();
     });
     canvas._chuglParentObserver.observe(parent);
