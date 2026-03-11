@@ -13,6 +13,7 @@
 -----------------------------------------------------------------------------*/
 #include "chuck.h"
 #include "chuck_globals.h"
+#include "chuck_errmsg.h"
 #include "audio_ring_buffer.h"
 #include "sg_command.h"
 #include "core/log.h"
@@ -495,6 +496,23 @@ EM_JS(void, _chugl_setup_parent_resize, (), {
     var ctx = GLFW3.fWindowContexts[glfwWindow];
     if (!ctx || !ctx.fCanvasResize) return;
 
+    // Prevent GLFW from setting inline CSS width/height on the canvas.
+    // By default, contrib.glfw3's onSizeChanged sets pixel values like
+    // `width: 640px; height: 480px` on the canvas element. When the
+    // canvas is in normal flow, this affects the parent's layout →
+    // the ResizeObserver fires → reads new parent size → GLFW sets
+    // new pixel values → infinite loop. By no-opping onSizeChanged,
+    // GLFW still updates the canvas buffer resolution (canvas.width /
+    // canvas.height attributes) but never touches CSS display size.
+    // The canvas fills its parent via the CSS set below.
+    ctx.fCanvasResize.onSizeChanged = function() {};
+
+    // Set canvas to fill its parent. display:block prevents the inline
+    // element's default baseline gap from adding extra height.
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.display = 'block';
+
     // Override computeSize to return parent container dimensions.
     // Read canvas.parentElement dynamically so re-parenting is supported.
     ctx.fCanvasResize.computeSize = function() {
@@ -511,13 +529,24 @@ EM_JS(void, _chugl_setup_parent_resize, (), {
     if (canvas._chuglParentObserver) {
         canvas._chuglParentObserver.disconnect();
     }
+    // Helper: trigger GLFW3's resize pipeline directly (no global event).
+    function triggerGLFWResize() {
+        var size = ctx.fCanvasResize.computeSize();
+        GLFW3.onWindowResize(glfwWindow, size.width, size.height);
+    }
+
+    var lastW = 0, lastH = 0;
     canvas._chuglParentObserver = new ResizeObserver(function() {
-        window.dispatchEvent(new Event('resize'));
+        var size = ctx.fCanvasResize.computeSize();
+        if (size.width === lastW && size.height === lastH) return;
+        lastW = size.width;
+        lastH = size.height;
+        triggerGLFWResize();
     });
     canvas._chuglParentObserver.observe(parent);
 
     // Trigger an initial resize so the canvas picks up the parent size now
-    window.dispatchEvent(new Event('resize'));
+    triggerGLFWResize();
 });
 
 extern "C" EMSCRIPTEN_KEEPALIVE
@@ -597,8 +626,9 @@ EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
                     };
                 };
             }
-            // Trigger immediate resize with new computeSize
-            window.dispatchEvent(new Event('resize'));
+            // Trigger immediate resize with new computeSize (no global event)
+            var size = ctx.fCanvasResize.computeSize();
+            GLFW3.onWindowResize(glfwWindow, size.width, size.height);
         }
     }
 });
@@ -872,14 +902,19 @@ int ck_get_assoc_float_array_value(const char* name, const char* key, int callba
         name, (t_CKINT)callback_id, key, _cb_get_float);
 }
 
+// ---- Compilation diagnostics (shared buffer + callback) -------------
+
 // ---- Code execution -------------------------------------------------
 
 EMSCRIPTEN_KEEPALIVE
 int ck_run_code(const char* code)
 {
     if (!the_chuck) return 0;
+
     std::vector<t_CKUINT> shredIDs;
-    if (!the_chuck->compileCode(code, "", 1, TRUE, &shredIDs)) return 0;
+    bool ok = the_chuck->compileCode(code, "", 1, TRUE, &shredIDs);
+
+    if (!ok) return 0;
     return shredIDs.empty() ? 0 : (int)shredIDs[0];
 }
 
@@ -887,8 +922,11 @@ EMSCRIPTEN_KEEPALIVE
 int ck_run_file(const char* path)
 {
     if (!the_chuck) return 0;
+
     std::vector<t_CKUINT> shredIDs;
-    if (!the_chuck->compileFile(path, "", 1, TRUE, &shredIDs)) return 0;
+    bool ok = the_chuck->compileFile(path, "", 1, TRUE, &shredIDs);
+
+    if (!ok) return 0;
     return shredIDs.empty() ? 0 : (int)shredIDs[0];
 }
 
@@ -896,9 +934,12 @@ EMSCRIPTEN_KEEPALIVE
 int ck_run_file_with_args(const char* path, const char* colonSeparatedArgs)
 {
     if (!the_chuck) return 0;
+
     std::vector<t_CKUINT> shredIDs;
-    if (!the_chuck->compileFile(path, colonSeparatedArgs ? colonSeparatedArgs : "",
-                                1, TRUE, &shredIDs)) return 0;
+    bool ok = the_chuck->compileFile(path, colonSeparatedArgs ? colonSeparatedArgs : "",
+                                     1, TRUE, &shredIDs);
+
+    if (!ok) return 0;
     return shredIDs.empty() ? 0 : (int)shredIDs[0];
 }
 
@@ -1242,34 +1283,17 @@ const char* ck_get_all_globals()
     return result.c_str();
 }
 
-// ---- Compilation diagnostics ----------------------------------------
-
-// Buffer to capture compiler error output
-static std::string g_lastCompileOutput;
-
-static void _cherr_capture(const char* msg) {
-    g_lastCompileOutput += msg;
-}
-
 EMSCRIPTEN_KEEPALIVE
 int ck_run_code_ex(const char* code)
 {
     if (!the_chuck) return 0;
 
-    g_lastCompileOutput.clear();
-    the_chuck->setCherrCallback(_cherr_capture);
-
     int result = 0;
     try {
         result = the_chuck->compileCode(code, "", 1, TRUE) ? 1 : 0;
-    } catch (const std::exception& e) {
-        g_lastCompileOutput += "[exception] ";
-        g_lastCompileOutput += e.what();
     } catch (...) {
-        g_lastCompileOutput += "[unknown exception]";
+        result = 0;
     }
-
-    the_chuck->setCherrCallback(NULL);
 
     return result;
 }
@@ -1277,7 +1301,7 @@ int ck_run_code_ex(const char* code)
 EMSCRIPTEN_KEEPALIVE
 const char* ck_get_last_compile_output()
 {
-    return g_lastCompileOutput.c_str();
+    return EM_lasterror();
 }
 
 // ---- ChuGin loading (post-init) ------------------------------------

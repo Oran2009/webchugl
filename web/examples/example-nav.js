@@ -9,11 +9,10 @@
     if (folder === 'index.html') folder = parts[parts.length - 2] || '';
     var ghUrl = 'https://github.com/ccrma/webchugl/tree/main/web/examples/' + folder + '/';
 
-    // ── File definitions ──
+    // ── File definitions (base files; .ck files discovered dynamically) ──
     var files = [
         { name: 'index.html', lang: 'xml' },
         { name: 'index.js', lang: 'javascript' },
-        { name: 'main.ck', lang: 'chuck' },
     ];
     var fileCache = {};   // name -> text content
     var activeFile = 'index.js';
@@ -113,7 +112,18 @@
     tabBar.id = 'xcgl-tabs';
     var tabButtons = {};
 
-    files.forEach(function(f) {
+    function addTab(f) {
+        var btn = document.createElement('button');
+        btn.textContent = f.name;
+        btn.dataset.file = f.name;
+        if (f.name === activeFile) btn.classList.add('active');
+        tabBar.appendChild(btn);
+        tabButtons[f.name] = btn;
+        files.push(f);
+    }
+
+    // Add base tabs
+    [{ name: 'index.html', lang: 'xml' }, { name: 'index.js', lang: 'javascript' }].forEach(function(f) {
         var btn = document.createElement('button');
         btn.textContent = f.name;
         btn.dataset.file = f.name;
@@ -212,16 +222,29 @@
         if (isOpen && firstOpen) {
             firstOpen = false;
             loadFile(activeFile);
-            // Probe for main.ck existence
-            fetch('./main.ck', { method: 'HEAD' })
-                .then(function(r) {
-                    if (!r.ok && tabButtons['main.ck']) {
-                        tabButtons['main.ck'].style.display = 'none';
+            // Discover .ck files referenced in index.js
+            fetch('./index.js')
+                .then(function(r) { return r.ok ? r.text() : ''; })
+                .then(function(src) {
+                    var seen = {};
+                    var re = /['"]\.\/([^'"]+\.ck)['"]/g;
+                    var m;
+                    while ((m = re.exec(src)) !== null) {
+                        if (!seen[m[1]]) {
+                            seen[m[1]] = true;
+                            addTab({ name: m[1], lang: 'chuck' });
+                        }
+                    }
+                    // Fallback: probe for main.ck if nothing found
+                    if (Object.keys(seen).length === 0) {
+                        fetch('./main.ck', { method: 'HEAD' })
+                            .then(function(r) {
+                                if (r.ok) addTab({ name: 'main.ck', lang: 'chuck' });
+                            })
+                            .catch(function() {});
                     }
                 })
-                .catch(function() {
-                    if (tabButtons['main.ck']) tabButtons['main.ck'].style.display = 'none';
-                });
+                .catch(function() {});
         }
     }
 

@@ -12,20 +12,25 @@ var KIND = {
     METHOD: 2048,
 };
 
+// ── Standalone types to document ─────────────────────────────────────────
+
+var DOCUMENTED_TYPES = [
+    'ChuGLConfig', 'AudioConfig', 'ShredInfo',
+    'GlobalVariableInfo', 'RunResult', 'ReplaceResult',
+];
+
 // ── Method grouping ──────────────────────────────────────────────────────
 
 var METHOD_GROUPS = [
     { title: 'Code Execution',      methods: ['runCode', 'runFile', 'runFileWithArgs', 'runZip'] },
     { title: 'Shred Management',    methods: ['replaceCode', 'replaceFile', 'replaceFileWithArgs', 'removeLastCode', 'removeShred', 'isShredActive'] },
-    { title: 'Virtual Filesystem',  methods: ['createFile', 'removeFile', 'fileExists', 'listFiles', 'loadFile', 'loadFiles', 'loadZip'] },
-    { title: 'Audio',               methods: ['loadAudio', 'initMidi', 'getSampleRate', 'connect', 'disconnect'] },
-    { title: 'Scalar Variables',    methods: ['setInt', 'setFloat', 'setString', 'getInt', 'getFloat', 'getString'] },
-    { title: 'Int Arrays',          methods: ['setIntArray', 'getIntArray', 'setIntArrayValue', 'getIntArrayValue', 'setAssocIntArrayValue', 'getAssocIntArrayValue'] },
-    { title: 'Float Arrays',        methods: ['setFloatArray', 'getFloatArray', 'setFloatArrayValue', 'getFloatArrayValue', 'setAssocFloatArrayValue', 'getAssocFloatArrayValue'] },
+    { title: 'Global Variables',    methods: ['setInt', 'setFloat', 'setString', 'getInt', 'getFloat', 'getString', 'setIntArray', 'getIntArray', 'setIntArrayValue', 'getIntArrayValue', 'setAssocIntArrayValue', 'getAssocIntArrayValue', 'setFloatArray', 'getFloatArray', 'setFloatArrayValue', 'getFloatArrayValue', 'setAssocFloatArrayValue', 'getAssocFloatArrayValue'] },
+    { title: 'Audio',               methods: ['initMidi', 'requestMidi', 'getSampleRate', 'connect', 'disconnect'] },
     { title: 'Events',              methods: ['signalEvent', 'broadcastEvent', 'listenForEventOnce', 'stopListeningForEvent', 'startListeningForEvent'] },
-    { title: 'ChuGins & Packages',  methods: ['loadChugin', 'getLoadedChugins', 'loadPackage'] },
     { title: 'VM',                  methods: ['getCurrentTime', 'fps', 'dt', 'frameCount', 'isRunning', 'now', 'getActiveShreds', 'getLastError', 'getGlobalVariables', 'setParamInt', 'getParamInt', 'setParamFloat', 'getParamFloat', 'setParamString', 'getParamString', 'clearChuckInstance', 'clearGlobals', 'reset', 'destroy'] },
+    { title: 'Virtual Filesystem',  methods: ['createFile', 'removeFile', 'fileExists', 'listFiles', 'loadFile', 'loadFiles', 'loadZip', 'loadAudio', 'loadVideo'] },
     { title: 'Persistent Storage',  methods: ['save', 'load', 'delete', 'listKeys'] },
+    { title: 'ChuGins & Packages',  methods: ['loadChugin', 'getLoadedChugins', 'loadPackage'] },
 ];
 
 // ── HTML helpers ─────────────────────────────────────────────────────────
@@ -303,6 +308,39 @@ function renderGroup(title, items, renderFn) {
         '</div></div>\n</details>\n';
 }
 
+// ── Render standalone type/interface ─────────────────────────────────────
+
+function renderTypeInterface(iface) {
+    var comment = iface.comment || {};
+    var html = '<div class="method" id="' + esc(iface.name) + '">';
+    html += '<h4 class="method-sig"><code>' + esc(iface.name) + '</code> <span class="badge">interface</span></h4>';
+    if (comment.summary)
+        html += '<div class="method-desc"><p>' + renderComment(comment.summary) + '</p></div>';
+
+    var props = (iface.children || []).filter(function (c) {
+        return c.kind === KIND.PROPERTY || c.kind === KIND.METHOD;
+    });
+    if (props.length > 0) {
+        html += '<table class="params-table"><thead><tr><th scope="col">Property</th><th scope="col">Type</th><th scope="col">Description</th></tr></thead><tbody>';
+        props.forEach(function (p) {
+            var pType = '';
+            if (p.kind === KIND.METHOD && p.signatures && p.signatures.length) {
+                pType = '() => ' + typeToString(p.signatures[0].type);
+            } else {
+                pType = typeToString(p.type);
+            }
+            var pComment = p.comment || (p.signatures && p.signatures[0] && p.signatures[0].comment) || {};
+            var desc = pComment.summary ? renderComment(pComment.summary) : '';
+            html += '<tr><td><code>' + esc(p.name) + '</code>';
+            if (p.flags && p.flags.isOptional) html += ' <span class="opt">optional</span>';
+            html += '</td><td><code class="type">' + esc(pType) + '</code></td><td>' + desc + '</td></tr>';
+        });
+        html += '</tbody></table>';
+    }
+    html += '</div>';
+    return html;
+}
+
 // ── Build page sections ──────────────────────────────────────────────────
 
 function buildChuGLContent(chuglDesc, chuglMethods) {
@@ -404,17 +442,28 @@ function main() {
             }
             chuglMethods.push(initMethod);
         }
-        var resetMethod = extractChuGLMethod(chuglVar, 'reset');
-        if (resetMethod) chuglMethods.push(resetMethod);
-        var destroyMethod = extractChuGLMethod(chuglVar, 'destroy');
-        if (destroyMethod) chuglMethods.push(destroyMethod);
     }
+
+    // ── Extract standalone types ──
+    var typeInterfaces = [];
+    DOCUMENTED_TYPES.forEach(function (name) {
+        var iface = findChild(chuckModule, name, KIND.INTERFACE)
+                 || findChild(esmModule, name, KIND.INTERFACE);
+        if (iface) typeInterfaces.push(iface);
+    });
+
+    var typesHtml = typeInterfaces.map(renderTypeInterface).join('');
+    var typesSidebarHtml = typeInterfaces.map(function (t) {
+        return '<a href="#' + esc(t.name) + '" class="toc-sub">' + esc(t.name) + '</a>';
+    }).join('\n');
 
     // ── Inject into template ──
     var html = template
         .replace('<!-- CHUGL_CONTENT -->', buildChuGLContent(chuglDesc, chuglMethods))
         .replace('<!-- CHUCK_CONTENT -->', buildChucKContent(chuckDesc, chuckMethods, chuckMembers))
-        .replace('<!-- SIDEBAR_GROUPS -->', buildSidebarGroups(chuckMethods, chuckMembers));
+        .replace('<!-- SIDEBAR_GROUPS -->', buildSidebarGroups(chuckMethods, chuckMembers))
+        .replace('<!-- TYPES_CONTENT -->', typesHtml)
+        .replace('<!-- SIDEBAR_TYPES -->', typesSidebarHtml);
 
     // ── Write output ──
     fs.mkdirSync(outDir, { recursive: true });

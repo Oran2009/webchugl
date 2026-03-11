@@ -138,7 +138,7 @@ target_compile_definitions(webchugl PRIVATE
     __WEB_MIDI_API__
 
     # ChuGL options
-    WEBCHUGL_NO_VIDEO
+    WEBCHUGL_NO_WEBCAM
     WEBCHUGL_NO_BOX2D
     CHUGL_FAST_COMPILE
 

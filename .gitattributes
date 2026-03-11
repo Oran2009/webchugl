@@ -1,3 +1,6 @@
+# Normalize all text files to LF in the repo, convert on checkout per platform
+* text=auto eol=lf
+
 # Keep patch files with Unix line endings (LF) for cross-platform compatibility
 patches/*.patch text eol=lf
 
