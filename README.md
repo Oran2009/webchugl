@@ -9,8 +9,7 @@ ChuGL's C++ source code has been compiled with [Emscripten](https://emscripten.o
 
 WebChuGL builds on [WebChucK](https://chuck.cs.princeton.edu/webchuck/) by adding ChuGL’s scenegraph, materials, textures, shaders, post-processing, and the full GGen (graphics generator) ecosystem — all tightly synchronized to ChucK’s strongly-timed audio engine.
 
-To learn more about WebChuGL and what it can do, check out
-[https://chuck.stanford.edu/webchugl/](https://chuck.stanford.edu/webchugl/).
+To learn more about WebChuGL and what it can do, check out [https://chuck.stanford.edu/webchugl/](https://chuck.stanford.edu/webchugl/).
 
 ## Getting Started
 
@@ -71,10 +70,7 @@ You can also embed WebChuGL as a JavaScript module into your `index.html`.
 </html>
 ```
 
-`ck` contains the ChucK Virtual Machine for running code, loading files,
-syncing global variables, and more! Read the
-[documentation](https://chuck.stanford.edu/webchugl/docs/)
-for the full API reference.
+`ck` contains the ChucK Virtual Machine for running code, loading files, syncing global variables, and more! Read the [documentation](https://chuck.stanford.edu/webchugl/docs/) for the full API reference.
 
 ## Documentation
 
