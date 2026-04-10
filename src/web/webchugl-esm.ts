@@ -142,14 +142,6 @@ const ChuGL = {
                 .then(function () {
                     return _loadScript(baseUrl + 'webchugl.js');
                 })
-                .then(function () {
-                    // XR modules are optional — not an error if missing
-                    return _loadScript(baseUrl + 'xr/xr-webgl-bridge.js')
-                        .then(function () {
-                            return _loadScript(baseUrl + 'xr/webchugl-xr.js');
-                        })
-                        .catch(function () {});
-                })
                 .catch(function (e: Error) {
                     _scriptsLoaded = null;
                     throw e;
