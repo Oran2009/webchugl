@@ -19,6 +19,10 @@ $ProjectRoot = Split-Path -Parent $SrcDir
 $EmsdkDir = (Get-ChildItem -Path $ProjectRoot -Directory -Filter "emsdk-*" | Select-Object -First 1).FullName
 if (-not $EmsdkDir) { throw "Emscripten SDK not found. Run setup.ps1 first." }
 $EmsdkDir = Join-Path $EmsdkDir "install\emscripten"
+# Windows invokes the .py entry points directly via `py` rather than using
+# the .bat wrappers: the wrappers consult EMSDK_PYTHON which may point at a
+# stale or missing interpreter in CI/clean-clone environments. build.sh uses
+# the plain `emcmake`/`emmake` shell wrappers (Unix has no equivalent issue).
 $EmCMake = Join-Path $EmsdkDir "emcmake.py"
 $EmMake = Join-Path $EmsdkDir "emmake.py"
 
@@ -26,16 +30,20 @@ $PatchDir = Join-Path $ProjectRoot "patches"
 
 Write-Host "=== Building WebChuGL ===" -ForegroundColor Cyan
 
-# Ensure emscripten-glfw patch is applied
+# Ensure emscripten-glfw patch is applied (defensive re-check; setup.ps1 owns
+# the canonical application). Probe by reverse-dry-running so the check is
+# immune to marker-string drift.
 $GlfwPatch = Join-Path $PatchDir "emscripten-glfw.patch"
-$GlfwJsFile = Join-Path $EmsdkDir "cache\ports\contrib.glfw3\src\js\lib_emscripten_glfw3.js"
-if ((Test-Path $GlfwPatch) -and (Test-Path $GlfwJsFile)) {
-    if (-not (Select-String -Path $GlfwJsFile -Pattern "Re-register MQL with current DPR" -Quiet)) {
+$GlfwPortDir = Join-Path $EmsdkDir "cache\ports\contrib.glfw3"
+if ((Test-Path $GlfwPatch) -and (Test-Path $GlfwPortDir)) {
+    Push-Location $GlfwPortDir
+    patch -p1 --dry-run -R -s -f -i $GlfwPatch *> $null
+    if ($LASTEXITCODE -ne 0) {
         Write-Host "Applying emscripten-glfw patch..." -ForegroundColor Yellow
-        Push-Location (Join-Path $EmsdkDir "cache\ports\contrib.glfw3")
         patch -p1 -i $GlfwPatch
-        Pop-Location
+        if ($LASTEXITCODE -ne 0) { Pop-Location; throw "emscripten-glfw patch failed" }
     }
+    Pop-Location
 }
 
 # Compile TypeScript

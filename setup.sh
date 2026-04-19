@@ -11,9 +11,10 @@ PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 # Dependency versions
 CHUGL_REPO="https://github.com/Oran2009/chugl.git"
 CHUGL_BRANCH="webchugl"
+CHUGL_COMMIT="08c81f80f6d75f2c61bcd0d7a2da9cead4eaa72e"
 
 CHUCK_REPO="https://github.com/ccrma/chuck.git"
-CHUCK_COMMIT="60caede9"  # short SHA; git checkout handles prefix matching
+CHUCK_COMMIT="2f1dd3ef4e979c96ce7c96c288e28910e3a37a76"
 
 EMSDK_VERSION="4.0.17"
 # Pin emsdk orchestration scripts to a known commit for reproducibility
@@ -27,20 +28,23 @@ echo ""
 # ============================================================================
 CHUGL_DIR="$PROJECT_ROOT/chugl"
 if [ -d "$CHUGL_DIR" ]; then
-    echo "[chugl] Directory exists, checking branch..."
+    echo "[chugl] Directory exists, checking commit..."
     cd "$CHUGL_DIR"
-    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-    if [ "$CURRENT_BRANCH" != "$CHUGL_BRANCH" ]; then
-        echo "[chugl] Warning: Current branch ($CURRENT_BRANCH) differs from expected ($CHUGL_BRANCH)"
-        echo "[chugl] You may need to: git checkout $CHUGL_BRANCH"
+    CURRENT_COMMIT=$(git rev-parse HEAD)
+    if [ "$CURRENT_COMMIT" != "$CHUGL_COMMIT" ]; then
+        echo "[chugl] Warning: Current commit ($CURRENT_COMMIT) differs from expected ($CHUGL_COMMIT)"
+        echo "[chugl] You may need to: git fetch && git checkout $CHUGL_COMMIT"
     else
-        echo "[chugl] Already on branch $CHUGL_BRANCH"
+        echo "[chugl] Already at pinned commit"
     fi
     cd "$PROJECT_ROOT"
 else
-    echo "[chugl] Cloning from $CHUGL_REPO (branch: $CHUGL_BRANCH)..."
-    git clone --filter=blob:none -b "$CHUGL_BRANCH" "$CHUGL_REPO" "$CHUGL_DIR"
-    echo "[chugl] Cloned branch $CHUGL_BRANCH"
+    echo "[chugl] Cloning from $CHUGL_REPO..."
+    git clone --filter=blob:none "$CHUGL_REPO" "$CHUGL_DIR"
+    cd "$CHUGL_DIR"
+    git checkout "$CHUGL_COMMIT"
+    cd "$PROJECT_ROOT"
+    echo "[chugl] Cloned and checked out $CHUGL_COMMIT"
 fi
 
 # ============================================================================
@@ -50,12 +54,12 @@ CHUCK_DIR="$PROJECT_ROOT/chuck"
 if [ -d "$CHUCK_DIR" ]; then
     echo "[chuck] Directory exists, checking commit..."
     cd "$CHUCK_DIR"
-    CURRENT_COMMIT=$(git rev-parse --short=8 HEAD)
-    if [ "$CURRENT_COMMIT" != "${CHUCK_COMMIT:0:8}" ]; then
+    CURRENT_COMMIT=$(git rev-parse HEAD)
+    if [ "$CURRENT_COMMIT" != "$CHUCK_COMMIT" ]; then
         echo "[chuck] Warning: Current commit ($CURRENT_COMMIT) differs from expected ($CHUCK_COMMIT)"
-        echo "[chuck] You may need to: git checkout $CHUCK_COMMIT"
+        echo "[chuck] You may need to: git fetch && git checkout $CHUCK_COMMIT"
     else
-        echo "[chuck] Already at correct commit"
+        echo "[chuck] Already at pinned commit"
     fi
     cd "$PROJECT_ROOT"
 else
@@ -72,6 +76,25 @@ fi
 # ============================================================================
 EMSDK_DIR="$PROJECT_ROOT/emsdk-$EMSDK_VERSION"
 EMSDK_INSTALL="$EMSDK_DIR/install/emscripten"
+
+assert_emsdk_version() {
+    local install_dir="$1"
+    local expected="$2"
+    if [ ! -x "$install_dir/em++" ]; then
+        echo "[emsdk] ERROR: em++ missing at $install_dir/em++ — install is corrupt" >&2
+        exit 1
+    fi
+    local output
+    output=$("$install_dir/em++" --version 2>&1 | head -1) || {
+        echo "[emsdk] ERROR: em++ --version failed: $output" >&2
+        exit 1
+    }
+    if ! echo "$output" | grep -qF "$expected"; then
+        echo "[emsdk] ERROR: Version mismatch. Expected $expected, got: $output" >&2
+        exit 1
+    fi
+    echo "[emsdk] Verified: $output"
+}
 
 if [ -d "$EMSDK_INSTALL" ]; then
     echo "[emsdk] Emscripten $EMSDK_VERSION already installed"
@@ -106,6 +129,8 @@ else
     cd "$PROJECT_ROOT"
     echo "[emsdk] Emscripten $EMSDK_VERSION installed successfully"
 fi
+
+assert_emsdk_version "$EMSDK_INSTALL" "$EMSDK_VERSION"
 
 # ============================================================================
 # Apply patches
@@ -147,13 +172,17 @@ if [ -f "$GLFW_PATCH" ]; then
     fi
 
     if [ -d "$GLFW_PORT_DIR" ]; then
-        GLFW_JS_FILE="$GLFW_PORT_DIR/src/js/lib_emscripten_glfw3.js"
-        if [ -f "$GLFW_JS_FILE" ] && ! grep -q "Re-register MQL with current DPR" "$GLFW_JS_FILE"; then
+        # Probe whether the patch is already applied by dry-running it in reverse.
+        # If reverse applies cleanly, the forward patch is already in place.
+        if (cd "$GLFW_PORT_DIR" && patch -p1 --dry-run -R -s -f < "$GLFW_PATCH") >/dev/null 2>&1; then
+            echo "[emscripten-glfw] Patch already applied"
+        elif (cd "$GLFW_PORT_DIR" && patch -p1 --dry-run -s -f < "$GLFW_PATCH") >/dev/null 2>&1; then
             echo "[emscripten-glfw] Applying patch..."
             (cd "$GLFW_PORT_DIR" && patch -p1 < "$GLFW_PATCH")
             echo "[emscripten-glfw] Patch applied successfully"
         else
-            echo "[emscripten-glfw] Patch already applied"
+            echo "[emscripten-glfw] ERROR: patch does not apply cleanly (neither forward nor reverse). Port tree may be corrupt or the patch is stale." >&2
+            exit 1
         fi
     else
         echo "[emscripten-glfw] Warning: Port not found, patch will be applied during build"

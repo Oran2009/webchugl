@@ -224,24 +224,52 @@ class ChucK {
                     });
             }
 
-            // Resume AudioContext on user interaction
-            const removeListeners = (): void => {
-                document.removeEventListener('click', startAudio);
-                document.removeEventListener('keydown', startAudio);
-                document.removeEventListener('touchstart', startAudio);
-                this._removeAudioListeners = null;
-            };
-            const startAudio = (): void => {
-                if (ctx.state === 'running') { removeListeners(); return; }
-                ctx.resume().then(removeListeners).catch((err) => {
+            // Resume AudioContext on user gesture. The AudioContext can fall
+            // back into 'suspended' long after the first resume — for example
+            // when the tab is backgrounded, the OS audio device changes, or
+            // the user triggers a navigation interruption. We therefore
+            // re-attach gesture listeners whenever statechange reports a
+            // non-running state, and do not detach them on resume failure
+            // (so the user can retry with another gesture).
+            let attached = false;
+            const gestureHandler = (): void => {
+                if (!this._audioCtx || this._audioCtx.state === 'running') return;
+                this._audioCtx.resume().catch((err) => {
                     console.warn('[WebChuGL] AudioContext resume failed:', err);
-                    removeListeners();
                 });
             };
-            document.addEventListener('click', startAudio);
-            document.addEventListener('keydown', startAudio);
-            document.addEventListener('touchstart', startAudio);
-            this._removeAudioListeners = removeListeners;
+            const attachGestureListeners = (): void => {
+                if (attached) return;
+                document.addEventListener('click', gestureHandler);
+                document.addEventListener('keydown', gestureHandler);
+                document.addEventListener('touchstart', gestureHandler);
+                attached = true;
+            };
+            const detachGestureListeners = (): void => {
+                if (!attached) return;
+                document.removeEventListener('click', gestureHandler);
+                document.removeEventListener('keydown', gestureHandler);
+                document.removeEventListener('touchstart', gestureHandler);
+                attached = false;
+            };
+            const onStateChange = (): void => {
+                if (!this._audioCtx) return;
+                const state = this._audioCtx.state;
+                if (state === 'running') {
+                    detachGestureListeners();
+                } else if (state === 'suspended') {
+                    // Re-arm listeners so the next gesture can resume.
+                    attachGestureListeners();
+                }
+                // 'closed' is terminal; teardown handler below clears the hook.
+            };
+            ctx.addEventListener('statechange', onStateChange);
+            attachGestureListeners();
+            this._removeAudioListeners = (): void => {
+                detachGestureListeners();
+                ctx.removeEventListener('statechange', onStateChange);
+                this._removeAudioListeners = null;
+            };
 
             console.log('[WebChuGL] Audio initialized (JS AudioWorklet)');
         }).catch((err) => {

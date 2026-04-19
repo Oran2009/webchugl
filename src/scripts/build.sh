@@ -47,13 +47,15 @@ echo "=== Building WebChuGL ==="
 EMCMAKE="$EMSDK_DIR/emcmake"
 EMMAKE="$EMSDK_DIR/emmake"
 
-# Ensure emscripten-glfw patch is applied
+# Ensure emscripten-glfw patch is applied (defensive re-check; setup.sh owns
+# the canonical application). Probe by reverse-dry-running so the check is
+# immune to marker-string drift.
 GLFW_PATCH="$PATCH_DIR/emscripten-glfw.patch"
-GLFW_JS_FILE="$EMSDK_DIR/cache/ports/contrib.glfw3/src/js/lib_emscripten_glfw3.js"
-if [ -f "$GLFW_PATCH" ] && [ -f "$GLFW_JS_FILE" ]; then
-    if ! grep -q "Re-register MQL with current DPR" "$GLFW_JS_FILE"; then
+GLFW_PORT_DIR="$EMSDK_DIR/cache/ports/contrib.glfw3"
+if [ -f "$GLFW_PATCH" ] && [ -d "$GLFW_PORT_DIR" ]; then
+    if ! (cd "$GLFW_PORT_DIR" && patch -p1 --dry-run -R -s -f < "$GLFW_PATCH") >/dev/null 2>&1; then
         echo "Applying emscripten-glfw patch..."
-        (cd "$EMSDK_DIR/cache/ports/contrib.glfw3" && patch -p1 < "$GLFW_PATCH")
+        (cd "$GLFW_PORT_DIR" && patch -p1 < "$GLFW_PATCH")
     fi
 fi
 

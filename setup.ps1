@@ -9,9 +9,10 @@ $ProjectRoot = $PSScriptRoot
 # Dependency versions
 $CHUGL_REPO = "https://github.com/Oran2009/chugl.git"
 $CHUGL_BRANCH = "webchugl"
+$CHUGL_COMMIT = "08c81f80f6d75f2c61bcd0d7a2da9cead4eaa72e"
 
 $CHUCK_REPO = "https://github.com/ccrma/chuck.git"
-$CHUCK_COMMIT = "60caede9"  # short SHA; git checkout handles prefix matching
+$CHUCK_COMMIT = "2f1dd3ef4e979c96ce7c96c288e28910e3a37a76"
 
 $EMSDK_VERSION = "4.0.17"
 # Pin emsdk orchestration scripts to a known commit for reproducibility
@@ -25,20 +26,23 @@ Write-Host ""
 # ============================================================================
 $ChuglDir = Join-Path $ProjectRoot "chugl"
 if (Test-Path $ChuglDir) {
-    Write-Host "[chugl] Directory exists, checking branch..." -ForegroundColor Yellow
+    Write-Host "[chugl] Directory exists, checking commit..." -ForegroundColor Yellow
     Push-Location $ChuglDir
-    $currentBranch = git rev-parse --abbrev-ref HEAD
-    if ($currentBranch -ne $CHUGL_BRANCH) {
-        Write-Host "[chugl] Warning: Current branch ($currentBranch) differs from expected ($CHUGL_BRANCH)" -ForegroundColor Red
-        Write-Host "[chugl] You may need to: git checkout $CHUGL_BRANCH" -ForegroundColor Red
+    $currentCommit = git rev-parse HEAD
+    if ($currentCommit -ne $CHUGL_COMMIT) {
+        Write-Host "[chugl] Warning: Current commit ($currentCommit) differs from expected ($CHUGL_COMMIT)" -ForegroundColor Red
+        Write-Host "[chugl] You may need to: git fetch && git checkout $CHUGL_COMMIT" -ForegroundColor Red
     } else {
-        Write-Host "[chugl] Already on branch $CHUGL_BRANCH" -ForegroundColor Green
+        Write-Host "[chugl] Already at pinned commit" -ForegroundColor Green
     }
     Pop-Location
 } else {
-    Write-Host "[chugl] Cloning from $CHUGL_REPO (branch: $CHUGL_BRANCH)..." -ForegroundColor Yellow
-    git clone --filter=blob:none -b $CHUGL_BRANCH $CHUGL_REPO $ChuglDir
-    Write-Host "[chugl] Cloned branch $CHUGL_BRANCH" -ForegroundColor Green
+    Write-Host "[chugl] Cloning from $CHUGL_REPO..." -ForegroundColor Yellow
+    git clone --filter=blob:none $CHUGL_REPO $ChuglDir
+    Push-Location $ChuglDir
+    git checkout $CHUGL_COMMIT
+    Pop-Location
+    Write-Host "[chugl] Cloned and checked out $CHUGL_COMMIT" -ForegroundColor Green
 }
 
 # ============================================================================
@@ -48,12 +52,12 @@ $ChuckDir = Join-Path $ProjectRoot "chuck"
 if (Test-Path $ChuckDir) {
     Write-Host "[chuck] Directory exists, checking commit..." -ForegroundColor Yellow
     Push-Location $ChuckDir
-    $currentCommit = git rev-parse --short=8 HEAD
-    if ($currentCommit -ne $CHUCK_COMMIT.Substring(0,8)) {
+    $currentCommit = git rev-parse HEAD
+    if ($currentCommit -ne $CHUCK_COMMIT) {
         Write-Host "[chuck] Warning: Current commit ($currentCommit) differs from expected ($CHUCK_COMMIT)" -ForegroundColor Red
-        Write-Host "[chuck] You may need to: git checkout $CHUCK_COMMIT" -ForegroundColor Red
+        Write-Host "[chuck] You may need to: git fetch && git checkout $CHUCK_COMMIT" -ForegroundColor Red
     } else {
-        Write-Host "[chuck] Already at correct commit" -ForegroundColor Green
+        Write-Host "[chuck] Already at pinned commit" -ForegroundColor Green
     }
     Pop-Location
 } else {
@@ -70,6 +74,30 @@ if (Test-Path $ChuckDir) {
 # ============================================================================
 $EmsdkDir = Join-Path $ProjectRoot "emsdk-$EMSDK_VERSION"
 $EmsdkInstall = Join-Path $EmsdkDir "install\emscripten"
+
+function Assert-EmsdkVersion {
+    param([string]$InstallDir, [string]$ExpectedVersion)
+    $emppPy = Join-Path $InstallDir "em++.py"
+    if (-not (Test-Path $emppPy)) {
+        throw "[emsdk] em++.py missing at $emppPy — install is corrupt"
+    }
+    $savedPython = $env:EMSDK_PYTHON; $env:EMSDK_PYTHON = ""
+    try {
+        # Capture full output before slicing — piping to Select-Object -First 1
+        # terminates the upstream process early and produces a bogus LASTEXITCODE.
+        $allLines = py $emppPy --version 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "[emsdk] em++ --version failed: $allLines"
+        }
+        $firstLine = @($allLines)[0]
+        if ($firstLine -notmatch [regex]::Escape($ExpectedVersion)) {
+            throw "[emsdk] Version mismatch. Expected $ExpectedVersion, got: $firstLine"
+        }
+        Write-Host "[emsdk] Verified: $firstLine" -ForegroundColor Green
+    } finally {
+        $env:EMSDK_PYTHON = $savedPython
+    }
+}
 
 if (Test-Path $EmsdkInstall) {
     Write-Host "[emsdk] Emscripten $EMSDK_VERSION already installed" -ForegroundColor Green
@@ -115,6 +143,8 @@ if (Test-Path $EmsdkInstall) {
     Write-Host "[emsdk] Emscripten $EMSDK_VERSION installed successfully" -ForegroundColor Green
 }
 
+Assert-EmsdkVersion -InstallDir $EmsdkInstall -ExpectedVersion $EMSDK_VERSION
+
 # ============================================================================
 # Apply patches
 # ============================================================================
@@ -155,17 +185,28 @@ if (Test-Path $GlfwPatch) {
     }
 
     if (Test-Path $GlfwPortDir) {
-        $GlfwJsFile = Join-Path $GlfwPortDir "src\js\lib_emscripten_glfw3.js"
-        $PatchMarker = "Re-register MQL with current DPR"
-        if ((Test-Path $GlfwJsFile) -and -not (Select-String -Path $GlfwJsFile -Pattern $PatchMarker -Quiet)) {
-            Write-Host "[emscripten-glfw] Applying patch..." -ForegroundColor Yellow
-            Push-Location $GlfwPortDir
-            patch -p1 -i $GlfwPatch
-            Pop-Location
-            Write-Host "[emscripten-glfw] Patch applied successfully" -ForegroundColor Green
-        } else {
+        Push-Location $GlfwPortDir
+        # Probe whether the patch is already applied by dry-running it in reverse.
+        # If reverse applies cleanly, the forward patch is already in place.
+        patch -p1 --dry-run -R -s -f -i $GlfwPatch *> $null
+        $alreadyApplied = ($LASTEXITCODE -eq 0)
+        if ($alreadyApplied) {
             Write-Host "[emscripten-glfw] Patch already applied" -ForegroundColor Green
+        } else {
+            patch -p1 --dry-run -s -f -i $GlfwPatch *> $null
+            if ($LASTEXITCODE -ne 0) {
+                Pop-Location
+                throw "[emscripten-glfw] Patch does not apply cleanly (neither forward nor reverse). Port tree may be corrupt or the patch is stale."
+            }
+            Write-Host "[emscripten-glfw] Applying patch..." -ForegroundColor Yellow
+            patch -p1 -i $GlfwPatch
+            if ($LASTEXITCODE -ne 0) {
+                Pop-Location
+                throw "[emscripten-glfw] Patch application failed"
+            }
+            Write-Host "[emscripten-glfw] Patch applied successfully" -ForegroundColor Green
         }
+        Pop-Location
     } else {
         Write-Host "[emscripten-glfw] Warning: Port not found, patch will be applied during build" -ForegroundColor Yellow
     }
