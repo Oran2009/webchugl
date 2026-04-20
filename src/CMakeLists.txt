@@ -140,7 +140,6 @@ target_compile_definitions(webchugl PRIVATE
     # ChuGL options
     WEBCHUGL_NO_WEBCAM
     WEBCHUGL_NO_BOX2D
-    CHUGL_FAST_COMPILE
 
     # Graphics
     GLM_FORCE_DEPTH_ZERO_TO_ONE
