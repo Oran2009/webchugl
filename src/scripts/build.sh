@@ -44,8 +44,8 @@ PATCH_DIR="$PROJECT_ROOT/patches"
 
 echo "=== Building WebChuGL ==="
 
-EMCMAKE="$EMSDK_DIR/emcmake"
-EMMAKE="$EMSDK_DIR/emmake"
+EMCMAKE="$EMSDK_DIR/emcmake.py"
+EMMAKE="$EMSDK_DIR/emmake.py"
 
 # Ensure emscripten-glfw patch is applied (defensive re-check; setup.sh owns
 # the canonical application). Probe by reverse-dry-running so the check is
