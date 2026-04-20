@@ -146,70 +146,39 @@ if (Test-Path $EmsdkInstall) {
 Assert-EmsdkVersion -InstallDir $EmsdkInstall -ExpectedVersion $EMSDK_VERSION
 
 # ============================================================================
-# Apply patches
+# Pre-fetch Emscripten ports
 # ============================================================================
-$PatchDir = Join-Path $ProjectRoot "patches"
+# Some MSYS2 Python builds fail to download Emscripten ports over HTTPS during
+# the build, so we pre-seed the contrib.glfw3 port cache with curl here.
 
 Write-Host ""
-Write-Host "=== Applying Patches ===" -ForegroundColor Cyan
+Write-Host "=== Pre-fetching Emscripten Ports ===" -ForegroundColor Cyan
 
-# Apply emscripten-glfw patch (contrib.glfw3 port)
-$GlfwPatch = Join-Path $PatchDir "emscripten-glfw.patch"
 $GlfwPortDir = Join-Path $EmsdkInstall "cache\ports\contrib.glfw3"
-if (Test-Path $GlfwPatch) {
-    # Pre-fetch the port if not already cached (use curl to avoid MSYS2 Python SSL issues)
-    if (-not (Test-Path $GlfwPortDir)) {
-        $GlfwPortUrl = "https://github.com/pongasoft/emscripten-glfw/releases/download/v3.4.0.20250927/emscripten-glfw3-3.4.0.20250927.zip"
-        $GlfwPortZip = Join-Path $EmsdkInstall "cache\ports\contrib.glfw3.zip"
-        $CachePortsDir = Join-Path $EmsdkInstall "cache\ports"
+if (-not (Test-Path $GlfwPortDir)) {
+    $GlfwPortUrl = "https://github.com/pongasoft/emscripten-glfw/releases/download/v3.4.0.20260301/emscripten-glfw3-3.4.0.20260301.zip"
+    $GlfwPortZip = Join-Path $EmsdkInstall "cache\ports\contrib.glfw3.zip"
+    $CachePortsDir = Join-Path $EmsdkInstall "cache\ports"
 
-        Write-Host "[emscripten-glfw] Downloading contrib.glfw3 port..." -ForegroundColor Yellow
-        New-Item -ItemType Directory -Path $CachePortsDir -Force | Out-Null
-        curl -L --fail -o $GlfwPortZip $GlfwPortUrl
-        if ($LASTEXITCODE -ne 0) { throw "Failed to download contrib.glfw3 port" }
+    Write-Host "[emscripten-glfw] Downloading contrib.glfw3 port..." -ForegroundColor Yellow
+    New-Item -ItemType Directory -Path $CachePortsDir -Force | Out-Null
+    curl -L --fail -o $GlfwPortZip $GlfwPortUrl
+    if ($LASTEXITCODE -ne 0) { throw "Failed to download contrib.glfw3 port" }
 
-        # Verify download integrity
-        $GlfwExpectedSha256 = "c0d3fc0b0e4fea44c72e2e5a657c55924c68b60d2e984b8b3e82f42914ba0980"
-        $GlfwActualSha256 = (Get-FileHash $GlfwPortZip -Algorithm SHA256).Hash.ToLower()
-        if ($GlfwActualSha256 -ne $GlfwExpectedSha256) {
-            Write-Host "[emscripten-glfw] WARNING: SHA-256 mismatch for contrib.glfw3 port download" -ForegroundColor Yellow
-            Write-Host "  Expected: $GlfwExpectedSha256" -ForegroundColor Yellow
-            Write-Host "  Got:      $GlfwActualSha256" -ForegroundColor Yellow
-            Write-Host "  If this is a new version, update GlfwExpectedSha256 in setup.ps1" -ForegroundColor Yellow
-        }
-
-        Write-Host "[emscripten-glfw] Extracting..." -ForegroundColor Yellow
-        Expand-Archive -Path $GlfwPortZip -DestinationPath $GlfwPortDir -Force
-        $GlfwPortUrl | Out-File -FilePath (Join-Path $GlfwPortDir ".emscripten_url") -Encoding ascii -NoNewline
-        Write-Host "[emscripten-glfw] Port cached successfully" -ForegroundColor Green
+    # Verify download integrity
+    $GlfwExpectedSha256 = "d7f96c31ae5433bae2950b36f79a03a74c892d132da291c262e10fdf267fe57b"
+    $GlfwActualSha256 = (Get-FileHash $GlfwPortZip -Algorithm SHA256).Hash.ToLower()
+    if ($GlfwActualSha256 -ne $GlfwExpectedSha256) {
+        Write-Host "[emscripten-glfw] WARNING: SHA-256 mismatch for contrib.glfw3 port download" -ForegroundColor Yellow
+        Write-Host "  Expected: $GlfwExpectedSha256" -ForegroundColor Yellow
+        Write-Host "  Got:      $GlfwActualSha256" -ForegroundColor Yellow
+        Write-Host "  If this is a new version, update GlfwExpectedSha256 in setup.ps1" -ForegroundColor Yellow
     }
 
-    if (Test-Path $GlfwPortDir) {
-        Push-Location $GlfwPortDir
-        # Probe whether the patch is already applied by dry-running it in reverse.
-        # If reverse applies cleanly, the forward patch is already in place.
-        patch -p1 --dry-run -R -s -f -i $GlfwPatch *> $null
-        $alreadyApplied = ($LASTEXITCODE -eq 0)
-        if ($alreadyApplied) {
-            Write-Host "[emscripten-glfw] Patch already applied" -ForegroundColor Green
-        } else {
-            patch -p1 --dry-run -s -f -i $GlfwPatch *> $null
-            if ($LASTEXITCODE -ne 0) {
-                Pop-Location
-                throw "[emscripten-glfw] Patch does not apply cleanly (neither forward nor reverse). Port tree may be corrupt or the patch is stale."
-            }
-            Write-Host "[emscripten-glfw] Applying patch..." -ForegroundColor Yellow
-            patch -p1 -i $GlfwPatch
-            if ($LASTEXITCODE -ne 0) {
-                Pop-Location
-                throw "[emscripten-glfw] Patch application failed"
-            }
-            Write-Host "[emscripten-glfw] Patch applied successfully" -ForegroundColor Green
-        }
-        Pop-Location
-    } else {
-        Write-Host "[emscripten-glfw] Warning: Port not found, patch will be applied during build" -ForegroundColor Yellow
-    }
+    Write-Host "[emscripten-glfw] Extracting..." -ForegroundColor Yellow
+    Expand-Archive -Path $GlfwPortZip -DestinationPath $GlfwPortDir -Force
+    $GlfwPortUrl | Out-File -FilePath (Join-Path $GlfwPortDir ".emscripten_url") -Encoding ascii -NoNewline
+    Write-Host "[emscripten-glfw] Port cached successfully" -ForegroundColor Green
 }
 
 # ============================================================================

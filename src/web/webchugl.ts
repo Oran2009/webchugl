@@ -1014,10 +1014,20 @@ class ChucK {
     clearGlobals(): void {
         this.defer(() => this.module!.ccall('ck_clear_globals', null, [], []));
     }
-    reset(): void {
+    reset(): Promise<void> {
         this.clearChuckInstance();
         this.clearGlobals();
         this.defer(() => this.module!.ccall('ck_reset_graphics', null, [], []));
+        // ck_reset_graphics pushes CQ pass updates that re-bind render_pass to a
+        // fresh scene. Those updates are consumed at the start of the next render
+        // frame. If a caller spawns a shred via runCode() in the same sync batch,
+        // the shred runs against stale render_pass.scene_id and nothing draws.
+        // Yield one animation frame so the renderer catches up before callers
+        // proceed. Callers who need ordering should `await ck.reset()`.
+        return new Promise((resolve) => {
+            if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
+            else setTimeout(resolve, 16);
+        });
     }
 
     destroy(): void {

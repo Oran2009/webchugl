@@ -40,24 +40,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-PATCH_DIR="$PROJECT_ROOT/patches"
-
 echo "=== Building WebChuGL ==="
 
 EMCMAKE="$EMSDK_DIR/emcmake.py"
 EMMAKE="$EMSDK_DIR/emmake.py"
-
-# Ensure emscripten-glfw patch is applied (defensive re-check; setup.sh owns
-# the canonical application). Probe by reverse-dry-running so the check is
-# immune to marker-string drift.
-GLFW_PATCH="$PATCH_DIR/emscripten-glfw.patch"
-GLFW_PORT_DIR="$EMSDK_DIR/cache/ports/contrib.glfw3"
-if [ -f "$GLFW_PATCH" ] && [ -d "$GLFW_PORT_DIR" ]; then
-    if ! (cd "$GLFW_PORT_DIR" && patch -p1 --dry-run -R -s -f < "$GLFW_PATCH") >/dev/null 2>&1; then
-        echo "Applying emscripten-glfw patch..."
-        (cd "$GLFW_PORT_DIR" && patch -p1 < "$GLFW_PATCH")
-    fi
-fi
 
 # Compile TypeScript
 echo "Compiling TypeScript..."

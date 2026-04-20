@@ -133,60 +133,39 @@ fi
 assert_emsdk_version "$EMSDK_INSTALL" "$EMSDK_VERSION"
 
 # ============================================================================
-# Apply patches
+# Pre-fetch Emscripten ports
 # ============================================================================
-PATCH_DIR="$PROJECT_ROOT/patches"
+# Some Python builds fail to download Emscripten ports over HTTPS during the
+# build, so we pre-seed the contrib.glfw3 port cache with curl here.
 
 echo ""
-echo "=== Applying Patches ==="
+echo "=== Pre-fetching Emscripten Ports ==="
 
-# Apply emscripten-glfw patch (contrib.glfw3 port)
-GLFW_PATCH="$PATCH_DIR/emscripten-glfw.patch"
 GLFW_PORT_DIR="$EMSDK_INSTALL/cache/ports/contrib.glfw3"
-if [ -f "$GLFW_PATCH" ]; then
-    # Pre-fetch the port if not already cached (use curl to avoid potential SSL issues)
-    if [ ! -d "$GLFW_PORT_DIR" ]; then
-        GLFW_PORT_URL="https://github.com/pongasoft/emscripten-glfw/releases/download/v3.4.0.20250927/emscripten-glfw3-3.4.0.20250927.zip"
-        GLFW_PORT_ZIP="$EMSDK_INSTALL/cache/ports/contrib.glfw3.zip"
-        CACHE_PORTS_DIR="$EMSDK_INSTALL/cache/ports"
+if [ ! -d "$GLFW_PORT_DIR" ]; then
+    GLFW_PORT_URL="https://github.com/pongasoft/emscripten-glfw/releases/download/v3.4.0.20260301/emscripten-glfw3-3.4.0.20260301.zip"
+    GLFW_PORT_ZIP="$EMSDK_INSTALL/cache/ports/contrib.glfw3.zip"
+    CACHE_PORTS_DIR="$EMSDK_INSTALL/cache/ports"
 
-        echo "[emscripten-glfw] Downloading contrib.glfw3 port..."
-        mkdir -p "$CACHE_PORTS_DIR"
-        curl -L --fail -o "$GLFW_PORT_ZIP" "$GLFW_PORT_URL"
+    echo "[emscripten-glfw] Downloading contrib.glfw3 port..."
+    mkdir -p "$CACHE_PORTS_DIR"
+    curl -L --fail -o "$GLFW_PORT_ZIP" "$GLFW_PORT_URL"
 
-        # Verify download integrity
-        GLFW_EXPECTED_SHA256="c0d3fc0b0e4fea44c72e2e5a657c55924c68b60d2e984b8b3e82f42914ba0980"
-        GLFW_ACTUAL_SHA256="$(sha256sum "$GLFW_PORT_ZIP" | cut -d' ' -f1)"
-        if [ "$GLFW_ACTUAL_SHA256" != "$GLFW_EXPECTED_SHA256" ]; then
-            echo "[emscripten-glfw] WARNING: SHA-256 mismatch for contrib.glfw3 port download"
-            echo "  Expected: $GLFW_EXPECTED_SHA256"
-            echo "  Got:      $GLFW_ACTUAL_SHA256"
-            echo "  If this is a new version, update GLFW_EXPECTED_SHA256 in setup.sh"
-        fi
-
-        echo "[emscripten-glfw] Extracting..."
-        mkdir -p "$GLFW_PORT_DIR"
-        unzip -q -o "$GLFW_PORT_ZIP" -d "$GLFW_PORT_DIR"
-        printf '%s' "$GLFW_PORT_URL" > "$GLFW_PORT_DIR/.emscripten_url"
-        echo "[emscripten-glfw] Port cached successfully"
+    # Verify download integrity
+    GLFW_EXPECTED_SHA256="d7f96c31ae5433bae2950b36f79a03a74c892d132da291c262e10fdf267fe57b"
+    GLFW_ACTUAL_SHA256="$(sha256sum "$GLFW_PORT_ZIP" | cut -d' ' -f1)"
+    if [ "$GLFW_ACTUAL_SHA256" != "$GLFW_EXPECTED_SHA256" ]; then
+        echo "[emscripten-glfw] WARNING: SHA-256 mismatch for contrib.glfw3 port download"
+        echo "  Expected: $GLFW_EXPECTED_SHA256"
+        echo "  Got:      $GLFW_ACTUAL_SHA256"
+        echo "  If this is a new version, update GLFW_EXPECTED_SHA256 in setup.sh"
     fi
 
-    if [ -d "$GLFW_PORT_DIR" ]; then
-        # Probe whether the patch is already applied by dry-running it in reverse.
-        # If reverse applies cleanly, the forward patch is already in place.
-        if (cd "$GLFW_PORT_DIR" && patch -p1 --dry-run -R -s -f < "$GLFW_PATCH") >/dev/null 2>&1; then
-            echo "[emscripten-glfw] Patch already applied"
-        elif (cd "$GLFW_PORT_DIR" && patch -p1 --dry-run -s -f < "$GLFW_PATCH") >/dev/null 2>&1; then
-            echo "[emscripten-glfw] Applying patch..."
-            (cd "$GLFW_PORT_DIR" && patch -p1 < "$GLFW_PATCH")
-            echo "[emscripten-glfw] Patch applied successfully"
-        else
-            echo "[emscripten-glfw] ERROR: patch does not apply cleanly (neither forward nor reverse). Port tree may be corrupt or the patch is stale." >&2
-            exit 1
-        fi
-    else
-        echo "[emscripten-glfw] Warning: Port not found, patch will be applied during build"
-    fi
+    echo "[emscripten-glfw] Extracting..."
+    mkdir -p "$GLFW_PORT_DIR"
+    unzip -q -o "$GLFW_PORT_ZIP" -d "$GLFW_PORT_DIR"
+    printf '%s' "$GLFW_PORT_URL" > "$GLFW_PORT_DIR/.emscripten_url"
+    echo "[emscripten-glfw] Port cached successfully"
 fi
 
 # ============================================================================

@@ -26,25 +26,7 @@ $EmsdkDir = Join-Path $EmsdkDir "install\emscripten"
 $EmCMake = Join-Path $EmsdkDir "emcmake.py"
 $EmMake = Join-Path $EmsdkDir "emmake.py"
 
-$PatchDir = Join-Path $ProjectRoot "patches"
-
 Write-Host "=== Building WebChuGL ===" -ForegroundColor Cyan
-
-# Ensure emscripten-glfw patch is applied (defensive re-check; setup.ps1 owns
-# the canonical application). Probe by reverse-dry-running so the check is
-# immune to marker-string drift.
-$GlfwPatch = Join-Path $PatchDir "emscripten-glfw.patch"
-$GlfwPortDir = Join-Path $EmsdkDir "cache\ports\contrib.glfw3"
-if ((Test-Path $GlfwPatch) -and (Test-Path $GlfwPortDir)) {
-    Push-Location $GlfwPortDir
-    patch -p1 --dry-run -R -s -f -i $GlfwPatch *> $null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Applying emscripten-glfw patch..." -ForegroundColor Yellow
-        patch -p1 -i $GlfwPatch
-        if ($LASTEXITCODE -ne 0) { Pop-Location; throw "emscripten-glfw patch failed" }
-    }
-    Pop-Location
-}
 
 # Compile TypeScript
 Write-Host "Compiling TypeScript..." -ForegroundColor Yellow
