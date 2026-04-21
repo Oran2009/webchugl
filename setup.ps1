@@ -9,10 +9,10 @@ $ProjectRoot = $PSScriptRoot
 # Dependency versions
 $CHUGL_REPO = "https://github.com/Oran2009/chugl.git"
 $CHUGL_BRANCH = "webchugl"
-$CHUGL_COMMIT = "08c81f80f6d75f2c61bcd0d7a2da9cead4eaa72e"
+$CHUGL_COMMIT = "0c6902896babdd713f083dc9937871be1c8e91d5"
 
 $CHUCK_REPO = "https://github.com/ccrma/chuck.git"
-$CHUCK_COMMIT = "2f1dd3ef4e979c96ce7c96c288e28910e3a37a76"
+$CHUCK_TAG = "chuck-1.5.5.8"
 
 $EMSDK_VERSION = "4.0.17"
 # Pin emsdk orchestration scripts to a known commit for reproducibility
@@ -50,23 +50,31 @@ if (Test-Path $ChuglDir) {
 # ============================================================================
 $ChuckDir = Join-Path $ProjectRoot "chuck"
 if (Test-Path $ChuckDir) {
-    Write-Host "[chuck] Directory exists, checking commit..." -ForegroundColor Yellow
+    Write-Host "[chuck] Directory exists, checking tag..." -ForegroundColor Yellow
     Push-Location $ChuckDir
-    $currentCommit = git rev-parse HEAD
-    if ($currentCommit -ne $CHUCK_COMMIT) {
-        Write-Host "[chuck] Warning: Current commit ($currentCommit) differs from expected ($CHUCK_COMMIT)" -ForegroundColor Red
-        Write-Host "[chuck] You may need to: git fetch && git checkout $CHUCK_COMMIT" -ForegroundColor Red
+    # Resolve the tag to a commit. `^{}` dereferences annotated tags to the
+    # underlying commit object; `-q --verify` returns non-zero (and empty
+    # output) if the tag is unknown locally instead of printing an error.
+    $expected = git rev-parse -q --verify "$CHUCK_TAG^{}" 2>$null
+    if (-not $expected) {
+        Write-Host "[chuck] tag '$CHUCK_TAG' not found locally; run: git fetch --tags" -ForegroundColor Red
     } else {
-        Write-Host "[chuck] Already at pinned commit" -ForegroundColor Green
+        $currentCommit = git rev-parse HEAD
+        if ($currentCommit -ne $expected) {
+            Write-Host "[chuck] Warning: Current commit ($currentCommit) differs from tag '$CHUCK_TAG' ($expected)" -ForegroundColor Red
+            Write-Host "[chuck] You may need to: git fetch --tags && git checkout $CHUCK_TAG" -ForegroundColor Red
+        } else {
+            Write-Host "[chuck] Already at pinned tag $CHUCK_TAG" -ForegroundColor Green
+        }
     }
     Pop-Location
 } else {
     Write-Host "[chuck] Cloning from $CHUCK_REPO..." -ForegroundColor Yellow
     git clone --filter=blob:none $CHUCK_REPO $ChuckDir
     Push-Location $ChuckDir
-    git checkout $CHUCK_COMMIT
+    git checkout $CHUCK_TAG
     Pop-Location
-    Write-Host "[chuck] Cloned and checked out $CHUCK_COMMIT" -ForegroundColor Green
+    Write-Host "[chuck] Cloned and checked out $CHUCK_TAG" -ForegroundColor Green
 }
 
 # ============================================================================

@@ -53,7 +53,8 @@ class ChucK {
     private _audioCtx: AudioContext | null = null;
     private _audioNode: AudioWorkletNode | null = null;
     private _audioReady: Promise<void> | null = null;
-    private _micConnected = false;
+    private _micStream: MediaStream | null = null;
+    private _micSource: MediaStreamAudioSourceNode | null = null;
     private _sampleRate = 48000;
     private _printCallback: ((msg: string) => void) | null = null;
     private baseUrl: string;
@@ -152,31 +153,13 @@ class ChucK {
         return null;
     }
 
-    // ── Microphone connection (called from C++ when adc is used) ────────
-
-    private connectMic(): void {
-        if (this._micConnected || !this._audioCtx || !this._audioNode) return;
-        this._micConnected = true;
-
-        const ctx = this._audioCtx;
-        const node = this._audioNode;
-        navigator.mediaDevices.getUserMedia({ audio: true })
-            .then((stream) => {
-                ctx.createMediaStreamSource(stream).connect(node);
-                console.log('[WebChuGL] Microphone connected');
-            })
-            .catch((err) => {
-                console.log('[WebChuGL] Microphone not available: ' + err.message);
-            });
-    }
-
     // ── Audio init (called from C++ via Module._initAudio) ──────────────
 
     private handleInitAudio(
         sab: SharedArrayBuffer,
         outBufPtr: number, outWritePosPtr: number, outReadPosPtr: number,
         inBufPtr: number, inWritePosPtr: number, inReadPosPtr: number,
-        capacity: number, needsMic: number,
+        capacity: number,
         sampleRate: number, outChannels: number, inChannels: number,
     ): void {
         let ctx: AudioContext;
@@ -211,18 +194,6 @@ class ChucK {
 
             node.connect(ctx.destination);
             this._audioNode = node;
-
-            if (needsMic) {
-                this._micConnected = true;
-                navigator.mediaDevices.getUserMedia({ audio: true })
-                    .then((stream) => {
-                        ctx.createMediaStreamSource(stream).connect(node);
-                        console.log('[WebChuGL] Microphone connected');
-                    })
-                    .catch((err) => {
-                        console.log('[WebChuGL] Microphone not available: ' + err.message);
-                    });
-            }
 
             // Resume AudioContext on user gesture. The AudioContext can fall
             // back into 'suspended' long after the first resume — for example
@@ -352,21 +323,18 @@ class ChucK {
                 sab: SharedArrayBuffer,
                 outBufPtr: number, outWritePosPtr: number, outReadPosPtr: number,
                 inBufPtr: number, inWritePosPtr: number, inReadPosPtr: number,
-                capacity: number, needsMic: number,
+                capacity: number,
                 sampleRate: number, outChannels: number, inChannels: number,
             ) => {
                 instance.handleInitAudio(
                     sab, outBufPtr, outWritePosPtr, outReadPosPtr,
                     inBufPtr, inWritePosPtr, inReadPosPtr,
-                    capacity, needsMic, sampleRate, outChannels, inChannels,
+                    capacity, sampleRate, outChannels, inChannels,
                 );
             },
 
-            _connectMic: () => { instance.connectMic(); },
-
             preRun: [(mod: EmscriptenModule) => {
                 instance.module = mod;
-                ensureVfsDir(mod.FS, '/code/');
                 onProgress(100);
             }],
         };
@@ -528,7 +496,7 @@ class ChucK {
         }
         const parts = pathOrUrl.split('/');
         const filename = parts[parts.length - 1];
-        const vfsCheck = '/code/' + filename;
+        const vfsCheck = '/' + filename;
         try {
             this.module!.FS.stat(vfsCheck);
             return this.deferPromise(() => {
@@ -547,7 +515,7 @@ class ChucK {
 
     runZip(url: string, mainFile?: string): Promise<number> {
         let resolvedMainFile = mainFile;
-        if (resolvedMainFile && resolvedMainFile[0] !== '/') resolvedMainFile = '/code/' + resolvedMainFile;
+        if (resolvedMainFile && resolvedMainFile[0] !== '/') resolvedMainFile = '/' + resolvedMainFile;
         const jszipReady = this.ensureJSZip();
         return fetch(url)
             .then((r) => {
@@ -559,15 +527,15 @@ class ChucK {
                 const entries = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
                 if (!resolvedMainFile) {
                     if (entries.indexOf('main.ck') !== -1) {
-                        resolvedMainFile = '/code/main.ck';
+                        resolvedMainFile = '/main.ck';
                     } else {
                         const rootCk = entries.filter((n) => n.endsWith('.ck') && n.indexOf('/') === -1);
-                        resolvedMainFile = rootCk.length ? '/code/' + rootCk[0] : '/code/main.ck';
+                        resolvedMainFile = rootCk.length ? '/' + rootCk[0] : '/main.ck';
                     }
                 }
                 return Promise.all(entries.map((name) =>
                     zip.files[name].async('arraybuffer').then((content) => {
-                        const vfsPath = '/code/' + name;
+                        const vfsPath = '/' + name;
                         this.defer(() => {
                             ensureVfsDir(this.module!.FS, vfsPath);
                             this.module!.FS.writeFile(vfsPath, new Uint8Array(content));
@@ -649,7 +617,7 @@ class ChucK {
     loadFile(url: string, vfsPath?: string): Promise<string> {
         let resolvedPath = vfsPath;
         if (!resolvedPath) {
-            resolvedPath = '/code/' + url.split('/').pop()!;
+            resolvedPath = '/' + url.split('/').pop()!;
         }
         if (resolvedPath[0] !== '/') resolvedPath = '/' + resolvedPath;
         const bin = isBinaryFile(resolvedPath);
@@ -674,7 +642,7 @@ class ChucK {
         if (basePath[basePath.length - 1] !== '/') basePath += '/';
         return Promise.all(files.map((file) => {
             const url = basePath + file;
-            const vfsPath = '/code/' + file;
+            const vfsPath = '/' + file;
             const bin = isBinaryFile(file);
             const isChugin = file.endsWith('.chug.wasm');
             return fetch(url)
@@ -705,7 +673,7 @@ class ChucK {
                 const entries = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
                 return Promise.all(entries.map((name) =>
                     zip.files[name].async('arraybuffer').then((content) => {
-                        const vfsPath = '/code/' + name;
+                        const vfsPath = '/' + name;
                         this.defer(() => {
                             ensureVfsDir(this.module!.FS, vfsPath);
                             this.module!.FS.writeFile(vfsPath, new Uint8Array(content));
@@ -811,6 +779,58 @@ class ChucK {
         this.initMidi(access);
     }
 
+    /**
+     * Request browser microphone permission and wire the resulting
+     * MediaStream into the ChucK audio graph so `adc` reads live input.
+     * Must be called from a user-gesture context. Resolves once the stream
+     * is acquired and connected; rejects if the browser denies the request
+     * or the AudioContext is not yet initialized.
+     *
+     * @returns Promise that resolves once the microphone is connected.
+     */
+    async requestMicrophone(): Promise<void> {
+        if (this._micStream) return;  // idempotent
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error('getUserMedia not supported in this browser');
+        }
+        // Audio init (AudioWorklet module load + node creation) runs async
+        // after `ChuGL.init()` resolves. Wait for it so callers who chain
+        // `await ck.requestMicrophone()` right after init don't race.
+        if (this._audioReady) await this._audioReady;
+        if (!this._audioCtx || !this._audioNode) {
+            throw new Error('AudioContext not ready; ChuGL audio init did not complete');
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const source = this._audioCtx.createMediaStreamSource(stream);
+        source.connect(this._audioNode);
+        this._micStream = stream;
+        this._micSource = source;
+        console.log('[WebChuGL] Microphone connected');
+    }
+
+    /**
+     * Request browser webcam permission and acquire a MediaStream.
+     * Must be called from a user-gesture context (e.g. a button click
+     * handler) because `getUserMedia` requires one. Stashes the stream
+     * on the wasm module so the C-side sr_webcam backend can pick it
+     * up when ChucK code creates a `Webcam` UGen.
+     *
+     * @param deviceId - ChuGL webcam slot (0..7). Defaults to 0.
+     * @returns Promise that resolves once the stream is acquired.
+     */
+    requestWebcam(deviceId: number = 0): Promise<void> {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            return Promise.reject(new Error('getUserMedia not supported in this browser'));
+        }
+        const mod = this.module as any;
+        mod.__webcamStreams = mod.__webcamStreams || {};
+        if (mod.__webcamStreams[deviceId]) return Promise.resolve();
+
+        return navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
+            mod.__webcamStreams[deviceId] = stream;
+        });
+    }
+
     // ── Dynamic Audio Import ────────────────────────────────────────────
 
     loadAudio(url: string, vfsPath?: string): Promise<string> {
@@ -848,7 +868,7 @@ class ChucK {
         let resolvedPath = vfsPath;
         if (!resolvedPath) {
             const parts = url.split('/');
-            resolvedPath = '/code/' + parts[parts.length - 1];
+            resolvedPath = '/' + parts[parts.length - 1];
         }
         const finalPath = resolvedPath;
         return fetch(url)
@@ -1079,7 +1099,11 @@ class ChucK {
         this.callbacks = {};
         this.eventListeners = {};
         this.loadedChuginSet = {};
-        this._micConnected = false;
+        if (this._micSource) { try { this._micSource.disconnect(); } catch { /* ignore */ } this._micSource = null; }
+        if (this._micStream) {
+            this._micStream.getTracks().forEach((t) => t.stop());
+            this._micStream = null;
+        }
         this._printCallback = null;
 
         console.log('[WebChuGL] Instance destroyed');

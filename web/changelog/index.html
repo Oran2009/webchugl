@@ -58,16 +58,27 @@
     <div class="release">
         <div class="release-header">
             <h3 class="release-version">v0.2.0</h3>
-            <span class="release-date">2026-04-19</span>
+            <span class="release-date">2026-04-20</span>
         </div>
         <div class="release-body">
+            <h3>Added</h3>
+            <ul>
+                <li><strong>Webcam support</strong> &mdash; ChuGL's built-in <code>Webcam</code> UGen now works in the browser. New <code>ck.requestWebcam(deviceId?)</code> method</li>
+                <li><code>ck.requestMicrophone()</code> &mdash; (replaces auto-detect, see Breaking)</li>
+                <li><code>AssLoader</code> / <code>GModel</code> are now part of the standard WebChuGL build</li>
+            </ul>
             <h3>Updated</h3>
             <ul>
                 <li>ChucK to v1.5.5.8 (for real this time)</li>
+                <li>Unified VFS convention with WebChucK</li>
             </ul>
-            <h3>Removed</h3>
+            <h3>Fixed</h3>
             <ul>
-                <li>Removed the <code>CHUGL_FAST_COMPILE</code> compile flag that ifdef'd out <code>AssLoader</code>/<code>GModel</code></li>
+                <li><code>reset()</code> is now async and resolves after one animation frame</li>
+            </ul>
+            <h3>Breaking</h3>
+            <ul>
+                <li>Microphone is no longer auto-connected when ChucK code uses <code>adc</code>. Call <code>ck.requestMicrophone()</code> from a user-gesture handler (same model as <code>requestMidi</code> and <code>requestWebcam</code>)</li>
             </ul>
         </div>
     </div>

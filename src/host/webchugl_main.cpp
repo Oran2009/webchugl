@@ -258,9 +258,6 @@ static int g_maxSamplesPerCall = 4800;  // derived: g_sampleRate / 10 (100ms cap
 
 static std::chrono::high_resolution_clock::time_point g_lastAudioTime;
 
-static bool g_needsMicrophone = false;
-static bool g_micRequested = false;
-
 // Initialize the audio system via JS AudioWorkletProcessor
 // The JS worklet reads/writes directly from WASM shared memory ring buffers
 void initAudio()
@@ -272,10 +269,9 @@ void initAudio()
                 $0, $1, $2,  // output: buffer ptr, writePos ptr, readPos ptr
                 $3, $4, $5,  // input: buffer ptr, writePos ptr, readPos ptr
                 $6,          // capacity
-                $7,          // needsMic
-                $8,          // sampleRate
-                $9,          // outChannels
-                $10          // inChannels
+                $7,          // sampleRate
+                $8,          // outChannels
+                $9           // inChannels
             );
         } else {
             console.error('[WebChuGL] Module._initAudio not found');
@@ -288,46 +284,9 @@ void initAudio()
     (uint32_t)(uintptr_t)&g_inputRingWritePos,
     (uint32_t)(uintptr_t)&g_inputRingReadPos,
     (uint32_t)RING_CAPACITY,
-    g_needsMicrophone ? 1 : 0,
     g_sampleRate,
     g_numOutputChannels,
     g_numInputChannels);
-}
-
-// Check if adc is now in use and request microphone if needed.
-// Called each frame after ck->run() so that UGen connections (adc => ...)
-// established during shred execution are detected.  Guarded by
-// g_micRequested so it becomes a single boolean check after the first trigger.
-static void checkAndRequestMic()
-{
-    if (g_micRequested) return;
-    if (!the_chuck) return;
-
-    Chuck_UGen* adc = the_chuck->vm()->m_adc;
-    if (!adc) return;
-
-    bool needsMic = false;
-    if (adc->m_num_dest > 0) {
-        needsMic = true;
-    }
-    if (!needsMic && adc->m_multi_chan) {
-        for (t_CKUINT i = 0; i < adc->m_multi_chan_size; i++) {
-            if (adc->m_multi_chan[i] && adc->m_multi_chan[i]->m_num_dest > 0) {
-                needsMic = true;
-                break;
-            }
-        }
-    }
-
-    if (needsMic) {
-        g_micRequested = true;
-        printf("[WebChuGL] ADC in use — requesting microphone\n");
-        EM_ASM({
-            if (typeof Module._connectMic === 'function') {
-                Module._connectMic();
-            }
-        });
-    }
 }
 
 // Pre-frame callback: advances the ChucK VM based on elapsed time
@@ -366,9 +325,6 @@ static void run_vm_frame(void* data)
 
         // Always run ChucK VM (needed for graphics via GG.nextFrame())
         ck->run(inBuffer, outBuffer, samplesToGenerate);
-
-        // UGen connections (adc => ...) happen during ck->run(), so check here
-        checkAndRequestMic();
 
         // Write ChucK's planar output directly to ring buffer
         uint32_t available = ringAvailableToWrite();
@@ -414,7 +370,6 @@ int main(int argc, char** argv)
     the_chuck->setParam(CHUCK_PARAM_OUTPUT_CHANNELS, (t_CKINT)g_numOutputChannels);
     the_chuck->setParam(CHUCK_PARAM_VM_HALT, (t_CKINT)0);
     the_chuck->setParam(CHUCK_PARAM_CHUGIN_ENABLE, (t_CKINT)1);
-    the_chuck->setParam(CHUCK_PARAM_WORKING_DIRECTORY, "/code");
 
     std::list<std::string> packagesPaths;
     packagesPaths.push_back("/packages");
@@ -440,27 +395,6 @@ int main(int argc, char** argv)
         !the_chuck->compileCode(k_GyroMsg_ck, "", 1, TRUE) ||
         !the_chuck->compileCode(k_Gyro_ck, "", 1, TRUE)) {
         printf("[WebChuGL] WARNING: Failed to compile built-in sensor classes\n");
-    }
-
-    // Check if adc is used
-    Chuck_UGen* adc = the_chuck->vm()->m_adc;
-    if (adc) {
-        if (adc->m_num_dest > 0) {
-            g_needsMicrophone = true;
-        }
-        // Also check individual channel UGens (e.g. adc.chan(0) => ...)
-        if (!g_needsMicrophone && adc->m_multi_chan) {
-            for (t_CKUINT i = 0; i < adc->m_multi_chan_size; i++) {
-                if (adc->m_multi_chan[i] && adc->m_multi_chan[i]->m_num_dest > 0) {
-                    g_needsMicrophone = true;
-                    break;
-                }
-            }
-        }
-        if (g_needsMicrophone) {
-            g_micRequested = true;
-            printf("[WebChuGL] ADC in use - microphone will be requested\n");
-        }
     }
 
     g_lastAudioTime = std::chrono::high_resolution_clock::now();

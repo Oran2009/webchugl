@@ -11,10 +11,10 @@ PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 # Dependency versions
 CHUGL_REPO="https://github.com/Oran2009/chugl.git"
 CHUGL_BRANCH="webchugl"
-CHUGL_COMMIT="08c81f80f6d75f2c61bcd0d7a2da9cead4eaa72e"
+CHUGL_COMMIT="0c6902896babdd713f083dc9937871be1c8e91d5"
 
 CHUCK_REPO="https://github.com/ccrma/chuck.git"
-CHUCK_COMMIT="2f1dd3ef4e979c96ce7c96c288e28910e3a37a76"
+CHUCK_TAG="chuck-1.5.5.8"
 
 EMSDK_VERSION="4.0.17"
 # Pin emsdk orchestration scripts to a known commit for reproducibility
@@ -52,23 +52,31 @@ fi
 # ============================================================================
 CHUCK_DIR="$PROJECT_ROOT/chuck"
 if [ -d "$CHUCK_DIR" ]; then
-    echo "[chuck] Directory exists, checking commit..."
+    echo "[chuck] Directory exists, checking tag..."
     cd "$CHUCK_DIR"
-    CURRENT_COMMIT=$(git rev-parse HEAD)
-    if [ "$CURRENT_COMMIT" != "$CHUCK_COMMIT" ]; then
-        echo "[chuck] Warning: Current commit ($CURRENT_COMMIT) differs from expected ($CHUCK_COMMIT)"
-        echo "[chuck] You may need to: git fetch && git checkout $CHUCK_COMMIT"
+    # Resolve the tag to a commit. `^{}` dereferences annotated tags to the
+    # underlying commit object; `-q --verify` returns non-zero (and empty
+    # output) if the tag is unknown locally.
+    EXPECTED=$(git rev-parse -q --verify "${CHUCK_TAG}^{}" 2>/dev/null || true)
+    if [ -z "$EXPECTED" ]; then
+        echo "[chuck] tag '$CHUCK_TAG' not found locally; run: git fetch --tags"
     else
-        echo "[chuck] Already at pinned commit"
+        CURRENT_COMMIT=$(git rev-parse HEAD)
+        if [ "$CURRENT_COMMIT" != "$EXPECTED" ]; then
+            echo "[chuck] Warning: Current commit ($CURRENT_COMMIT) differs from tag '$CHUCK_TAG' ($EXPECTED)"
+            echo "[chuck] You may need to: git fetch --tags && git checkout $CHUCK_TAG"
+        else
+            echo "[chuck] Already at pinned tag $CHUCK_TAG"
+        fi
     fi
     cd "$PROJECT_ROOT"
 else
     echo "[chuck] Cloning from $CHUCK_REPO..."
     git clone --filter=blob:none "$CHUCK_REPO" "$CHUCK_DIR"
     cd "$CHUCK_DIR"
-    git checkout "$CHUCK_COMMIT"
+    git checkout "$CHUCK_TAG"
     cd "$PROJECT_ROOT"
-    echo "[chuck] Cloned and checked out $CHUCK_COMMIT"
+    echo "[chuck] Cloned and checked out $CHUCK_TAG"
 fi
 
 # ============================================================================

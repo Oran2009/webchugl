@@ -138,7 +138,6 @@ target_compile_definitions(webchugl PRIVATE
     __WEB_MIDI_API__
 
     # ChuGL options
-    WEBCHUGL_NO_WEBCAM
     WEBCHUGL_NO_BOX2D
 
     # Graphics
@@ -149,11 +148,26 @@ target_compile_definitions(webchugl PRIVATE
 # ===========================================================================
 # Compile options
 # ===========================================================================
+# Normalize the project root to an absolute path with no `..` segments.
+# -ffile-prefix-map is an exact prefix match, so the prefix must match
+# byte-for-byte whatever the compiler embeds in __FILE__. On Windows the
+# compiler may see paths with either forward or backslashes depending on
+# the generator, so supply both variants.
+get_filename_component(WEBCHUGL_PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+file(TO_CMAKE_PATH "${WEBCHUGL_PROJECT_ROOT}" WEBCHUGL_PROJECT_ROOT_FWD)
+file(TO_NATIVE_PATH "${WEBCHUGL_PROJECT_ROOT}" WEBCHUGL_PROJECT_ROOT_NATIVE)
+message(STATUS "WebChuGL file-prefix-map (forward): ${WEBCHUGL_PROJECT_ROOT_FWD}/")
+message(STATUS "WebChuGL file-prefix-map (native):  ${WEBCHUGL_PROJECT_ROOT_NATIVE}\\")
+
 target_compile_options(webchugl PRIVATE
     -fPIC  # Required for -sMAIN_MODULE (dynamic linking)
     -pthread
     --use-port=contrib.glfw3
     $<IF:$<CONFIG:Debug>,-O0 -g,-O3>
+    # Rewrite compile-time paths so __FILE__ (used by ChuGL's log_warn etc.)
+    # is repo-relative, not the absolute path of the build machine.
+    "SHELL:-ffile-prefix-map=${WEBCHUGL_PROJECT_ROOT_FWD}/="
+    "SHELL:-ffile-prefix-map=${WEBCHUGL_PROJECT_ROOT_NATIVE}\\="
     -Wno-unused-parameter
     -Wno-sign-compare
     -Wno-unused-function
@@ -189,6 +203,10 @@ set(FT_ENABLE_ERROR_STRINGS ON CACHE BOOL "" FORCE)
 add_subdirectory(${CHUGL_SRC_DIR}/vendor/freetype freetype_build)
 
 target_link_libraries(webchugl PRIVATE freetype)
+
+# sr_webcam (Emscripten branch in chugl's vendor CMakeLists)
+add_subdirectory(${CHUGL_SRC_DIR}/vendor/sr_webcam sr_webcam_build)
+target_link_libraries(webchugl PRIVATE sr_webcam)
 
 # ===========================================================================
 # Emscripten link options
