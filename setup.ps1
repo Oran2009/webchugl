@@ -162,13 +162,27 @@ Assert-EmsdkVersion -InstallDir $EmsdkInstall -ExpectedVersion $EMSDK_VERSION
 Write-Host ""
 Write-Host "=== Pre-fetching Emscripten Ports ===" -ForegroundColor Cyan
 
+$GlfwPortVersion = "3.4.0.20260301"
+$GlfwPortUrl = "https://github.com/pongasoft/emscripten-glfw/releases/download/v$GlfwPortVersion/emscripten-glfw3-$GlfwPortVersion.zip"
 $GlfwPortDir = Join-Path $EmsdkInstall "cache\ports\contrib.glfw3"
-if (-not (Test-Path $GlfwPortDir)) {
-    $GlfwPortUrl = "https://github.com/pongasoft/emscripten-glfw/releases/download/v3.4.0.20260301/emscripten-glfw3-3.4.0.20260301.zip"
-    $GlfwPortZip = Join-Path $EmsdkInstall "cache\ports\contrib.glfw3.zip"
-    $CachePortsDir = Join-Path $EmsdkInstall "cache\ports"
+$GlfwPortZip = Join-Path $EmsdkInstall "cache\ports\contrib.glfw3.zip"
+$CachePortsDir = Join-Path $EmsdkInstall "cache\ports"
+$GlfwVersionFile = Join-Path $GlfwPortDir "include\GLFW\emscripten_glfw3_version.h"
 
-    Write-Host "[emscripten-glfw] Downloading contrib.glfw3 port..." -ForegroundColor Yellow
+$NeedsDownload = $false
+if (-not (Test-Path $GlfwPortDir)) {
+    $NeedsDownload = $true
+} elseif (Test-Path $GlfwVersionFile) {
+    $VersionContent = Get-Content $GlfwVersionFile -Raw
+    if ($VersionContent -notmatch [regex]::Escape($GlfwPortVersion)) {
+        Write-Host "[emscripten-glfw] Cached port is outdated, replacing with v$GlfwPortVersion" -ForegroundColor Yellow
+        Remove-Item -Recurse -Force $GlfwPortDir -Confirm:$false
+        $NeedsDownload = $true
+    }
+}
+
+if ($NeedsDownload) {
+    Write-Host "[emscripten-glfw] Downloading contrib.glfw3 v$GlfwPortVersion..." -ForegroundColor Yellow
     New-Item -ItemType Directory -Path $CachePortsDir -Force | Out-Null
     curl -L --fail -o $GlfwPortZip $GlfwPortUrl
     if ($LASTEXITCODE -ne 0) { throw "Failed to download contrib.glfw3 port" }
