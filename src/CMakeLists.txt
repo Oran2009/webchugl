@@ -143,6 +143,7 @@ target_compile_definitions(webchugl PRIVATE
     # Graphics
     GLM_FORCE_DEPTH_ZERO_TO_ONE
     GLM_ENABLE_EXPERIMENTAL
+    WEBGPU_BACKEND_DAWN
 )
 
 # ===========================================================================
@@ -163,6 +164,7 @@ target_compile_options(webchugl PRIVATE
     -fPIC  # Required for -sMAIN_MODULE (dynamic linking)
     -pthread
     --use-port=contrib.glfw3
+    --use-port=emdawnwebgpu
     $<IF:$<CONFIG:Debug>,-O0 -g,-O3>
     # Rewrite compile-time paths so __FILE__ (used by ChuGL's log_warn etc.)
     # is repo-relative, not the absolute path of the build machine.
@@ -212,8 +214,8 @@ target_link_libraries(webchugl PRIVATE sr_webcam)
 # Emscripten link options
 # ===========================================================================
 target_link_options(webchugl PRIVATE
-    -sUSE_WEBGPU
     --use-port=contrib.glfw3
+    --use-port=emdawnwebgpu
     # -pthread required for ABI compatibility with SIDE_MODULE ChuGins
     -pthread
     -sALLOW_MEMORY_GROWTH
@@ -240,42 +242,16 @@ set_target_properties(webchugl PROPERTIES
     OUTPUT_NAME "index"
 )
 
-# Organize build output: root files + webchugl/ subdirectory
+# Move Emscripten link outputs into webchugl/ subdirectory.
+# JS/asset copies are handled by build.ps1/build.sh so that TS-only
+# changes propagate without a full WASM relink.
 add_custom_command(TARGET webchugl POST_BUILD
-    # Create webchugl/ subdirectory
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/webchugl
-    # Move Emscripten outputs into webchugl/ (rename .wasm for clarity)
     COMMAND ${CMAKE_COMMAND} -E rename
         ${CMAKE_CURRENT_BINARY_DIR}/index.js
         ${CMAKE_CURRENT_BINARY_DIR}/webchugl/index.js
     COMMAND ${CMAKE_COMMAND} -E rename
         ${CMAKE_CURRENT_BINARY_DIR}/index.wasm
         ${CMAKE_CURRENT_BINARY_DIR}/webchugl/webchugl.wasm
-    # Copy JS/WASM runtime into webchugl/
-    COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/web/webchugl.js
-        ${CMAKE_CURRENT_BINARY_DIR}/webchugl/webchugl.js
-    COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/web/lib/audio-worklet-processor.js
-        ${CMAKE_CURRENT_BINARY_DIR}/webchugl/audio-worklet-processor.js
-    COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/web/lib/jszip.min.js
-        ${CMAKE_CURRENT_BINARY_DIR}/webchugl/jszip.min.js
-    COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/web/assets/chugl_logo_light.png
-        ${CMAKE_CURRENT_BINARY_DIR}/webchugl/chugl_logo_light.png
-    COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/web/assets/chugl_logo_dark.png
-        ${CMAKE_CURRENT_BINARY_DIR}/webchugl/chugl_logo_dark.png
-    COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/web/webchugl-esm.js
-        ${CMAKE_CURRENT_BINARY_DIR}/webchugl/webchugl-esm.js
-    # Copy root-level files
-    COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/web/lib/sw.js
-        ${CMAKE_CURRENT_BINARY_DIR}/sw.js
-    COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/web/manifest.json
-        ${CMAKE_CURRENT_BINARY_DIR}/manifest.json
     VERBATIM
 )

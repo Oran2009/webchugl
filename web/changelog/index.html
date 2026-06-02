@@ -57,13 +57,18 @@
 
     <div class="release">
         <div class="release-header">
-            <h3 class="release-version">v0.2.1</h3>
-            <span class="release-date">2026-06-01</span>
+            <h3 class="release-version">v0.3.0</h3>
+            <span class="release-date">2026-06-02</span>
         </div>
         <div class="release-body">
+            <h3>Changed</h3>
+            <ul>
+                <li>Emscripten 4.0.18 completely removes the <code>-sUSE_WEBGPU</code> compile flag in favor of the emdawnwebgpu port. We were forced to adapt</li>
+                <li>ChuMP package loading now uses the <a href="https://chuck.stanford.edu/release/chump/manifest/">manifest API</a> instead of scraping the GitHub repository</li>
+            </ul>
             <h3>Updated</h3>
             <ul>
-                <li>emscripten-glfw from v3.4.0.20250927 to v3.4.0.20260301, which fixes cursor position being set to delta movement instead of virtual position during pointer lock (<a href="https://github.com/pongasoft/emscripten-glfw/issues/26">emscripten-glfw #26</a>) and a few other issues.</li>
+                <li>Upgraded Emscripten SDK from 4.0.17 to 5.0.3, which upgrades emscripten-glfw from v3.4.0.20250927 to v3.4.0.20260301. Fixes cursor position being set to delta movement instead of virtual position during pointer lock (<a href="https://github.com/pongasoft/emscripten-glfw/issues/26">emscripten-glfw #26</a>) and a few other issues</li>
             </ul>
         </div>
     </div>

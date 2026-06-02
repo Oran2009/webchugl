@@ -16,7 +16,7 @@ $SrcDir = Split-Path -Parent $ScriptDir
 $BuildDir = Join-Path $SrcDir "build"
 $CMakeBuildDir = Join-Path $SrcDir ".cmake-build"
 $ProjectRoot = Split-Path -Parent $SrcDir
-$EmsdkDir = (Get-ChildItem -Path $ProjectRoot -Directory -Filter "emsdk-*" | Select-Object -First 1).FullName
+$EmsdkDir = (Get-ChildItem -Path $ProjectRoot -Directory -Filter "emsdk-*" | Sort-Object Name -Descending | Select-Object -First 1).FullName
 if (-not $EmsdkDir) { throw "Emscripten SDK not found. Run setup.ps1 first." }
 $EmsdkDir = Join-Path $EmsdkDir "install\emscripten"
 # Windows invokes the .py entry points directly via `py` rather than using
@@ -25,6 +25,14 @@ $EmsdkDir = Join-Path $EmsdkDir "install\emscripten"
 # the plain `emcmake`/`emmake` shell wrappers (Unix has no equivalent issue).
 $EmCMake = Join-Path $EmsdkDir "emcmake.py"
 $EmMake = Join-Path $EmsdkDir "emmake.py"
+
+# Detect build tool: prefer Ninja, fall back to Make
+$UseNinja = $false
+if (Get-Command ninja -ErrorAction SilentlyContinue) {
+    $UseNinja = $true
+} elseif (-not (Get-Command make -ErrorAction SilentlyContinue)) {
+    throw "Neither ninja nor make found on PATH. Install one and retry."
+}
 
 Write-Host "=== Building WebChuGL ===" -ForegroundColor Cyan
 
@@ -63,7 +71,9 @@ if (-not (Test-Path $CMakeCacheFile)) {
     Push-Location $CMakeBuildDir
     try {
         $savedPython = $env:EMSDK_PYTHON; $env:EMSDK_PYTHON = ""
-        py $EmCMake cmake "$SrcDir" -DCMAKE_POLICY_VERSION_MINIMUM="3.5" -DCMAKE_BUILD_TYPE=Release
+        $cmakeArgs = @("$SrcDir", "-DCMAKE_POLICY_VERSION_MINIMUM=3.5", "-DCMAKE_BUILD_TYPE=Release")
+        if ($UseNinja) { $cmakeArgs = @("-G", "Ninja") + $cmakeArgs }
+        py $EmCMake cmake @cmakeArgs
         if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }
     } finally {
         $env:EMSDK_PYTHON = $savedPython
@@ -76,7 +86,8 @@ Write-Host "Building WASM..." -ForegroundColor Yellow
 Push-Location $CMakeBuildDir
 try {
     $savedPython = $env:EMSDK_PYTHON; $env:EMSDK_PYTHON = ""
-    py $EmMake make -j $Jobs
+    if ($UseNinja) { py $EmMake ninja -j $Jobs }
+    else { py $EmMake make -j $Jobs }
     if ($LASTEXITCODE -ne 0) { throw "Build failed" }
 } finally {
     $env:EMSDK_PYTHON = $savedPython
@@ -85,19 +96,33 @@ try {
 
 # Copy web outputs to build/
 Write-Host "Copying web outputs..." -ForegroundColor Gray
-foreach ($f in @("index.html", "sw.js", "manifest.json")) {
-    $src = Join-Path $CMakeBuildDir $f
-    if (Test-Path $src) {
-        Copy-Item $src (Join-Path $BuildDir $f) -Force
-    }
-}
 $CMakeWebchuglDir = Join-Path $CMakeBuildDir "webchugl"
 $BuildWebchuglDir = Join-Path $BuildDir "webchugl"
-if (Test-Path $CMakeWebchuglDir) {
-    if (-not (Test-Path $BuildWebchuglDir)) {
-        New-Item -ItemType Directory -Path $BuildWebchuglDir | Out-Null
-    }
-    Copy-Item (Join-Path $CMakeWebchuglDir "*") $BuildWebchuglDir -Recurse -Force
+if (-not (Test-Path $BuildWebchuglDir)) {
+    New-Item -ItemType Directory -Path $BuildWebchuglDir | Out-Null
+}
+# WASM artifacts (from CMake post-build rename)
+foreach ($f in @("index.js", "webchugl.wasm")) {
+    $src = Join-Path $CMakeWebchuglDir $f
+    if (Test-Path $src) { Copy-Item $src (Join-Path $BuildWebchuglDir $f) -Force }
+}
+# Root-level files
+foreach ($f in @("index.html")) {
+    $src = Join-Path $CMakeBuildDir $f
+    if (Test-Path $src) { Copy-Item $src (Join-Path $BuildDir $f) -Force }
+}
+Copy-Item (Join-Path $SrcDir "web\lib\sw.js") (Join-Path $BuildDir "sw.js") -Force
+Copy-Item (Join-Path $SrcDir "web\manifest.json") (Join-Path $BuildDir "manifest.json") -Force
+# JS runtime and assets (always from source so TS-only changes propagate)
+foreach ($f in @("webchugl.js", "webchugl.js.map")) {
+    $src = Join-Path $SrcDir "web\$f"
+    if (Test-Path $src) { Copy-Item $src (Join-Path $BuildWebchuglDir $f) -Force }
+}
+Copy-Item (Join-Path $SrcDir "web\webchugl-esm.js") (Join-Path $BuildWebchuglDir "webchugl-esm.js") -Force
+Copy-Item (Join-Path $SrcDir "web\lib\audio-worklet-processor.js") (Join-Path $BuildWebchuglDir "audio-worklet-processor.js") -Force
+Copy-Item (Join-Path $SrcDir "web\lib\jszip.min.js") (Join-Path $BuildWebchuglDir "jszip.min.js") -Force
+foreach ($f in @("chugl_logo_light.png", "chugl_logo_dark.png")) {
+    Copy-Item (Join-Path $SrcDir "web\assets\$f") (Join-Path $BuildWebchuglDir $f) -Force
 }
 
 # Validate required build outputs exist

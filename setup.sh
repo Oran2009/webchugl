@@ -16,9 +16,9 @@ CHUGL_COMMIT="0c6902896babdd713f083dc9937871be1c8e91d5"
 CHUCK_REPO="https://github.com/ccrma/chuck.git"
 CHUCK_TAG="chuck-1.5.5.8"
 
-EMSDK_VERSION="4.0.17"
+EMSDK_VERSION="5.0.3"
 # Pin emsdk orchestration scripts to a known commit for reproducibility
-EMSDK_COMMIT="bb1c0642e7df86a7dee5abe8a0a98ac16ae9fd02"
+EMSDK_COMMIT="41190c21c662e9cc1962aea94e71cbae9fd2fc87"
 
 echo "=== WebChuGL Setup ==="
 echo ""
@@ -92,16 +92,18 @@ assert_emsdk_version() {
         echo "[emsdk] ERROR: em++ missing at $install_dir/em++ — install is corrupt" >&2
         exit 1
     fi
-    local output
-    output=$("$install_dir/em++" --version 2>&1 | head -1) || {
-        echo "[emsdk] ERROR: em++ --version failed: $output" >&2
+    local all_lines
+    all_lines=$("$install_dir/em++" --version 2>&1) || {
+        echo "[emsdk] ERROR: em++ --version failed: $all_lines" >&2
         exit 1
     }
-    if ! echo "$output" | grep -qF "$expected"; then
-        echo "[emsdk] ERROR: Version mismatch. Expected $expected, got: $output" >&2
+    local version_line
+    version_line=$(echo "$all_lines" | grep -F "$expected" | head -1)
+    if [ -z "$version_line" ]; then
+        echo "[emsdk] ERROR: Version mismatch. Expected $expected, got: $all_lines" >&2
         exit 1
     fi
-    echo "[emsdk] Verified: $output"
+    echo "[emsdk] Verified: $version_line"
 }
 
 if [ -d "$EMSDK_INSTALL" ]; then
@@ -139,42 +141,6 @@ else
 fi
 
 assert_emsdk_version "$EMSDK_INSTALL" "$EMSDK_VERSION"
-
-# ============================================================================
-# Pre-fetch Emscripten ports
-# ============================================================================
-# Some Python builds fail to download Emscripten ports over HTTPS during the
-# build, so we pre-seed the contrib.glfw3 port cache with curl here.
-
-echo ""
-echo "=== Pre-fetching Emscripten Ports ==="
-
-GLFW_PORT_DIR="$EMSDK_INSTALL/cache/ports/contrib.glfw3"
-if [ ! -d "$GLFW_PORT_DIR" ]; then
-    GLFW_PORT_URL="https://github.com/pongasoft/emscripten-glfw/releases/download/v3.4.0.20260301/emscripten-glfw3-3.4.0.20260301.zip"
-    GLFW_PORT_ZIP="$EMSDK_INSTALL/cache/ports/contrib.glfw3.zip"
-    CACHE_PORTS_DIR="$EMSDK_INSTALL/cache/ports"
-
-    echo "[emscripten-glfw] Downloading contrib.glfw3 port..."
-    mkdir -p "$CACHE_PORTS_DIR"
-    curl -L --fail -o "$GLFW_PORT_ZIP" "$GLFW_PORT_URL"
-
-    # Verify download integrity
-    GLFW_EXPECTED_SHA256="d7f96c31ae5433bae2950b36f79a03a74c892d132da291c262e10fdf267fe57b"
-    GLFW_ACTUAL_SHA256="$(sha256sum "$GLFW_PORT_ZIP" | cut -d' ' -f1)"
-    if [ "$GLFW_ACTUAL_SHA256" != "$GLFW_EXPECTED_SHA256" ]; then
-        echo "[emscripten-glfw] WARNING: SHA-256 mismatch for contrib.glfw3 port download"
-        echo "  Expected: $GLFW_EXPECTED_SHA256"
-        echo "  Got:      $GLFW_ACTUAL_SHA256"
-        echo "  If this is a new version, update GLFW_EXPECTED_SHA256 in setup.sh"
-    fi
-
-    echo "[emscripten-glfw] Extracting..."
-    mkdir -p "$GLFW_PORT_DIR"
-    unzip -q -o "$GLFW_PORT_ZIP" -d "$GLFW_PORT_DIR"
-    printf '%s' "$GLFW_PORT_URL" > "$GLFW_PORT_DIR/.emscripten_url"
-    echo "[emscripten-glfw] Port cached successfully"
-fi
 
 # ============================================================================
 # Done

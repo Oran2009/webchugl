@@ -14,9 +14,9 @@ $CHUGL_COMMIT = "0c6902896babdd713f083dc9937871be1c8e91d5"
 $CHUCK_REPO = "https://github.com/ccrma/chuck.git"
 $CHUCK_TAG = "chuck-1.5.5.8"
 
-$EMSDK_VERSION = "4.0.17"
+$EMSDK_VERSION = "5.0.3"
 # Pin emsdk orchestration scripts to a known commit for reproducibility
-$EMSDK_COMMIT = "bb1c0642e7df86a7dee5abe8a0a98ac16ae9fd02"
+$EMSDK_COMMIT = "41190c21c662e9cc1962aea94e71cbae9fd2fc87"
 
 Write-Host "=== WebChuGL Setup ===" -ForegroundColor Cyan
 Write-Host ""
@@ -97,11 +97,11 @@ function Assert-EmsdkVersion {
         if ($LASTEXITCODE -ne 0) {
             throw "[emsdk] em++ --version failed: $allLines"
         }
-        $firstLine = @($allLines)[0]
-        if ($firstLine -notmatch [regex]::Escape($ExpectedVersion)) {
-            throw "[emsdk] Version mismatch. Expected $ExpectedVersion, got: $firstLine"
+        $versionLine = @($allLines) | Where-Object { $_ -match [regex]::Escape($ExpectedVersion) } | Select-Object -First 1
+        if (-not $versionLine) {
+            throw "[emsdk] Version mismatch. Expected $ExpectedVersion, got: $($allLines -join '; ')"
         }
-        Write-Host "[emsdk] Verified: $firstLine" -ForegroundColor Green
+        Write-Host "[emsdk] Verified: $versionLine" -ForegroundColor Green
     } finally {
         $env:EMSDK_PYTHON = $savedPython
     }
@@ -152,56 +152,6 @@ if (Test-Path $EmsdkInstall) {
 }
 
 Assert-EmsdkVersion -InstallDir $EmsdkInstall -ExpectedVersion $EMSDK_VERSION
-
-# ============================================================================
-# Pre-fetch Emscripten ports
-# ============================================================================
-# Some MSYS2 Python builds fail to download Emscripten ports over HTTPS during
-# the build, so we pre-seed the contrib.glfw3 port cache with curl here.
-
-Write-Host ""
-Write-Host "=== Pre-fetching Emscripten Ports ===" -ForegroundColor Cyan
-
-$GlfwPortVersion = "3.4.0.20260301"
-$GlfwPortUrl = "https://github.com/pongasoft/emscripten-glfw/releases/download/v$GlfwPortVersion/emscripten-glfw3-$GlfwPortVersion.zip"
-$GlfwPortDir = Join-Path $EmsdkInstall "cache\ports\contrib.glfw3"
-$GlfwPortZip = Join-Path $EmsdkInstall "cache\ports\contrib.glfw3.zip"
-$CachePortsDir = Join-Path $EmsdkInstall "cache\ports"
-$GlfwVersionFile = Join-Path $GlfwPortDir "include\GLFW\emscripten_glfw3_version.h"
-
-$NeedsDownload = $false
-if (-not (Test-Path $GlfwPortDir)) {
-    $NeedsDownload = $true
-} elseif (Test-Path $GlfwVersionFile) {
-    $VersionContent = Get-Content $GlfwVersionFile -Raw
-    if ($VersionContent -notmatch [regex]::Escape($GlfwPortVersion)) {
-        Write-Host "[emscripten-glfw] Cached port is outdated, replacing with v$GlfwPortVersion" -ForegroundColor Yellow
-        Remove-Item -Recurse -Force $GlfwPortDir -Confirm:$false
-        $NeedsDownload = $true
-    }
-}
-
-if ($NeedsDownload) {
-    Write-Host "[emscripten-glfw] Downloading contrib.glfw3 v$GlfwPortVersion..." -ForegroundColor Yellow
-    New-Item -ItemType Directory -Path $CachePortsDir -Force | Out-Null
-    curl -L --fail -o $GlfwPortZip $GlfwPortUrl
-    if ($LASTEXITCODE -ne 0) { throw "Failed to download contrib.glfw3 port" }
-
-    # Verify download integrity
-    $GlfwExpectedSha256 = "d7f96c31ae5433bae2950b36f79a03a74c892d132da291c262e10fdf267fe57b"
-    $GlfwActualSha256 = (Get-FileHash $GlfwPortZip -Algorithm SHA256).Hash.ToLower()
-    if ($GlfwActualSha256 -ne $GlfwExpectedSha256) {
-        Write-Host "[emscripten-glfw] WARNING: SHA-256 mismatch for contrib.glfw3 port download" -ForegroundColor Yellow
-        Write-Host "  Expected: $GlfwExpectedSha256" -ForegroundColor Yellow
-        Write-Host "  Got:      $GlfwActualSha256" -ForegroundColor Yellow
-        Write-Host "  If this is a new version, update GlfwExpectedSha256 in setup.ps1" -ForegroundColor Yellow
-    }
-
-    Write-Host "[emscripten-glfw] Extracting..." -ForegroundColor Yellow
-    Expand-Archive -Path $GlfwPortZip -DestinationPath $GlfwPortDir -Force
-    $GlfwPortUrl | Out-File -FilePath (Join-Path $GlfwPortDir ".emscripten_url") -Encoding ascii -NoNewline
-    Write-Host "[emscripten-glfw] Port cached successfully" -ForegroundColor Green
-}
 
 # ============================================================================
 # Done
