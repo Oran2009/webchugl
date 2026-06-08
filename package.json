@@ -30,13 +30,13 @@
     },
     "author": "Ben Hoang",
     "license": "MIT",
-    "homepage": "https://chuck.stanford.edu/webchugl/",
+    "homepage": "https://ccrma.stanford.edu/~hoangben/webchugl/",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/ccrma/webchugl.git"
+        "url": "git+https://github.com/Oran2009/webchugl.git"
     },
     "bugs": {
-        "url": "https://github.com/ccrma/webchugl/issues"
+        "url": "https://github.com/Oran2009/webchugl/issues"
     },
     "devDependencies": {
         "@webgpu/types": "^0.1.69",
