@@ -9,13 +9,14 @@ $ProjectRoot = $PSScriptRoot
 # Dependency versions
 $CHUGL_REPO = "https://github.com/Oran2009/chugl.git"
 $CHUGL_BRANCH = "webchugl"
+$CHUGL_COMMIT = "0c6902896babdd713f083dc9937871be1c8e91d5"
 
 $CHUCK_REPO = "https://github.com/ccrma/chuck.git"
-$CHUCK_COMMIT = "60caede9"  # short SHA; git checkout handles prefix matching
+$CHUCK_TAG = "chuck-1.5.5.8"
 
-$EMSDK_VERSION = "4.0.17"
+$EMSDK_VERSION = "5.0.3"
 # Pin emsdk orchestration scripts to a known commit for reproducibility
-$EMSDK_COMMIT = "bb1c0642e7df86a7dee5abe8a0a98ac16ae9fd02"
+$EMSDK_COMMIT = "41190c21c662e9cc1962aea94e71cbae9fd2fc87"
 
 Write-Host "=== WebChuGL Setup ===" -ForegroundColor Cyan
 Write-Host ""
@@ -25,20 +26,23 @@ Write-Host ""
 # ============================================================================
 $ChuglDir = Join-Path $ProjectRoot "chugl"
 if (Test-Path $ChuglDir) {
-    Write-Host "[chugl] Directory exists, checking branch..." -ForegroundColor Yellow
+    Write-Host "[chugl] Directory exists, checking commit..." -ForegroundColor Yellow
     Push-Location $ChuglDir
-    $currentBranch = git rev-parse --abbrev-ref HEAD
-    if ($currentBranch -ne $CHUGL_BRANCH) {
-        Write-Host "[chugl] Warning: Current branch ($currentBranch) differs from expected ($CHUGL_BRANCH)" -ForegroundColor Red
-        Write-Host "[chugl] You may need to: git checkout $CHUGL_BRANCH" -ForegroundColor Red
+    $currentCommit = git rev-parse HEAD
+    if ($currentCommit -ne $CHUGL_COMMIT) {
+        Write-Host "[chugl] Warning: Current commit ($currentCommit) differs from expected ($CHUGL_COMMIT)" -ForegroundColor Red
+        Write-Host "[chugl] You may need to: git fetch && git checkout $CHUGL_COMMIT" -ForegroundColor Red
     } else {
-        Write-Host "[chugl] Already on branch $CHUGL_BRANCH" -ForegroundColor Green
+        Write-Host "[chugl] Already at pinned commit" -ForegroundColor Green
     }
     Pop-Location
 } else {
-    Write-Host "[chugl] Cloning from $CHUGL_REPO (branch: $CHUGL_BRANCH)..." -ForegroundColor Yellow
-    git clone --filter=blob:none -b $CHUGL_BRANCH $CHUGL_REPO $ChuglDir
-    Write-Host "[chugl] Cloned branch $CHUGL_BRANCH" -ForegroundColor Green
+    Write-Host "[chugl] Cloning from $CHUGL_REPO..." -ForegroundColor Yellow
+    git clone --filter=blob:none $CHUGL_REPO $ChuglDir
+    Push-Location $ChuglDir
+    git checkout $CHUGL_COMMIT
+    Pop-Location
+    Write-Host "[chugl] Cloned and checked out $CHUGL_COMMIT" -ForegroundColor Green
 }
 
 # ============================================================================
@@ -46,23 +50,31 @@ if (Test-Path $ChuglDir) {
 # ============================================================================
 $ChuckDir = Join-Path $ProjectRoot "chuck"
 if (Test-Path $ChuckDir) {
-    Write-Host "[chuck] Directory exists, checking commit..." -ForegroundColor Yellow
+    Write-Host "[chuck] Directory exists, checking tag..." -ForegroundColor Yellow
     Push-Location $ChuckDir
-    $currentCommit = git rev-parse --short=8 HEAD
-    if ($currentCommit -ne $CHUCK_COMMIT.Substring(0,8)) {
-        Write-Host "[chuck] Warning: Current commit ($currentCommit) differs from expected ($CHUCK_COMMIT)" -ForegroundColor Red
-        Write-Host "[chuck] You may need to: git checkout $CHUCK_COMMIT" -ForegroundColor Red
+    # Resolve the tag to a commit. `^{}` dereferences annotated tags to the
+    # underlying commit object; `-q --verify` returns non-zero (and empty
+    # output) if the tag is unknown locally instead of printing an error.
+    $expected = git rev-parse -q --verify "$CHUCK_TAG^{}" 2>$null
+    if (-not $expected) {
+        Write-Host "[chuck] tag '$CHUCK_TAG' not found locally; run: git fetch --tags" -ForegroundColor Red
     } else {
-        Write-Host "[chuck] Already at correct commit" -ForegroundColor Green
+        $currentCommit = git rev-parse HEAD
+        if ($currentCommit -ne $expected) {
+            Write-Host "[chuck] Warning: Current commit ($currentCommit) differs from tag '$CHUCK_TAG' ($expected)" -ForegroundColor Red
+            Write-Host "[chuck] You may need to: git fetch --tags && git checkout $CHUCK_TAG" -ForegroundColor Red
+        } else {
+            Write-Host "[chuck] Already at pinned tag $CHUCK_TAG" -ForegroundColor Green
+        }
     }
     Pop-Location
 } else {
     Write-Host "[chuck] Cloning from $CHUCK_REPO..." -ForegroundColor Yellow
     git clone --filter=blob:none $CHUCK_REPO $ChuckDir
     Push-Location $ChuckDir
-    git checkout $CHUCK_COMMIT
+    git checkout $CHUCK_TAG
     Pop-Location
-    Write-Host "[chuck] Cloned and checked out $CHUCK_COMMIT" -ForegroundColor Green
+    Write-Host "[chuck] Cloned and checked out $CHUCK_TAG" -ForegroundColor Green
 }
 
 # ============================================================================
@@ -70,6 +82,30 @@ if (Test-Path $ChuckDir) {
 # ============================================================================
 $EmsdkDir = Join-Path $ProjectRoot "emsdk-$EMSDK_VERSION"
 $EmsdkInstall = Join-Path $EmsdkDir "install\emscripten"
+
+function Assert-EmsdkVersion {
+    param([string]$InstallDir, [string]$ExpectedVersion)
+    $emppPy = Join-Path $InstallDir "em++.py"
+    if (-not (Test-Path $emppPy)) {
+        throw "[emsdk] em++.py missing at $emppPy — install is corrupt"
+    }
+    $savedPython = $env:EMSDK_PYTHON; $env:EMSDK_PYTHON = ""
+    try {
+        # Capture full output before slicing — piping to Select-Object -First 1
+        # terminates the upstream process early and produces a bogus LASTEXITCODE.
+        $allLines = py $emppPy --version 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "[emsdk] em++ --version failed: $allLines"
+        }
+        $versionLine = @($allLines) | Where-Object { $_ -match [regex]::Escape($ExpectedVersion) } | Select-Object -First 1
+        if (-not $versionLine) {
+            throw "[emsdk] Version mismatch. Expected $ExpectedVersion, got: $($allLines -join '; ')"
+        }
+        Write-Host "[emsdk] Verified: $versionLine" -ForegroundColor Green
+    } finally {
+        $env:EMSDK_PYTHON = $savedPython
+    }
+}
 
 if (Test-Path $EmsdkInstall) {
     Write-Host "[emsdk] Emscripten $EMSDK_VERSION already installed" -ForegroundColor Green
@@ -115,61 +151,7 @@ if (Test-Path $EmsdkInstall) {
     Write-Host "[emsdk] Emscripten $EMSDK_VERSION installed successfully" -ForegroundColor Green
 }
 
-# ============================================================================
-# Apply patches
-# ============================================================================
-$PatchDir = Join-Path $ProjectRoot "patches"
-
-Write-Host ""
-Write-Host "=== Applying Patches ===" -ForegroundColor Cyan
-
-# Apply emscripten-glfw patch (contrib.glfw3 port)
-$GlfwPatch = Join-Path $PatchDir "emscripten-glfw.patch"
-$GlfwPortDir = Join-Path $EmsdkInstall "cache\ports\contrib.glfw3"
-if (Test-Path $GlfwPatch) {
-    # Pre-fetch the port if not already cached (use curl to avoid MSYS2 Python SSL issues)
-    if (-not (Test-Path $GlfwPortDir)) {
-        $GlfwPortUrl = "https://github.com/pongasoft/emscripten-glfw/releases/download/v3.4.0.20250927/emscripten-glfw3-3.4.0.20250927.zip"
-        $GlfwPortZip = Join-Path $EmsdkInstall "cache\ports\contrib.glfw3.zip"
-        $CachePortsDir = Join-Path $EmsdkInstall "cache\ports"
-
-        Write-Host "[emscripten-glfw] Downloading contrib.glfw3 port..." -ForegroundColor Yellow
-        New-Item -ItemType Directory -Path $CachePortsDir -Force | Out-Null
-        curl -L --fail -o $GlfwPortZip $GlfwPortUrl
-        if ($LASTEXITCODE -ne 0) { throw "Failed to download contrib.glfw3 port" }
-
-        # Verify download integrity
-        $GlfwExpectedSha256 = "c0d3fc0b0e4fea44c72e2e5a657c55924c68b60d2e984b8b3e82f42914ba0980"
-        $GlfwActualSha256 = (Get-FileHash $GlfwPortZip -Algorithm SHA256).Hash.ToLower()
-        if ($GlfwActualSha256 -ne $GlfwExpectedSha256) {
-            Write-Host "[emscripten-glfw] WARNING: SHA-256 mismatch for contrib.glfw3 port download" -ForegroundColor Yellow
-            Write-Host "  Expected: $GlfwExpectedSha256" -ForegroundColor Yellow
-            Write-Host "  Got:      $GlfwActualSha256" -ForegroundColor Yellow
-            Write-Host "  If this is a new version, update GlfwExpectedSha256 in setup.ps1" -ForegroundColor Yellow
-        }
-
-        Write-Host "[emscripten-glfw] Extracting..." -ForegroundColor Yellow
-        Expand-Archive -Path $GlfwPortZip -DestinationPath $GlfwPortDir -Force
-        $GlfwPortUrl | Out-File -FilePath (Join-Path $GlfwPortDir ".emscripten_url") -Encoding ascii -NoNewline
-        Write-Host "[emscripten-glfw] Port cached successfully" -ForegroundColor Green
-    }
-
-    if (Test-Path $GlfwPortDir) {
-        $GlfwJsFile = Join-Path $GlfwPortDir "src\js\lib_emscripten_glfw3.js"
-        $PatchMarker = "Re-register MQL with current DPR"
-        if ((Test-Path $GlfwJsFile) -and -not (Select-String -Path $GlfwJsFile -Pattern $PatchMarker -Quiet)) {
-            Write-Host "[emscripten-glfw] Applying patch..." -ForegroundColor Yellow
-            Push-Location $GlfwPortDir
-            patch -p1 -i $GlfwPatch
-            Pop-Location
-            Write-Host "[emscripten-glfw] Patch applied successfully" -ForegroundColor Green
-        } else {
-            Write-Host "[emscripten-glfw] Patch already applied" -ForegroundColor Green
-        }
-    } else {
-        Write-Host "[emscripten-glfw] Warning: Port not found, patch will be applied during build" -ForegroundColor Yellow
-    }
-}
+Assert-EmsdkVersion -InstallDir $EmsdkInstall -ExpectedVersion $EMSDK_VERSION
 
 # ============================================================================
 # Done

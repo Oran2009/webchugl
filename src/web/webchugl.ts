@@ -20,6 +20,35 @@ interface RtMidiWindow extends Window {
 }
 
 // ============================================================================
+// ChuMP manifest types (from chuck.stanford.edu/release/chump/manifest/)
+// ============================================================================
+
+interface ChumpFileEntry {
+    url: string;
+    checksum: string;
+    file_type: string;
+    local_dir: string;
+}
+
+interface ChumpVersionEntry {
+    version: string;
+    os: string;
+    arch: string;
+    files: ChumpFileEntry[];
+}
+
+interface ChumpPackage {
+    name: string;
+    description: string;
+    authors: string[];
+    versions: ChumpVersionEntry[];
+}
+
+interface ChumpManifest {
+    packages: ChumpPackage[];
+}
+
+// ============================================================================
 // RunResult — wraps code execution results with backward-compatible valueOf()
 // ============================================================================
 
@@ -53,7 +82,8 @@ class ChucK {
     private _audioCtx: AudioContext | null = null;
     private _audioNode: AudioWorkletNode | null = null;
     private _audioReady: Promise<void> | null = null;
-    private _micConnected = false;
+    private _micStream: MediaStream | null = null;
+    private _micSource: MediaStreamAudioSourceNode | null = null;
     private _sampleRate = 48000;
     private _printCallback: ((msg: string) => void) | null = null;
     private baseUrl: string;
@@ -152,31 +182,13 @@ class ChucK {
         return null;
     }
 
-    // ── Microphone connection (called from C++ when adc is used) ────────
-
-    private connectMic(): void {
-        if (this._micConnected || !this._audioCtx || !this._audioNode) return;
-        this._micConnected = true;
-
-        const ctx = this._audioCtx;
-        const node = this._audioNode;
-        navigator.mediaDevices.getUserMedia({ audio: true })
-            .then((stream) => {
-                ctx.createMediaStreamSource(stream).connect(node);
-                console.log('[WebChuGL] Microphone connected');
-            })
-            .catch((err) => {
-                console.log('[WebChuGL] Microphone not available: ' + err.message);
-            });
-    }
-
     // ── Audio init (called from C++ via Module._initAudio) ──────────────
 
     private handleInitAudio(
         sab: SharedArrayBuffer,
         outBufPtr: number, outWritePosPtr: number, outReadPosPtr: number,
         inBufPtr: number, inWritePosPtr: number, inReadPosPtr: number,
-        capacity: number, needsMic: number,
+        capacity: number,
         sampleRate: number, outChannels: number, inChannels: number,
     ): void {
         let ctx: AudioContext;
@@ -212,36 +224,52 @@ class ChucK {
             node.connect(ctx.destination);
             this._audioNode = node;
 
-            if (needsMic) {
-                this._micConnected = true;
-                navigator.mediaDevices.getUserMedia({ audio: true })
-                    .then((stream) => {
-                        ctx.createMediaStreamSource(stream).connect(node);
-                        console.log('[WebChuGL] Microphone connected');
-                    })
-                    .catch((err) => {
-                        console.log('[WebChuGL] Microphone not available: ' + err.message);
-                    });
-            }
-
-            // Resume AudioContext on user interaction
-            const removeListeners = (): void => {
-                document.removeEventListener('click', startAudio);
-                document.removeEventListener('keydown', startAudio);
-                document.removeEventListener('touchstart', startAudio);
-                this._removeAudioListeners = null;
-            };
-            const startAudio = (): void => {
-                if (ctx.state === 'running') { removeListeners(); return; }
-                ctx.resume().then(removeListeners).catch((err) => {
+            // Resume AudioContext on user gesture. The AudioContext can fall
+            // back into 'suspended' long after the first resume — for example
+            // when the tab is backgrounded, the OS audio device changes, or
+            // the user triggers a navigation interruption. We therefore
+            // re-attach gesture listeners whenever statechange reports a
+            // non-running state, and do not detach them on resume failure
+            // (so the user can retry with another gesture).
+            let attached = false;
+            const gestureHandler = (): void => {
+                if (!this._audioCtx || this._audioCtx.state === 'running') return;
+                this._audioCtx.resume().catch((err) => {
                     console.warn('[WebChuGL] AudioContext resume failed:', err);
-                    removeListeners();
                 });
             };
-            document.addEventListener('click', startAudio);
-            document.addEventListener('keydown', startAudio);
-            document.addEventListener('touchstart', startAudio);
-            this._removeAudioListeners = removeListeners;
+            const attachGestureListeners = (): void => {
+                if (attached) return;
+                document.addEventListener('click', gestureHandler);
+                document.addEventListener('keydown', gestureHandler);
+                document.addEventListener('touchstart', gestureHandler);
+                attached = true;
+            };
+            const detachGestureListeners = (): void => {
+                if (!attached) return;
+                document.removeEventListener('click', gestureHandler);
+                document.removeEventListener('keydown', gestureHandler);
+                document.removeEventListener('touchstart', gestureHandler);
+                attached = false;
+            };
+            const onStateChange = (): void => {
+                if (!this._audioCtx) return;
+                const state = this._audioCtx.state;
+                if (state === 'running') {
+                    detachGestureListeners();
+                } else if (state === 'suspended') {
+                    // Re-arm listeners so the next gesture can resume.
+                    attachGestureListeners();
+                }
+                // 'closed' is terminal; teardown handler below clears the hook.
+            };
+            ctx.addEventListener('statechange', onStateChange);
+            attachGestureListeners();
+            this._removeAudioListeners = (): void => {
+                detachGestureListeners();
+                ctx.removeEventListener('statechange', onStateChange);
+                this._removeAudioListeners = null;
+            };
 
             console.log('[WebChuGL] Audio initialized (JS AudioWorklet)');
         }).catch((err) => {
@@ -324,21 +352,18 @@ class ChucK {
                 sab: SharedArrayBuffer,
                 outBufPtr: number, outWritePosPtr: number, outReadPosPtr: number,
                 inBufPtr: number, inWritePosPtr: number, inReadPosPtr: number,
-                capacity: number, needsMic: number,
+                capacity: number,
                 sampleRate: number, outChannels: number, inChannels: number,
             ) => {
                 instance.handleInitAudio(
                     sab, outBufPtr, outWritePosPtr, outReadPosPtr,
                     inBufPtr, inWritePosPtr, inReadPosPtr,
-                    capacity, needsMic, sampleRate, outChannels, inChannels,
+                    capacity, sampleRate, outChannels, inChannels,
                 );
             },
 
-            _connectMic: () => { instance.connectMic(); },
-
             preRun: [(mod: EmscriptenModule) => {
                 instance.module = mod;
-                ensureVfsDir(mod.FS, '/code/');
                 onProgress(100);
             }],
         };
@@ -391,7 +416,16 @@ class ChucK {
                     onError('Failed to get WebGPU adapter');
                     return instance;
                 }
-                return adapter.requestDevice().then((device) => {
+                const limits: Record<string, number> = {};
+                for (const k in adapter.limits) {
+                    const v = (adapter.limits as any)[k];
+                    if (typeof v === 'number') limits[k] = v;
+                }
+                return adapter.requestDevice({
+                    requiredFeatures: adapter.features.has('float32-filterable')
+                        ? ['float32-filterable' as GPUFeatureName] : [],
+                    requiredLimits: limits,
+                }).then((device) => {
                     instance.module!._preAdapter = adapter;
                     instance.module!._preDevice = device;
                     onReady();
@@ -500,7 +534,7 @@ class ChucK {
         }
         const parts = pathOrUrl.split('/');
         const filename = parts[parts.length - 1];
-        const vfsCheck = '/code/' + filename;
+        const vfsCheck = '/' + filename;
         try {
             this.module!.FS.stat(vfsCheck);
             return this.deferPromise(() => {
@@ -519,7 +553,7 @@ class ChucK {
 
     runZip(url: string, mainFile?: string): Promise<number> {
         let resolvedMainFile = mainFile;
-        if (resolvedMainFile && resolvedMainFile[0] !== '/') resolvedMainFile = '/code/' + resolvedMainFile;
+        if (resolvedMainFile && resolvedMainFile[0] !== '/') resolvedMainFile = '/' + resolvedMainFile;
         const jszipReady = this.ensureJSZip();
         return fetch(url)
             .then((r) => {
@@ -531,15 +565,15 @@ class ChucK {
                 const entries = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
                 if (!resolvedMainFile) {
                     if (entries.indexOf('main.ck') !== -1) {
-                        resolvedMainFile = '/code/main.ck';
+                        resolvedMainFile = '/main.ck';
                     } else {
                         const rootCk = entries.filter((n) => n.endsWith('.ck') && n.indexOf('/') === -1);
-                        resolvedMainFile = rootCk.length ? '/code/' + rootCk[0] : '/code/main.ck';
+                        resolvedMainFile = rootCk.length ? '/' + rootCk[0] : '/main.ck';
                     }
                 }
                 return Promise.all(entries.map((name) =>
                     zip.files[name].async('arraybuffer').then((content) => {
-                        const vfsPath = '/code/' + name;
+                        const vfsPath = '/' + name;
                         this.defer(() => {
                             ensureVfsDir(this.module!.FS, vfsPath);
                             this.module!.FS.writeFile(vfsPath, new Uint8Array(content));
@@ -621,7 +655,7 @@ class ChucK {
     loadFile(url: string, vfsPath?: string): Promise<string> {
         let resolvedPath = vfsPath;
         if (!resolvedPath) {
-            resolvedPath = '/code/' + url.split('/').pop()!;
+            resolvedPath = '/' + url.split('/').pop()!;
         }
         if (resolvedPath[0] !== '/') resolvedPath = '/' + resolvedPath;
         const bin = isBinaryFile(resolvedPath);
@@ -646,7 +680,7 @@ class ChucK {
         if (basePath[basePath.length - 1] !== '/') basePath += '/';
         return Promise.all(files.map((file) => {
             const url = basePath + file;
-            const vfsPath = '/code/' + file;
+            const vfsPath = '/' + file;
             const bin = isBinaryFile(file);
             const isChugin = file.endsWith('.chug.wasm');
             return fetch(url)
@@ -677,7 +711,7 @@ class ChucK {
                 const entries = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
                 return Promise.all(entries.map((name) =>
                     zip.files[name].async('arraybuffer').then((content) => {
-                        const vfsPath = '/code/' + name;
+                        const vfsPath = '/' + name;
                         this.defer(() => {
                             ensureVfsDir(this.module!.FS, vfsPath);
                             this.module!.FS.writeFile(vfsPath, new Uint8Array(content));
@@ -783,6 +817,58 @@ class ChucK {
         this.initMidi(access);
     }
 
+    /**
+     * Request browser microphone permission and wire the resulting
+     * MediaStream into the ChucK audio graph so `adc` reads live input.
+     * Must be called from a user-gesture context. Resolves once the stream
+     * is acquired and connected; rejects if the browser denies the request
+     * or the AudioContext is not yet initialized.
+     *
+     * @returns Promise that resolves once the microphone is connected.
+     */
+    async requestMicrophone(): Promise<void> {
+        if (this._micStream) return;  // idempotent
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            throw new Error('getUserMedia not supported in this browser');
+        }
+        // Audio init (AudioWorklet module load + node creation) runs async
+        // after `ChuGL.init()` resolves. Wait for it so callers who chain
+        // `await ck.requestMicrophone()` right after init don't race.
+        if (this._audioReady) await this._audioReady;
+        if (!this._audioCtx || !this._audioNode) {
+            throw new Error('AudioContext not ready; ChuGL audio init did not complete');
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const source = this._audioCtx.createMediaStreamSource(stream);
+        source.connect(this._audioNode);
+        this._micStream = stream;
+        this._micSource = source;
+        console.log('[WebChuGL] Microphone connected');
+    }
+
+    /**
+     * Request browser webcam permission and acquire a MediaStream.
+     * Must be called from a user-gesture context (e.g. a button click
+     * handler) because `getUserMedia` requires one. Stashes the stream
+     * on the wasm module so the C-side sr_webcam backend can pick it
+     * up when ChucK code creates a `Webcam` UGen.
+     *
+     * @param deviceId - ChuGL webcam slot (0..7). Defaults to 0.
+     * @returns Promise that resolves once the stream is acquired.
+     */
+    requestWebcam(deviceId: number = 0): Promise<void> {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            return Promise.reject(new Error('getUserMedia not supported in this browser'));
+        }
+        const mod = this.module as any;
+        mod.__webcamStreams = mod.__webcamStreams || {};
+        if (mod.__webcamStreams[deviceId]) return Promise.resolve();
+
+        return navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
+            mod.__webcamStreams[deviceId] = stream;
+        });
+    }
+
     // ── Dynamic Audio Import ────────────────────────────────────────────
 
     loadAudio(url: string, vfsPath?: string): Promise<string> {
@@ -820,7 +906,7 @@ class ChucK {
         let resolvedPath = vfsPath;
         if (!resolvedPath) {
             const parts = url.split('/');
-            resolvedPath = '/code/' + parts[parts.length - 1];
+            resolvedPath = '/' + parts[parts.length - 1];
         }
         const finalPath = resolvedPath;
         return fetch(url)
@@ -986,10 +1072,20 @@ class ChucK {
     clearGlobals(): void {
         this.defer(() => this.module!.ccall('ck_clear_globals', null, [], []));
     }
-    reset(): void {
+    reset(): Promise<void> {
         this.clearChuckInstance();
         this.clearGlobals();
         this.defer(() => this.module!.ccall('ck_reset_graphics', null, [], []));
+        // ck_reset_graphics pushes CQ pass updates that re-bind render_pass to a
+        // fresh scene. Those updates are consumed at the start of the next render
+        // frame. If a caller spawns a shred via runCode() in the same sync batch,
+        // the shred runs against stale render_pass.scene_id and nothing draws.
+        // Yield one animation frame so the renderer catches up before callers
+        // proceed. Callers who need ordering should `await ck.reset()`.
+        return new Promise((resolve) => {
+            if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
+            else setTimeout(resolve, 16);
+        });
     }
 
     destroy(): void {
@@ -1024,7 +1120,7 @@ class ChucK {
                 delete (canvas as any)._chuglWrapper;
             }
             // Unconfigure WebGPU context so the next init gets a clean surface
-            const gpuCtx = canvas.getContext('webgpu');
+            const gpuCtx = canvas.getContext('webgpu') as GPUCanvasContext | null;
             if (gpuCtx) gpuCtx.unconfigure();
         }
 
@@ -1041,7 +1137,11 @@ class ChucK {
         this.callbacks = {};
         this.eventListeners = {};
         this.loadedChuginSet = {};
-        this._micConnected = false;
+        if (this._micSource) { try { this._micSource.disconnect(); } catch { /* ignore */ } this._micSource = null; }
+        if (this._micStream) {
+            this._micStream.getTracks().forEach((t) => t.stop());
+            this._micStream = null;
+        }
         this._printCallback = null;
 
         console.log('[WebChuGL] Instance destroyed');
@@ -1058,40 +1158,22 @@ class ChucK {
 
     // ── ChuMP Package Loading ───────────────────────────────────────────
 
-    private static readonly CHUMP_RAW = 'https://raw.githubusercontent.com/ccrma/chump-packages/main/packages';
-    private static readonly CHUMP_API = 'https://api.github.com/repos/ccrma/chump-packages/contents/packages';
+    private static readonly CHUMP_MANIFEST = 'https://chuck.stanford.edu/release/chump/manifest/v1/manifest.json';
     private static readonly CORS_PROXY = 'https://cors.webchugl.workers.dev/?url=';
+    private static _manifestCache: Promise<ChumpManifest> | null = null;
 
-    /**
-     * Resolve the latest version of a package by listing version directories
-     * from the GitHub API and picking the highest semver.
-     */
-    private resolveLatestVersion(name: string): Promise<string> {
-        return fetch(ChucK.CHUMP_API + '/' + name).then((r) => {
-            if (!r.ok) throw new Error('Package not found: ' + name);
-            return r.json();
-        }).then((entries: Array<{ name: string; type: string }>) => {
-            const versions = entries
-                .filter((e) => e.type === 'dir' && /^\d/.test(e.name))
-                .map((e) => e.name);
-            if (!versions.length) throw new Error('No versions found for package: ' + name);
-            versions.sort((a, b) => {
-                const pa = a.split('.').map(Number);
-                const pb = b.split('.').map(Number);
-                for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-                    const diff = (pa[i] || 0) - (pb[i] || 0);
-                    if (diff !== 0) return diff;
-                }
-                return 0;
+    private static fetchManifest(): Promise<ChumpManifest> {
+        if (ChucK._manifestCache) return ChucK._manifestCache;
+        ChucK._manifestCache = ChucK.fetchWithCorsProxy(ChucK.CHUMP_MANIFEST)
+            .then((r) => r.json())
+            .catch((err) => {
+                ChucK._manifestCache = null;
+                throw err;
             });
-            return versions[versions.length - 1];
-        });
+        return ChucK._manifestCache;
     }
 
-    /**
-     * Fetch a URL, falling back to a CORS proxy if the direct request fails.
-     */
-    private fetchWithCorsProxy(url: string): Promise<Response> {
+    private static fetchWithCorsProxy(url: string): Promise<Response> {
         return fetch(url).then((r) => {
             if (!r.ok) throw new Error('HTTP ' + r.status);
             return r;
@@ -1101,6 +1183,16 @@ class ChucK {
                 return r;
             });
         });
+    }
+
+    private static compareSemver(a: string, b: string): number {
+        const pa = a.split('.').map(Number);
+        const pb = b.split('.').map(Number);
+        for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+            const diff = (pa[i] || 0) - (pb[i] || 0);
+            if (diff !== 0) return diff;
+        }
+        return 0;
     }
 
     loadPackage(name: string, version?: string, url?: string): Promise<string> {
@@ -1113,35 +1205,47 @@ class ChucK {
 
         const jszipReady = this.ensureJSZip();
 
-        // Resolve version: if not provided, find the latest from the registry
-        const versionPromise: Promise<string> = version
-            ? Promise.resolve(version)
-            : this.resolveLatestVersion(name);
+        const zipPromise: Promise<{ zipData: ArrayBuffer; resolvedVersion: string }> =
+            url
+                ? ChucK.fetchWithCorsProxy(url).then((r) => r.arrayBuffer())
+                    .then((zipData) => ({ zipData, resolvedVersion: version || 'custom' }))
+                : ChucK.fetchManifest().then((manifest) => {
+                    const pkg = manifest.packages.find(
+                        (p) => p.name.toLowerCase() === name.toLowerCase()
+                    );
+                    if (!pkg) throw new Error('Package not found: ' + name);
 
-        let resolvedVersionStr = version || '';
-        const zipPromise: Promise<ArrayBuffer> = versionPromise.then((resolvedVersion) => {
-            resolvedVersionStr = resolvedVersion;
+                    // Filter to web-compatible versions (os: "any", arch: "all")
+                    const webVersions = pkg.versions.filter(
+                        (v) => v.os === 'any' && v.arch === 'all'
+                    );
+                    if (!webVersions.length) {
+                        throw new Error('No web-compatible version found for: ' + name
+                            + ' (only os:"any" arch:"all" packages are supported)');
+                    }
 
-            if (url) {
-                return this.fetchWithCorsProxy(url).then((r) => r.arrayBuffer());
-            }
+                    let entry: ChumpVersionEntry;
+                    if (version) {
+                        const match = webVersions.find((v) => v.version === version);
+                        if (!match) throw new Error('Version ' + version + ' not found for: ' + name);
+                        entry = match;
+                    } else {
+                        webVersions.sort((a, b) => ChucK.compareSemver(a.version, b.version));
+                        entry = webVersions[webVersions.length - 1];
+                    }
 
-            const manifestUrl = ChucK.CHUMP_RAW + '/' + name + '/' + resolvedVersion + '/' + name + '.json';
-            return fetch(manifestUrl).then((r) => {
-                if (!r.ok) throw new Error('Package not found: ' + name + '@' + resolvedVersion);
-                return r.json();
-            }).then((manifest: any) => {
-                const files: Array<{ url: string }> = manifest.files || [];
-                if (!files.length || !files[0].url) {
-                    throw new Error('No download URL in manifest for ' + name);
-                }
-                return this.fetchWithCorsProxy(files[0].url).then((r) => r.arrayBuffer());
-            });
-        });
+                    if (!entry.files.length || !entry.files[0].url) {
+                        throw new Error('No download URL for ' + name + '@' + entry.version);
+                    }
 
-        return Promise.all([jszipReady, zipPromise]).then(([, zipData]) =>
-            JSZip.loadAsync(zipData)
-        ).then((zip) => {
+                    return ChucK.fetchWithCorsProxy(entry.files[0].url)
+                        .then((r) => r.arrayBuffer())
+                        .then((zipData) => ({ zipData, resolvedVersion: entry.version }));
+                });
+
+        return Promise.all([jszipReady, zipPromise]).then(([, { zipData, resolvedVersion }]) =>
+            JSZip.loadAsync(zipData).then((zip) => ({ zip, resolvedVersion }))
+        ).then(({ zip, resolvedVersion }) => {
             const stripDirs = ['examples', '_examples', 'scripts', 'releases', '.git'];
             const stripFiles = ['readme', 'versions', 'imgui.ini'];
             const entries = Object.keys(zip.files).filter((n) => {
@@ -1164,9 +1268,9 @@ class ChucK {
                         this.module!.FS.writeFile(vfsPath, new Uint8Array(content));
                     });
                 });
-            }));
-        }).then(() => {
-            console.log('[WebChuGL] Package loaded: ' + name + '@' + resolvedVersionStr);
+            })).then(() => resolvedVersion);
+        }).then((resolvedVersion) => {
+            console.log('[WebChuGL] Package loaded: ' + name + '@' + resolvedVersion);
             return name;
         });
     }

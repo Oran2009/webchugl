@@ -93,8 +93,8 @@ export interface ChucK {
 
     /**
      * Run a ChucK file. Accepts three kinds of input:
-     * - **VFS path** (`/code/main.ck`) -- run directly from the virtual filesystem.
-     * - **Filename** (`main.ck`) -- looks up `/code/main.ck` in the VFS.
+     * - **VFS path** (`/main.ck`) -- run directly from the virtual filesystem.
+     * - **Filename** (`main.ck`) -- looks up `/main.ck` in the VFS.
      * - **URL** (`./main.ck`) -- fetches the file, writes it to the VFS, then runs it.
      *
      * @param pathOrUrl - A VFS path, filename, or URL.
@@ -129,10 +129,10 @@ export interface ChucK {
     /** Fetch a URL and write contents to the VFS. */
     loadFile(url: string, vfsPath?: string): Promise<string>;
 
-    /** Fetch multiple files from a base URL into `/code/`. */
+    /** Fetch multiple files from a base URL into `/` (the VFS root). */
     loadFiles(basePath: string, files: string[]): Promise<string[]>;
 
-    /** Fetch a zip archive and extract all files to `/code/`. */
+    /** Fetch a zip archive and extract all files to `/` (the VFS root). */
     loadZip(url: string): Promise<void>;
 
     // ── Scalar Variables ────────────────────────────────────────────────
@@ -210,19 +210,45 @@ export interface ChucK {
      * Fetch an MPEG-1 video file and write it to the virtual filesystem.
      *
      * @param url - URL of the `.mpg` file.
-     * @param vfsPath - Destination path in the VFS. Defaults to `/code/<filename>`.
+     * @param vfsPath - Destination path in the VFS. Defaults to `/<filename>`.
      * @returns The VFS path where the video was written.
      */
     loadVideo(url: string, vfsPath?: string): Promise<string>;
-    /** Initialize Web MIDI access for ChucK MIDI input/output. */
+    /**
+     * Initialize ChucK's MIDI input/output from a pre-acquired `MIDIAccess`.
+     * Most users should call {@link requestMidi} instead, which also handles
+     * the permission prompt; `initMidi` is an escape hatch for hosts that
+     * already hold a `MIDIAccess` from their own acquisition flow.
+     */
     initMidi(access: MIDIAccess): void;
     /**
      * Request Web MIDI access and initialize ChucK MIDI input/output.
      * Convenience wrapper around `navigator.requestMIDIAccess()` + `initMidi()`.
+     * Must be called from a user-gesture context.
      *
      * @throws If the browser does not support the Web MIDI API.
      */
     requestMidi(): Promise<void>;
+    /**
+     * Request browser microphone permission and wire the resulting
+     * `MediaStream` into the ChucK audio graph so that `adc` reads live input.
+     * Must be called from a user-gesture context AFTER `ChuGL.init()` has
+     * resolved. Idempotent: calling again after the mic is already connected
+     * resolves immediately without re-prompting.
+     *
+     * @throws If `getUserMedia` is unavailable, the `AudioContext` is not ready,
+     *         or the user denies the permission prompt.
+     */
+    requestMicrophone(): Promise<void>;
+    /**
+     * Request browser webcam permission and acquire a MediaStream.
+     * Must be called from a user-gesture context. Once acquired, ChucK
+     * `Webcam` UGens bound to the same deviceId pick up the stream via
+     * WebChuGL's sr_webcam browser backend.
+     *
+     * @param deviceId - ChuGL webcam slot (0..7). Defaults to 0.
+     */
+    requestWebcam(deviceId?: number): Promise<void>;
     /** Get the audio sample rate, or `null` if audio is not yet initialized. */
     getSampleRate(): number | null;
     /** The underlying Web Audio `AudioContext`, or `null` before audio init. */

@@ -159,7 +159,6 @@ interface EmscriptenModule {
      * @param inWritePosPtr  - Byte offset of the input write position atomic.
      * @param inReadPosPtr   - Byte offset of the input read position atomic.
      * @param capacity       - Ring buffer capacity in frames.
-     * @param needsMic       - Non-zero if microphone input is requested.
      * @param sampleRate     - Audio sample rate in Hz.
      * @param outChannels    - Number of output audio channels.
      * @param inChannels     - Number of input audio channels.
@@ -173,17 +172,10 @@ interface EmscriptenModule {
         inWritePosPtr: number,
         inReadPosPtr: number,
         capacity: number,
-        needsMic: number,
         sampleRate: number,
         outChannels: number,
         inChannels: number,
     ): void;
-
-    /**
-     * Connect the microphone to the audio worklet on demand.
-     * Called from C++ (via EM_ASM) when compiled code uses `adc` after init.
-     */
-    _connectMic(): void;
 
     /**
      * Callback for ChucK print output (`chout` / `<<< >>>`).
