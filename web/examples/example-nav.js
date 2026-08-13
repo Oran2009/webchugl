@@ -7,7 +7,7 @@
     var parts = location.pathname.replace(/\/+$/, '').split('/');
     var folder = parts[parts.length - 1] || parts[parts.length - 2] || '';
     if (folder === 'index.html') folder = parts[parts.length - 2] || '';
-    var ghUrl = 'https://github.com/ccrma/webchugl/tree/main/web/examples/' + folder + '/';
+    var ghUrl = 'https://github.com/Oran2009/webchugl/tree/main/web/examples/' + folder + '/';
 
     // ── File definitions (base files; .ck files discovered dynamically) ──
     var files = [

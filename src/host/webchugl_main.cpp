@@ -430,28 +430,57 @@ EM_JS(void, _chugl_setup_parent_resize, (), {
     var ctx = GLFW3.fWindowContexts[glfwWindow];
     if (!ctx || !ctx.fCanvasResize) return;
 
-    // Prevent GLFW from setting inline CSS width/height on the canvas.
-    // By default, contrib.glfw3's onSizeChanged sets pixel values like
-    // `width: 640px; height: 480px` on the canvas element. When the
-    // canvas is in normal flow, this affects the parent's layout →
-    // the ResizeObserver fires → reads new parent size → GLFW sets
-    // new pixel values → infinite loop. By no-opping onSizeChanged,
-    // GLFW still updates the canvas buffer resolution (canvas.width /
-    // canvas.height attributes) but never touches CSS display size.
-    // The canvas fills its parent via the CSS set below.
+    // No-op contrib.glfw3's onSizeChanged notification.
+    //
+    // NOTE: this does NOT stop GLFW from writing inline CSS on the canvas.
+    // emglfw3w_set_size() always does:
+    //     canvas.width/height = <framebuffer size>          (buffer resolution)
+    //     ctx.setCSSValue('width'|'height', <css size>+'px') (inline CSS)
+    //     ctx.fCanvasResize.onSizeChanged(...)               (notification only)
+    // so the inline px CSS is written unconditionally, before onSizeChanged
+    // is ever consulted. The canvas therefore ends up explicitly sized in
+    // px by GLFW — the '100%' set below only applies until the first resize.
+    // We no-op onSizeChanged purely to suppress the extra notification.
     ctx.fCanvasResize.onSizeChanged = function() {};
 
-    // Set canvas to fill its parent. display:block prevents the inline
-    // element's default baseline gap from adding extra height.
+    // Initial fill of the parent (superseded by GLFW's px CSS on first
+    // resize). display:block prevents the inline element's default
+    // baseline gap from adding extra height.
     canvas.style.width = '100%';
     canvas.style.height = '100%';
     canvas.style.display = 'block';
+
+    // Measure an element's CONTENT box, in CSS pixels.
+    //
+    // Must not use clientWidth/clientHeight: those are the *padding* box.
+    // The canvas is laid out at the parent's content-box origin, so sizing
+    // it from the padding box makes it overflow the parent's right/bottom
+    // edges by the padding amount while still appearing inset on the
+    // left/top. getComputedStyle().width resolves to the used content-box
+    // width regardless of box-sizing, and is what contrib.glfw3 itself
+    // uses for element resize targets. floor() so a fractional layout can
+    // never round the canvas up past the content box.
+    //
+    // For an element with no layout box (display:none — e.g. a host
+    // container using Tailwind's .hidden) getComputedStyle returns the
+    // COMPUTED value, which may be 'auto' or a percentage rather than a
+    // used pixel length. Detect that and fall back to the padding box,
+    // which is 0 there — matching the previous behaviour.
+    function contentBoxSize(el) {
+        var cs = getComputedStyle(el);
+        var w = parseFloat(cs.width), h = parseFloat(cs.height);
+        if (!isFinite(w) || !isFinite(h) ||
+            cs.width.indexOf('px') < 0 || cs.height.indexOf('px') < 0) {
+            return { width: el.clientWidth, height: el.clientHeight };
+        }
+        return { width: Math.floor(w), height: Math.floor(h) };
+    }
 
     // Override computeSize to return parent container dimensions.
     // Read canvas.parentElement dynamically so re-parenting is supported.
     ctx.fCanvasResize.computeSize = function() {
         var p = canvas.parentElement;
-        return p ? { width: p.clientWidth, height: p.clientHeight }
+        return p ? contentBoxSize(p)
                  : { width: window.innerWidth, height: window.innerHeight };
     };
 
@@ -469,6 +498,10 @@ EM_JS(void, _chugl_setup_parent_resize, (), {
         GLFW3.onWindowResize(glfwWindow, size.width, size.height);
     }
 
+    // NOTE: deliberately calls computeSize() rather than reading
+    // entry.contentBoxSize. _chugl_setup_letterbox() REPLACES computeSize to
+    // return shrink-to-fit dimensions; reading the entry directly would
+    // bypass that override and break aspect-ratio mode.
     var lastW = 0, lastH = 0;
     canvas._chuglParentObserver = new ResizeObserver(function() {
         var size = ctx.fCanvasResize.computeSize();
@@ -536,6 +569,18 @@ EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
     if (glfwWindow != null && typeof GLFW3 !== 'undefined') {
         var ctx = GLFW3.fWindowContexts[glfwWindow];
         if (ctx && ctx.fCanvasResize) {
+            // Measure an element's CONTENT box, in CSS pixels. See the
+            // matching helper in _chugl_setup_parent_resize for why
+            // clientWidth/clientHeight (the padding box) is wrong here.
+            var contentBoxSize = function(el) {
+                var cs = getComputedStyle(el);
+                var w = parseFloat(cs.width), h = parseFloat(cs.height);
+                if (!isFinite(w) || !isFinite(h) ||
+                    cs.width.indexOf('px') < 0 || cs.height.indexOf('px') < 0) {
+                    return { width: el.clientWidth, height: el.clientHeight };
+                }
+                return { width: Math.floor(w), height: Math.floor(h) };
+            };
             if (hasAspect) {
                 var ar = ar_x / ar_y;
                 ctx.fCanvasResize.computeSize = function() {
@@ -543,8 +588,10 @@ EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
                     // available space, since the wrapper fills it at 100%.
                     var w = canvas._chuglWrapper;
                     var p = w ? w.parentElement : canvas.parentElement;
-                    var vw = p ? p.clientWidth : window.innerWidth;
-                    var vh = p ? p.clientHeight : window.innerHeight;
+                    var avail = p ? contentBoxSize(p)
+                                  : {width: window.innerWidth,
+                                     height: window.innerHeight};
+                    var vw = avail.width, vh = avail.height;
                     if (vw / vh > ar) {
                         return {width: Math.round(vh * ar), height: vh};
                     } else {
@@ -554,10 +601,9 @@ EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
             } else {
                 ctx.fCanvasResize.computeSize = function() {
                     var p = canvas.parentElement;
-                    return {
-                        width:  p ? p.clientWidth  : window.innerWidth,
-                        height: p ? p.clientHeight : window.innerHeight
-                    };
+                    return p ? contentBoxSize(p)
+                             : {width: window.innerWidth,
+                                height: window.innerHeight};
                 };
             }
             // Trigger immediate resize with new computeSize (no global event)
