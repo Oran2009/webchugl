@@ -89,8 +89,7 @@ class ChucK {
     private baseUrl: string;
     private jszipPromise: Promise<void> | null = null;
     private _storage = new Storage();
-    private _removeAudioListeners: (() => void) | null = null;
-    private _cleanupSensors: (() => void) | null = null;
+    private _teardown = new AbortController();
 
     private constructor(baseUrl: string) {
         this.baseUrl = baseUrl;
@@ -238,11 +237,12 @@ class ChucK {
                     console.warn('[WebChuGL] AudioContext resume failed:', err);
                 });
             };
+            const signal = this._teardown.signal;
             const attachGestureListeners = (): void => {
                 if (attached) return;
-                document.addEventListener('click', gestureHandler);
-                document.addEventListener('keydown', gestureHandler);
-                document.addEventListener('touchstart', gestureHandler);
+                document.addEventListener('click', gestureHandler, { signal });
+                document.addEventListener('keydown', gestureHandler, { signal });
+                document.addEventListener('touchstart', gestureHandler, { signal });
                 attached = true;
             };
             const detachGestureListeners = (): void => {
@@ -261,15 +261,10 @@ class ChucK {
                     // Re-arm listeners so the next gesture can resume.
                     attachGestureListeners();
                 }
-                // 'closed' is terminal; teardown handler below clears the hook.
+                // 'closed' is terminal; the teardown signal removes this listener.
             };
-            ctx.addEventListener('statechange', onStateChange);
+            ctx.addEventListener('statechange', onStateChange, { signal });
             attachGestureListeners();
-            this._removeAudioListeners = (): void => {
-                detachGestureListeners();
-                ctx.removeEventListener('statechange', onStateChange);
-                this._removeAudioListeners = null;
-            };
 
             console.log('[WebChuGL] Audio initialized (JS AudioWorklet)');
         }).catch((err) => {
@@ -443,7 +438,11 @@ class ChucK {
                         }
                     }
 
-                    instance._cleanupSensors = initSensors(instance, () => instance.module !== null);
+                    initSensors(instance, instance._teardown.signal);
+
+                    // Release the AudioContext / WebGPU device when the page goes away.
+                    window.addEventListener('pagehide', () => instance.destroy(),
+                                            { signal: instance._teardown.signal });
                     const audioReady = instance._audioReady || Promise.resolve();
                     return audioReady.then(() => {
                         instance.flush();
@@ -1088,7 +1087,25 @@ class ChucK {
         });
     }
 
+    private releaseCanvas(canvas: HTMLCanvasElement | null): void {
+        if (!canvas) return;
+        const owner = canvas as any;
+
+        owner._chuglParentObserver?.disconnect();
+        delete owner._chuglParentObserver;
+
+        const wrapper = owner._chuglWrapper;
+        if (wrapper?.parentElement) {
+            wrapper.parentElement.insertBefore(canvas, wrapper);
+            wrapper.parentElement.removeChild(wrapper);
+        }
+        delete owner._chuglWrapper;
+
+        (canvas.getContext('webgpu') as GPUCanvasContext | null)?.unconfigure();
+    }
+
     destroy(): void {
+        this._teardown.abort();
         if (!this.module) return;
 
         // Stop the C++ render loop so it doesn't try to render after teardown
@@ -1099,33 +1116,11 @@ class ChucK {
         this.module.ccall('ck_clear_globals', null, [], []);
 
         // Clean up audio
-        if (this._removeAudioListeners) this._removeAudioListeners();
         if (this._audioNode) { this._audioNode.disconnect(); this._audioNode = null; }
         if (this._audioCtx) { this._audioCtx.close(); this._audioCtx = null; }
         this._audioReady = null;
 
-        // Clean up canvas (observer, wrapper)
-        const canvas = this.module.canvas as HTMLCanvasElement;
-        if (canvas) {
-            if ((canvas as any)._chuglParentObserver) {
-                (canvas as any)._chuglParentObserver.disconnect();
-                delete (canvas as any)._chuglParentObserver;
-            }
-            if ((canvas as any)._chuglWrapper) {
-                const wrapper = (canvas as any)._chuglWrapper;
-                if (wrapper.parentElement) {
-                    wrapper.parentElement.insertBefore(canvas, wrapper);
-                    wrapper.parentElement.removeChild(wrapper);
-                }
-                delete (canvas as any)._chuglWrapper;
-            }
-            // Unconfigure WebGPU context so the next init gets a clean surface
-            const gpuCtx = canvas.getContext('webgpu') as GPUCanvasContext | null;
-            if (gpuCtx) gpuCtx.unconfigure();
-        }
-
-        // Clean up sensors
-        if (this._cleanupSensors) { this._cleanupSensors(); this._cleanupSensors = null; }
+        this.releaseCanvas(this.module.canvas as HTMLCanvasElement);
 
         // Flush pending callbacks
         this.flushCallbacks();
@@ -1159,12 +1154,11 @@ class ChucK {
     // ── ChuMP Package Loading ───────────────────────────────────────────
 
     private static readonly CHUMP_MANIFEST = 'https://chuck.stanford.edu/release/chump/manifest/v1/manifest.json';
-    private static readonly CORS_PROXY = 'https://cors.webchugl.workers.dev/?url=';
     private static _manifestCache: Promise<ChumpManifest> | null = null;
 
     private static fetchManifest(): Promise<ChumpManifest> {
         if (ChucK._manifestCache) return ChucK._manifestCache;
-        ChucK._manifestCache = ChucK.fetchWithCorsProxy(ChucK.CHUMP_MANIFEST)
+        ChucK._manifestCache = ChucK.fetchOk(ChucK.CHUMP_MANIFEST)
             .then((r) => r.json())
             .catch((err) => {
                 ChucK._manifestCache = null;
@@ -1173,15 +1167,10 @@ class ChucK {
         return ChucK._manifestCache;
     }
 
-    private static fetchWithCorsProxy(url: string): Promise<Response> {
+    private static fetchOk(url: string): Promise<Response> {
         return fetch(url).then((r) => {
-            if (!r.ok) throw new Error('HTTP ' + r.status);
+            if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + url);
             return r;
-        }).catch(() => {
-            return fetch(ChucK.CORS_PROXY + encodeURIComponent(url)).then((r) => {
-                if (!r.ok) throw new Error('HTTP ' + r.status + ' (via CORS proxy)');
-                return r;
-            });
         });
     }
 
@@ -1207,7 +1196,7 @@ class ChucK {
 
         const zipPromise: Promise<{ zipData: ArrayBuffer; resolvedVersion: string }> =
             url
-                ? ChucK.fetchWithCorsProxy(url).then((r) => r.arrayBuffer())
+                ? ChucK.fetchOk(url).then((r) => r.arrayBuffer())
                     .then((zipData) => ({ zipData, resolvedVersion: version || 'custom' }))
                 : ChucK.fetchManifest().then((manifest) => {
                     const pkg = manifest.packages.find(
@@ -1238,7 +1227,7 @@ class ChucK {
                         throw new Error('No download URL for ' + name + '@' + entry.version);
                     }
 
-                    return ChucK.fetchWithCorsProxy(entry.files[0].url)
+                    return ChucK.fetchOk(entry.files[0].url)
                         .then((r) => r.arrayBuffer())
                         .then((zipData) => ({ zipData, resolvedVersion: entry.version }));
                 });

@@ -85,7 +85,9 @@ var ck = await ChuGL.init({
     &lt;/script&gt;
 &lt;/body&gt;
 &lt;/html&gt;</code></pre>
-<p>Download <a href="https://ccrma.stanford.edu/~hoangben/webchugl/sw.js" target="_blank">sw.js</a> and place it in the same directory as your <code>index.html</code> (or configure your server to send <a href="#cross-origin-isolation">COOP/COEP headers</a> directly). Then upload <code>index.html</code>, <code>bundle.zip</code>, and <code>sw.js</code> to any static hosting provider (Netlify, Vercel, GitHub Pages, etc.) and share the URL!</p>
+<p>Next to your <code>index.html</code>, create a one-line <code>sw.js</code> (see <a href="#cross-origin-isolation">Cross-Origin Isolation</a>):</p>
+<pre><code class="language-js">importScripts('https://cdn.jsdelivr.net/npm/webchugl/dist/sw.js');</code></pre>
+<p>Then upload <code>index.html</code>, <code>bundle.zip</code>, and <code>sw.js</code> to any static host and share the URL!</p>
 
 <h3 id="building-from-source">Building from Source</h3>
 <p>To build WebChuGL from source (for development or custom builds):</p>
@@ -108,19 +110,20 @@ cd src/scripts
 <summary><h2>Cross-Origin Isolation</h2></summary>
 <div class="details-content" style="grid-template-rows:1fr"><div class="details-inner">
 
-<p>WebChuGL&rsquo;s audio engine uses <code>SharedArrayBuffer</code>, which browsers only enable in <a href="https://developer.mozilla.org/en-US/docs/Web/API/crossOriginIsolated" target="_blank">cross-origin isolated</a> contexts. There are two easy ways to enable this:</p>
+<p>WebChuGL&rsquo;s audio engine uses <code>SharedArrayBuffer</code>, which browsers only enable in <a href="https://developer.mozilla.org/en-US/docs/Web/API/crossOriginIsolated" target="_blank">cross-origin isolated</a> contexts. There are two ways to enable this:</p>
 
-<h3>Option 1: Service Worker (default)</h3>
-<p>WebChuGL ships with <a href="https://ccrma.stanford.edu/~hoangben/webchugl/sw.js" target="_blank"><code>sw.js</code></a>, a service worker that injects the required headers on every response. Download it, place it at the root of your site, and serve with any HTTP server. WebChuGL registers it automatically.</p>
-<p>The service worker adds these headers:</p>
-<pre><code>Cross-Origin-Opener-Policy: same-origin
-Cross-Origin-Embedder-Policy: credentialless</code></pre>
-<p>On first load, the page may reload once to activate the service worker. To disable it (e.g., if your server already sends headers), pass <code>serviceWorker: false</code> in the init config.</p>
-
-<h3>Option 2: Server Headers</h3>
+<h3>Recommended: Server Headers</h3>
 <p>Configure your server to send these headers on all HTML responses:</p>
 <pre><code>Cross-Origin-Opener-Policy: same-origin
 Cross-Origin-Embedder-Policy: credentialless</code></pre>
+<p>No extra files, no reload. Pass <code>serviceWorker: false</code> in the init config to skip the fallback below.</p>
+
+<h3>Fallback: Service Worker</h3>
+<p>If you can&rsquo;t control your server&rsquo;s headers, WebChuGL ships a service worker that injects them on every response. You don&rsquo;t need to download it &mdash; create a file named <code>sw.js</code> containing a single line:</p>
+<pre><code class="language-js">importScripts('https://cdn.jsdelivr.net/npm/webchugl/dist/sw.js');</code></pre>
+<p>Self-hosting the runtime? Point it at your own copy instead, e.g. <code>importScripts('./webchugl/sw.js')</code>.</p>
+<p><strong><code>sw.js</code> must sit at the root of your site</strong>, next to <code>index.html</code>. A service worker can only control pages at or below its own directory, so one in a subfolder will not work. WebChuGL registers it automatically.</p>
+<p>On first load, the page may reload once to activate the service worker.</p>
 
 </div></div>
 </details>

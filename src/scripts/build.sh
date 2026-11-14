@@ -125,6 +125,8 @@ for f in index.js webchugl.wasm webchugl.js \
     [ -f "$BUILD_DIR/webchugl/$f" ] && cp "$BUILD_DIR/webchugl/$f" "$DIST_DIR/$f"
 done
 cp "$SRC_DIR/web/webchugl-esm.js" "$DIST_DIR/webchugl-esm.js"
+# sw.js on the CDN lets users write a one-line sw.js instead of downloading one
+cp "$SRC_DIR/web/lib/sw.js" "$DIST_DIR/sw.js"
 # Copy TypeScript declaration files for npm consumers
 [ -f "$SRC_DIR/web/webchugl-esm.d.ts" ] && cp "$SRC_DIR/web/webchugl-esm.d.ts" "$DIST_DIR/webchugl-esm.d.ts"
 if [ -f "$SRC_DIR/web/types/chuck.d.ts" ]; then

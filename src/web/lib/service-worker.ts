@@ -16,7 +16,15 @@ export function registerServiceWorker(swUrl: string): boolean {
     }
 
     navigator.serviceWorker.register(swUrl).catch((err: Error) => {
-        console.error('[WebChuGL] Service worker registration failed:', err);
+        // Missing/unreachable sw.js: stop the reload loop and say exactly how to fix it.
+        sessionStorage.setItem('webchugl-sw-reload', '99');
+        console.error(
+            '[WebChuGL] Could not register ' + swUrl + ': ' + err.message + '\n' +
+            'Audio needs cross-origin isolation. Create a file named sw.js next to your\n' +
+            'index.html containing this one line:\n\n' +
+            "    importScripts('https://cdn.jsdelivr.net/npm/webchugl/dist/sw.js');\n\n" +
+            'Or send COOP/COEP headers from your server and pass serviceWorker: false.'
+        );
     });
 
     if (!navigator.serviceWorker.controller) {
@@ -27,7 +35,11 @@ export function registerServiceWorker(swUrl: string): boolean {
             location.reload();
             return true;
         }
-        console.warn('[WebChuGL] crossOriginIsolated is still false after ' + count + ' reloads. Giving up.');
+        console.warn(
+            '[WebChuGL] crossOriginIsolated is still false after ' + count + ' reloads. Giving up.' +
+            '\nsw.js must sit at the site root, next to index.html -- a service worker only' +
+            '\ncontrols pages at or below its own directory.'
+        );
         sessionStorage.removeItem(key);
     }
 

@@ -146,6 +146,8 @@ foreach ($f in @("index.js", "webchugl.wasm", "webchugl.js",
     }
 }
 Copy-Item (Join-Path $SrcDir "web\webchugl-esm.js") (Join-Path $DistDir "webchugl-esm.js") -Force
+# sw.js on the CDN lets users write a one-line sw.js instead of downloading one
+Copy-Item (Join-Path $SrcDir "web\lib\sw.js") (Join-Path $DistDir "sw.js") -Force
 # Copy TypeScript declaration files for npm consumers
 $DtsPath = Join-Path $SrcDir "web\webchugl-esm.d.ts"
 if (Test-Path $DtsPath) {
