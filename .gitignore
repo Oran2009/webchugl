@@ -22,7 +22,7 @@ docs-model.json
 TODO
 
 # Tests
-site/examples/test/
+site/test/
 
 # CMake generated
 CMakeCache.txt

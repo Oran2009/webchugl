@@ -27,48 +27,6 @@
 .feature-card h4 { margin-top: 0; font-size: 1.1rem; }
 .feature-card .icon { font-size: 1.5rem; margin-bottom: 0.5rem; }
 
-/* ── Example Grid ────────────────────────────────────────────────────── */
-.example-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1rem;
-    padding: 1rem 0;
-}
-
-@media (max-width: 760px) {
-    .example-grid { grid-template-columns: repeat(2, 1fr); }
-}
-
-@media (max-width: 480px) {
-    .example-grid { grid-template-columns: 1fr; }
-}
-
-.example-card {
-    background: var(--bg-card);
-    border: 2px solid var(--border);
-    border-radius: var(--radius);
-    overflow: hidden;
-    transition: border-color 0.2s, transform 0.2s;
-}
-.example-card:hover { border-color: var(--accent); transform: translateY(-2px); }
-a.example-card { color: inherit; text-decoration: none; display: block; }
-a.example-card:hover { color: inherit; text-decoration: none; }
-a.example-card:visited { color: inherit; }
-.example-card .thumb {
-    width: 100%;
-    height: 120px;
-    object-fit: cover;
-    background: var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--fg-dim);
-    font-size: 2rem;
-}
-.example-card .body { padding: 1rem; }
-.example-card h5 { margin: 0 0 0.5rem; font-size: 1rem; }
-.example-card p { margin: 0 0 0.8rem; font-size: 0.9rem; color: var(--fg-dim); }
-
 /* ── API Reference Table ─────────────────────────────────────────────── */
 .api-table {
     width: 100%;
