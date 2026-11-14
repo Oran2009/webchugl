@@ -2,8 +2,6 @@
 // Exported as a module so TypeScript's declaration emitter includes
 // them in the published .d.ts files.
 
-// ── Audio configuration options ──────────────────────────────────────────
-
 /** Audio configuration options. */
 export interface AudioConfig {
     /** Audio sample rate in Hz. Defaults to `48000`. */
@@ -14,26 +12,49 @@ export interface AudioConfig {
     inputChannels?: number;
 }
 
-// ── ChuGin entry (URL string or pre-fetched buffer) ─────────────────────
-
 /** A ChuGin to load: either a URL string or a pre-fetched ArrayBuffer with a filename. */
 export type ChuginEntry = string | { name: string; buf: ArrayBuffer };
 
-// ── Internal config passed to _initWebChuGL ─────────────────────────────
-
-export interface WebChuGLInternalConfig {
+/**
+ * Configuration object passed to {@link ChuGL.init}.
+ */
+export interface ChuGLConfig {
+    /** **Required.** Canvas element for WebGPU rendering. */
     canvas: HTMLCanvasElement;
-    baseUrl: string;
-    chugins: ChuginEntry[];
-    serviceWorker: boolean;
-    serviceWorkerUrl?: string;
+    /**
+     * Base URL where WebChuGL runtime assets are hosted (`index.js`,
+     * `webchugl.wasm`, `audio-worklet-processor.js`, `jszip.min.js`).
+     * Must end with `/`. Defaults to the jsdelivr CDN.
+     */
+    whereIsChuGL?: string;
+    /**
+     * Array of ChuGins to load before the VM starts. Each entry is either
+     * a URL string (fetched automatically) or a `{ name, buf }` object
+     * with a pre-fetched ArrayBuffer. Loaded in parallel with WebGPU init.
+     */
+    chugins?: ChuginEntry[];
+    /**
+     * Register a service worker that injects COOP/COEP headers for
+     * cross-origin isolation. Set to `false` if your server already
+     * sends these headers. Defaults to `true`.
+     */
+    serviceWorker?: boolean;
+    /** Audio configuration. */
     audioConfig?: AudioConfig;
+    /** Progress callback, receives 0-100. */
     onProgress?: (pct: number) => void;
+    /** Error callback, receives a message string. */
     onError?: (msg: string) => void;
+    /** Called when WebGPU init completes and the canvas is ready for rendering. */
     onReady?: () => void;
 }
 
-// ── Shred info returned by getActiveShreds ──────────────────────────────
+/** {@link ChuGLConfig} after ChuGL.init() resolves baseUrl and applies defaults. */
+export interface WebChuGLInternalConfig extends ChuGLConfig {
+    baseUrl: string;
+    chugins: ChuginEntry[];
+    serviceWorker: boolean;
+}
 
 /** Information about an active shred in the ChucK VM. */
 export interface ShredInfo {

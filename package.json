@@ -25,6 +25,7 @@
     ],
     "scripts": {
         "dev": "node serve-dev.js",
+        "build": "node src/scripts/build.mjs",
         "docs": "typedoc && node docs-template/generate.cjs",
         "build:ts": "tsc"
     },

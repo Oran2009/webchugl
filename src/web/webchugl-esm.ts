@@ -5,6 +5,7 @@
 import type {
     ChucK,
     RunResult,
+    ChuGLConfig,
     ChuginEntry,
     AudioConfig,
     ShredInfo,
@@ -17,48 +18,6 @@ import type {
 //    via <script> before this module's init() runs) -------------------------
 
 declare function _initWebChuGL(config: WebChuGLInternalConfig): Promise<ChucK>;
-
-// ============================================================================
-// Public Interfaces
-// ============================================================================
-
-/**
- * Configuration object passed to {@link ChuGL.init}.
- */
-interface ChuGLConfig {
-    /** **Required.** Canvas element for WebGPU rendering. */
-    canvas: HTMLCanvasElement;
-    /**
-     * Base URL where WebChuGL runtime assets are hosted (`index.js`,
-     * `webchugl.wasm`, `audio-worklet-processor.js`, `jszip.min.js`).
-     * Must end with `/`. Defaults to the jsdelivr CDN.
-     */
-    whereIsChuGL?: string;
-    /**
-     * Array of ChuGins to load before the VM starts. Each entry is either
-     * a URL string (fetched automatically) or a `{ name, buf }` object
-     * with a pre-fetched ArrayBuffer. Loaded in parallel with WebGPU init.
-     */
-    chugins?: ChuginEntry[];
-    /**
-     * Register a service worker that injects COOP/COEP headers for
-     * cross-origin isolation. Set to `false` if your server already
-     * sends these headers. Defaults to `true`.
-     */
-    serviceWorker?: boolean;
-    /** Audio configuration. */
-    audioConfig?: AudioConfig;
-    /** Progress callback, receives 0-100. */
-    onProgress?: (pct: number) => void;
-    /** Error callback, receives a message string. */
-    onError?: (msg: string) => void;
-    /** Called when WebGPU init completes and the canvas is ready for rendering. */
-    onReady?: () => void;
-}
-
-// ============================================================================
-// ChuGL -- initialization
-// ============================================================================
 
 let _scriptsLoaded: Promise<void> | null = null;
 
@@ -155,14 +114,10 @@ const ChuGL = {
                 );
             }
             return _initWebChuGL({
-                canvas: config.canvas,
-                baseUrl: baseUrl,
+                ...config,
+                baseUrl,
                 chugins: config.chugins || [],
                 serviceWorker: config.serviceWorker !== false,
-                audioConfig: config.audioConfig,
-                onProgress: config.onProgress,
-                onError: config.onError,
-                onReady: config.onReady,
             });
         });
     },

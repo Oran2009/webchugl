@@ -89,16 +89,59 @@ class ChucK {
         else this.deferQueue.push(fn);
     }
 
-    private deferPromise<T>(fn: () => Promise<T>): Promise<T> {
+    private deferPromise<T>(fn: () => T | Promise<T>): Promise<T> {
         if (this.isReady) {
-            try { return fn(); }
+            try { return Promise.resolve(fn()); }
             catch (e) { return Promise.reject(e); }
         }
         return new Promise<T>((resolve, reject) => {
             this.deferQueue.push(() => {
-                try { fn().then(resolve, reject); }
+                try { Promise.resolve(fn()).then(resolve, reject); }
                 catch (e) { reject(e); }
             });
+        });
+    }
+
+    private writeVfs(path: string, data: string | ArrayBuffer | Uint8Array): void {
+        ensureVfsDir(this.module!.FS, path);
+        this.module!.FS.writeFile(path,
+            typeof data === 'string' ? data : new Uint8Array(data as ArrayBuffer));
+    }
+
+    // Returns the zip's entry names, each written to / and chugins loaded.
+    private unzipToVfs(url: string): Promise<string[]> {
+        const jszipReady = this.ensureJSZip();
+        return ChucK.fetchBuf(url)
+            .then((zipData) => jszipReady.then(() => JSZip.loadAsync(zipData)))
+            .then((zip) => {
+                const entries = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
+                return Promise.all(entries.map((name) =>
+                    zip.files[name].async('arraybuffer').then((content) => {
+                        this.defer(() => {
+                            this.writeVfs('/' + name, content);
+                            if (name.endsWith('.chug.wasm')) this.loadChuginFromVfs('/' + name);
+                        });
+                    })
+                )).then(() => entries);
+            });
+    }
+
+    private runVfsFile(path: string): Promise<RunResult> {
+        return this.deferPromise(() => {
+            const shredId = this.module!.ccall('ck_run_file', 'number', ['string'], [path]);
+            return new RunResult(shredId, () => this.getLastError());
+        });
+    }
+
+    private replaceVia(func: string, types: string[], args: unknown[]): Promise<ReplaceResult> {
+        return this.deferPromise(() => {
+            if (!this.module!.ccall(func, 'number', types, args)) {
+                return Promise.reject(new Error(func + ' failed'));
+            }
+            return {
+                oldShred: this.module!.ccall('ck_get_replace_old_shred', 'number', [], []),
+                newShred: this.module!.ccall('ck_get_replace_new_shred', 'number', [], []),
+            };
         });
     }
 
@@ -262,7 +305,7 @@ class ChucK {
         const onReady = config.onReady || (() => {});
 
         if (config.serviceWorker !== false) {
-            if (registerServiceWorker(config.serviceWorkerUrl || './sw.js')) {
+            if (registerServiceWorker('./sw.js')) {
                 return new Promise<ChucK>(() => {}); // page reloading
             }
         }
@@ -354,10 +397,7 @@ class ChucK {
 
             const chuginPromise: Promise<void[] | void> = urlsToFetch.length > 0
                 ? Promise.all(urlsToFetch.map((url) =>
-                    fetch(url).then((r) => {
-                        if (!r.ok) throw new Error('Failed to fetch chugin: ' + url);
-                        return r.arrayBuffer();
-                    }).then((buf) => {
+                    ChucK.fetchBuf(url).then((buf) => {
                         const chuginName = url.split('/').pop()!;
                         pendingChuginBuffers.push({ name: chuginName, buf });
                         console.log('[WebChuGL] Fetched chugin: ' + chuginName);
@@ -397,8 +437,7 @@ class ChucK {
 
                     for (const entry of pendingChuginBuffers) {
                         const vfsPath = '/chugins/' + entry.name;
-                        ensureVfsDir(instance.module!.FS, vfsPath);
-                        instance.module!.FS.writeFile(vfsPath, new Uint8Array(entry.buf));
+                        instance.writeVfs(vfsPath, entry.buf);
                         if (!instance.loadChuginFromVfs(vfsPath)) {
                             console.warn('[WebChuGL] Failed to load chugin: ' + vfsPath);
                         }
@@ -478,70 +517,34 @@ class ChucK {
     runCode(code: string): Promise<RunResult> {
         return this.deferPromise(() => {
             const shredId = this.module!.ccall('ck_run_code', 'number', ['string'], [code]);
-            return Promise.resolve(new RunResult(shredId, () => this.getLastError()));
+            return new RunResult(shredId, () => this.getLastError());
         });
     }
 
     runFile(pathOrUrl: string): Promise<RunResult> {
-        if (pathOrUrl[0] === '/') {
-            return this.deferPromise(() => {
-                const shredId = this.module!.ccall('ck_run_file', 'number', ['string'], [pathOrUrl]);
-                return Promise.resolve(new RunResult(shredId, () => this.getLastError()));
-            });
-        }
-        const parts = pathOrUrl.split('/');
-        const filename = parts[parts.length - 1];
-        const vfsCheck = '/' + filename;
+        if (pathOrUrl[0] === '/') return this.runVfsFile(pathOrUrl);
+        const vfsCheck = '/' + pathOrUrl.split('/').pop()!;
         try {
             this.module!.FS.stat(vfsCheck);
-            return this.deferPromise(() => {
-                const shredId = this.module!.ccall('ck_run_file', 'number', ['string'], [vfsCheck]);
-                return Promise.resolve(new RunResult(shredId, () => this.getLastError()));
-            });
+            return this.runVfsFile(vfsCheck);
         } catch {
-            return this.loadFile(pathOrUrl).then((vfsPath) =>
-                this.deferPromise(() => {
-                    const shredId = this.module!.ccall('ck_run_file', 'number', ['string'], [vfsPath]);
-                    return Promise.resolve(new RunResult(shredId, () => this.getLastError()));
-                })
-            );
+            return this.loadFile(pathOrUrl).then((vfsPath) => this.runVfsFile(vfsPath));
         }
     }
 
     runZip(url: string, mainFile?: string): Promise<number> {
-        let resolvedMainFile = mainFile;
-        if (resolvedMainFile && resolvedMainFile[0] !== '/') resolvedMainFile = '/' + resolvedMainFile;
-        const jszipReady = this.ensureJSZip();
-        return fetch(url)
-            .then((r) => {
-                if (!r.ok) throw new Error('Failed to fetch ' + url);
-                return r.arrayBuffer();
-            })
-            .then((zipData) => jszipReady.then(() => JSZip.loadAsync(zipData)))
-            .then((zip) => {
-                const entries = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
-                if (!resolvedMainFile) {
-                    if (entries.indexOf('main.ck') !== -1) {
-                        resolvedMainFile = '/main.ck';
-                    } else {
-                        const rootCk = entries.filter((n) => n.endsWith('.ck') && n.indexOf('/') === -1);
-                        resolvedMainFile = rootCk.length ? '/' + rootCk[0] : '/main.ck';
-                    }
-                }
-                return Promise.all(entries.map((name) =>
-                    zip.files[name].async('arraybuffer').then((content) => {
-                        const vfsPath = '/' + name;
-                        this.defer(() => {
-                            ensureVfsDir(this.module!.FS, vfsPath);
-                            this.module!.FS.writeFile(vfsPath, new Uint8Array(content));
-                            if (name.endsWith('.chug.wasm')) this.loadChuginFromVfs(vfsPath);
-                        });
-                    })
-                ));
-            })
-            .then(() => this.deferPromise(() =>
-                Promise.resolve(this.module!.ccall('ck_run_file', 'number', ['string'], [resolvedMainFile!]))
-            ));
+        let main = mainFile;
+        if (main && main[0] !== '/') main = '/' + main;
+        return this.unzipToVfs(url).then((entries) => {
+            if (!main) {
+                const rootCk = entries.filter((n) => n.endsWith('.ck') && n.indexOf('/') === -1);
+                main = entries.indexOf('main.ck') !== -1 ? '/main.ck'
+                     : rootCk.length ? '/' + rootCk[0] : '/main.ck';
+            }
+            return this.deferPromise(() =>
+                this.module!.ccall('ck_run_file', 'number', ['string'], [main!]) as number
+            );
+        });
     }
 
 
@@ -559,14 +562,7 @@ class ChucK {
             path = pathOrDir;
             data = filenameOrData;
         }
-        this.defer(() => {
-            ensureVfsDir(this.module!.FS, path);
-            if (typeof data === 'string') {
-                this.module!.FS.writeFile(path, data);
-            } else {
-                this.module!.FS.writeFile(path, new Uint8Array(data));
-            }
-        });
+        this.defer(() => this.writeVfs(path, data));
     }
 
     removeFile(path: string): boolean {
@@ -617,15 +613,11 @@ class ChucK {
         const bin = isBinaryFile(resolvedPath);
         const isChugin = resolvedPath.endsWith('.chug.wasm');
         const finalPath = resolvedPath;
-        return fetch(url)
-            .then((r): Promise<string | ArrayBuffer> => {
-                if (!r.ok) throw new Error('Failed to fetch ' + url);
-                return bin ? r.arrayBuffer() : r.text();
-            })
+        return ChucK.fetchOk(url)
+            .then((r): Promise<string | ArrayBuffer> => bin ? r.arrayBuffer() : r.text())
             .then((data) => {
                 this.defer(() => {
-                    ensureVfsDir(this.module!.FS, finalPath);
-                    this.module!.FS.writeFile(finalPath, bin ? new Uint8Array(data as ArrayBuffer) : data as string);
+                    this.writeVfs(finalPath, data);
                     if (isChugin) this.loadChuginFromVfs(finalPath);
                 });
                 return finalPath;
@@ -639,15 +631,11 @@ class ChucK {
             const vfsPath = '/' + file;
             const bin = isBinaryFile(file);
             const isChugin = file.endsWith('.chug.wasm');
-            return fetch(url)
-                .then((r): Promise<string | ArrayBuffer> => {
-                    if (!r.ok) throw new Error('Failed to fetch ' + url);
-                    return bin ? r.arrayBuffer() : r.text();
-                })
+            return ChucK.fetchOk(url)
+                .then((r): Promise<string | ArrayBuffer> => bin ? r.arrayBuffer() : r.text())
                 .then((data) => {
                     this.defer(() => {
-                        ensureVfsDir(this.module!.FS, vfsPath);
-                        this.module!.FS.writeFile(vfsPath, bin ? new Uint8Array(data as ArrayBuffer) : data as string);
+                        this.writeVfs(vfsPath, data);
                         if (isChugin) this.loadChuginFromVfs(vfsPath);
                     });
                     return vfsPath;
@@ -656,26 +644,7 @@ class ChucK {
     }
 
     loadZip(url: string): Promise<void> {
-        const jszipReady = this.ensureJSZip();
-        return fetch(url)
-            .then((r) => {
-                if (!r.ok) throw new Error('Failed to fetch ' + url);
-                return r.arrayBuffer();
-            })
-            .then((zipData) => jszipReady.then(() => JSZip.loadAsync(zipData)))
-            .then((zip) => {
-                const entries = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
-                return Promise.all(entries.map((name) =>
-                    zip.files[name].async('arraybuffer').then((content) => {
-                        const vfsPath = '/' + name;
-                        this.defer(() => {
-                            ensureVfsDir(this.module!.FS, vfsPath);
-                            this.module!.FS.writeFile(vfsPath, new Uint8Array(content));
-                            if (name.endsWith('.chug.wasm')) this.loadChuginFromVfs(vfsPath);
-                        });
-                    })
-                ));
-            })
+        return this.unzipToVfs(url)
             .then(() => { console.log('[WebChuGL] Zip extracted: ' + url); });
     }
 
@@ -809,20 +778,14 @@ class ChucK {
         const finalPath = resolvedPath;
         return fetch(url, { mode: 'cors' })
             .catch(() => { throw new Error('Failed to fetch (CORS blocked or network error): ' + url); })
-            .then((r) => {
-                if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + url);
-                return r.arrayBuffer();
-            })
+            .then((r) => r.arrayBuffer())
             .then((arrayBuffer) => {
                 const ctx: BaseAudioContext = this._audioCtx || new OfflineAudioContext(1, 1, this._sampleRate);
                 return ctx.decodeAudioData(arrayBuffer);
             })
             .then((audioBuffer) => {
                 const wavData = audioBufferToWav(audioBuffer);
-                this.defer(() => {
-                    ensureVfsDir(this.module!.FS, finalPath);
-                    this.module!.FS.writeFile(finalPath, new Uint8Array(wavData));
-                });
+                this.defer(() => this.writeVfs(finalPath, wavData));
                 console.log('[WebChuGL] Audio loaded: ' + finalPath +
                     ' (' + audioBuffer.duration.toFixed(2) + 's, ' +
                     audioBuffer.numberOfChannels + 'ch)');
@@ -843,10 +806,7 @@ class ChucK {
                 return res.arrayBuffer();
             })
             .then(buf => {
-                this.defer(() => {
-                    ensureVfsDir(this.module!.FS, finalPath);
-                    this.module!.FS.writeFile(finalPath, new Uint8Array(buf));
-                });
+                this.defer(() => this.writeVfs(finalPath, buf));
                 console.log('[WebChuGL] Video loaded: ' + finalPath);
                 return finalPath;
             });
@@ -857,13 +817,9 @@ class ChucK {
         const name = url.split('/').pop()!;
         const shortName = name.replace('.chug.wasm', '');
         if (this.loadedChuginSet[shortName]) return Promise.resolve(shortName);
-        return fetch(url).then((r) => {
-            if (!r.ok) throw new Error('Failed to fetch chugin: ' + url);
-            return r.arrayBuffer();
-        }).then((buf) => this.deferPromise(() => {
+        return ChucK.fetchBuf(url).then((buf) => this.deferPromise(() => {
             const vfsPath = '/chugins/' + name;
-            ensureVfsDir(this.module!.FS, vfsPath);
-            this.module!.FS.writeFile(vfsPath, new Uint8Array(buf));
+            this.writeVfs(vfsPath, buf);
             const loaded = this.loadChuginFromVfs(vfsPath);
             if (!loaded) return Promise.reject(new Error('Failed to load chugin: ' + name));
             return Promise.resolve(loaded);
@@ -882,41 +838,23 @@ class ChucK {
 
 
     replaceCode(code: string): Promise<ReplaceResult> {
-        return this.deferPromise(() => {
-            const ok = this.module!.ccall('ck_replace_code', 'number', ['string'], [code]);
-            if (!ok) return Promise.reject(new Error('replaceCode failed'));
-            const oldShred: number = this.module!.ccall('ck_get_replace_old_shred', 'number', [], []);
-            const newShred: number = this.module!.ccall('ck_get_replace_new_shred', 'number', [], []);
-            return Promise.resolve({ oldShred, newShred });
-        });
+        return this.replaceVia('ck_replace_code', ['string'], [code]);
     }
 
     replaceFile(filename: string): Promise<ReplaceResult> {
-        return this.deferPromise(() => {
-            const ok = this.module!.ccall('ck_replace_file', 'number', ['string'], [filename]);
-            if (!ok) return Promise.reject(new Error('replaceFile failed'));
-            const oldShred: number = this.module!.ccall('ck_get_replace_old_shred', 'number', [], []);
-            const newShred: number = this.module!.ccall('ck_get_replace_new_shred', 'number', [], []);
-            return Promise.resolve({ oldShred, newShred });
-        });
+        return this.replaceVia('ck_replace_file', ['string'], [filename]);
     }
 
     replaceFileWithArgs(filename: string, colonSeparatedArgs: string): Promise<ReplaceResult> {
-        return this.deferPromise(() => {
-            const ok = this.module!.ccall('ck_replace_file_with_args', 'number',
-                ['string', 'string'], [filename, colonSeparatedArgs]);
-            if (!ok) return Promise.reject(new Error('replaceFileWithArgs failed'));
-            const oldShred: number = this.module!.ccall('ck_get_replace_old_shred', 'number', [], []);
-            const newShred: number = this.module!.ccall('ck_get_replace_new_shred', 'number', [], []);
-            return Promise.resolve({ oldShred, newShred });
-        });
+        return this.replaceVia('ck_replace_file_with_args', ['string', 'string'],
+            [filename, colonSeparatedArgs]);
     }
 
     removeLastCode(): Promise<number> {
         return this.deferPromise(() => {
             const shredID: number = this.module!.ccall('ck_remove_last_code', 'number', [], []);
             if (!shredID) return Promise.reject(new Error('removeLastCode failed'));
-            return Promise.resolve(shredID);
+            return shredID;
         });
     }
 
@@ -924,13 +862,13 @@ class ChucK {
         return this.deferPromise(() => {
             const removed: number = this.module!.ccall('ck_remove_shred', 'number', ['number'], [shredID]);
             if (!removed) return Promise.reject(new Error('removeShred failed'));
-            return Promise.resolve(removed);
+            return removed;
         });
     }
 
     isShredActive(shredID: number): Promise<number> {
         return this.deferPromise(() =>
-            Promise.resolve(this.module!.ccall('ck_is_shred_active', 'number', ['number'], [shredID]))
+            this.module!.ccall('ck_is_shred_active', 'number', ['number'], [shredID])
         );
     }
 
@@ -938,12 +876,12 @@ class ChucK {
         return this.deferPromise(() => {
             const shredId = this.module!.ccall('ck_run_file_with_args', 'number',
                 ['string', 'string'], [filename, colonSeparatedArgs]);
-            return Promise.resolve(new RunResult(shredId, () => this.getLastError()));
+            return new RunResult(shredId, () => this.getLastError());
         });
     }
 
     now(): Promise<number> {
-        return this.deferPromise(() => Promise.resolve(this.getCurrentTime()));
+        return this.deferPromise(() => this.getCurrentTime());
     }
 
 
@@ -1081,6 +1019,10 @@ class ChucK {
         return ChucK._manifestCache;
     }
 
+    private static fetchBuf(url: string): Promise<ArrayBuffer> {
+        return ChucK.fetchOk(url).then((r) => r.arrayBuffer());
+    }
+
     private static fetchOk(url: string): Promise<Response> {
         return fetch(url).then((r) => {
             if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + url);
@@ -1110,7 +1052,7 @@ class ChucK {
 
         const zipPromise: Promise<{ zipData: ArrayBuffer; resolvedVersion: string }> =
             url
-                ? ChucK.fetchOk(url).then((r) => r.arrayBuffer())
+                ? ChucK.fetchBuf(url)
                     .then((zipData) => ({ zipData, resolvedVersion: version || 'custom' }))
                 : ChucK.fetchManifest().then((manifest) => {
                     const pkg = manifest.packages.find(
@@ -1141,8 +1083,7 @@ class ChucK {
                         throw new Error('No download URL for ' + name + '@' + entry.version);
                     }
 
-                    return ChucK.fetchOk(entry.files[0].url)
-                        .then((r) => r.arrayBuffer())
+                    return ChucK.fetchBuf(entry.files[0].url)
                         .then((zipData) => ({ zipData, resolvedVersion: entry.version }));
                 });
 
@@ -1167,8 +1108,7 @@ class ChucK {
                 return zip.files[entryName].async('arraybuffer').then((content) => {
                     this.defer(() => {
                         const vfsPath = '/packages/' + name + '/' + entryName;
-                        ensureVfsDir(this.module!.FS, vfsPath);
-                        this.module!.FS.writeFile(vfsPath, new Uint8Array(content));
+                        this.writeVfs(vfsPath, content);
                     });
                 });
             })).then(() => resolvedVersion);

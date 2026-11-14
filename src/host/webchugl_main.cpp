@@ -381,6 +381,20 @@ int main(int argc, char** argv)
 }
 
 // Tracks canvas.parentElement instead of the browser window.
+// clientWidth/Height is the PADDING box; sizing from it overflows the parent
+// by the padding. display:none has no used value, so fall back to 0 there.
+EM_JS(void, _chugl_install_js, (), {
+    globalThis._chuglContentBox = function(el) {
+        var cs = getComputedStyle(el);
+        var w = parseFloat(cs.width), h = parseFloat(cs.height);
+        if (!isFinite(w) || !isFinite(h) ||
+            cs.width.indexOf('px') < 0 || cs.height.indexOf('px') < 0) {
+            return { width: el.clientWidth, height: el.clientHeight };
+        }
+        return { width: Math.floor(w), height: Math.floor(h) };
+    };
+});
+
 EM_JS(void, _chugl_setup_parent_resize, (), {
     var canvas = Module['canvas'];
     if (!canvas) return;
@@ -401,17 +415,7 @@ EM_JS(void, _chugl_setup_parent_resize, (), {
     canvas.style.height = '100%';
     canvas.style.display = 'block';
 
-    // clientWidth/Height is the PADDING box; sizing from it overflows the parent
-    // by the padding. display:none has no used value, so fall back to 0 there.
-    function contentBoxSize(el) {
-        var cs = getComputedStyle(el);
-        var w = parseFloat(cs.width), h = parseFloat(cs.height);
-        if (!isFinite(w) || !isFinite(h) ||
-            cs.width.indexOf('px') < 0 || cs.height.indexOf('px') < 0) {
-            return { width: el.clientWidth, height: el.clientHeight };
-        }
-        return { width: Math.floor(w), height: Math.floor(h) };
-    }
+    var contentBoxSize = globalThis._chuglContentBox;
 
     ctx.fCanvasResize.computeSize = function() {
         var p = canvas.parentElement;
@@ -447,12 +451,13 @@ EM_JS(void, _chugl_setup_parent_resize, (), {
 extern "C" EMSCRIPTEN_KEEPALIVE
 void chugl_setup_parent_resize()
 {
+    _chugl_install_js();
     _chugl_setup_parent_resize();
 }
 
 // Called from app.cpp's SG_COMMAND_WINDOW_SIZE_LIMITS handler. Centers via an
 // owned wrapper <div> so host CSS on the parent (e.g. .hidden) is never touched.
-EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
+EM_JS(void, _chugl_setup_letterbox_js, (double ar_x, double ar_y), {
     var canvas = Module['canvas'];
     if (!canvas) return;
     var hasAspect = (ar_x > 0 && ar_y > 0);
@@ -486,16 +491,7 @@ EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
     if (glfwWindow != null && typeof GLFW3 !== 'undefined') {
         var ctx = GLFW3.fWindowContexts[glfwWindow];
         if (ctx && ctx.fCanvasResize) {
-            // Content box, not padding box — see _chugl_setup_parent_resize.
-            var contentBoxSize = function(el) {
-                var cs = getComputedStyle(el);
-                var w = parseFloat(cs.width), h = parseFloat(cs.height);
-                if (!isFinite(w) || !isFinite(h) ||
-                    cs.width.indexOf('px') < 0 || cs.height.indexOf('px') < 0) {
-                    return { width: el.clientWidth, height: el.clientHeight };
-                }
-                return { width: Math.floor(w), height: Math.floor(h) };
-            };
+            var contentBoxSize = globalThis._chuglContentBox;
             if (hasAspect) {
                 var ar = ar_x / ar_y;
                 ctx.fCanvasResize.computeSize = function() {
@@ -524,6 +520,13 @@ EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
         }
     }
 });
+
+extern "C" void _chugl_setup_letterbox(double ar_x, double ar_y)
+{
+    _chugl_install_js();
+    _chugl_setup_letterbox_js(ar_x, ar_y);
+}
+
 
 EM_JS(void, _ck_resolve_int, (int id, int val), {
     var cb = Module._ckCallbacks[id];
@@ -610,176 +613,80 @@ static void appendJsonEscaped(std::string& out, const std::string& s) {
 
 extern "C" {
 
-EMSCRIPTEN_KEEPALIVE
-int ck_set_int(const char* name, int val)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->setGlobalInt(name, (t_CKINT)val);
-}
+// Each forwards to Chuck_Globals_Manager and returns 0 when no VM is up.
+#define CK_GLOBAL(fn, params, call)                                                    \
+    EMSCRIPTEN_KEEPALIVE                                                               \
+    int fn params                                                                      \
+    {                                                                                  \
+        if (!the_chuck) return 0;                                                      \
+        return the_chuck->vm()->globals_manager()->call;                               \
+    }
 
-EMSCRIPTEN_KEEPALIVE
-int ck_set_float(const char* name, double val)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->setGlobalFloat(name, (t_CKFLOAT)val);
-}
+CK_GLOBAL(ck_set_int, (const char* name, int val),
+          setGlobalInt(name, (t_CKINT)val))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_set_string(const char* name, const char* val)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->setGlobalString(name, val);
-}
+CK_GLOBAL(ck_set_float, (const char* name, double val),
+          setGlobalFloat(name, (t_CKFLOAT)val))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_get_int(const char* name, int callback_id)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->getGlobalInt(
-        name, (t_CKINT)callback_id, _cb_get_int);
-}
+CK_GLOBAL(ck_set_string, (const char* name, const char* val),
+          setGlobalString(name, val))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_get_float(const char* name, int callback_id)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->getGlobalFloat(
-        name, (t_CKINT)callback_id, _cb_get_float);
-}
+CK_GLOBAL(ck_get_int, (const char* name, int callback_id),
+          getGlobalInt(name, (t_CKINT)callback_id, _cb_get_int))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_get_string(const char* name, int callback_id)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->getGlobalString(
-        name, (t_CKINT)callback_id, _cb_get_string);
-}
+CK_GLOBAL(ck_get_float, (const char* name, int callback_id),
+          getGlobalFloat(name, (t_CKINT)callback_id, _cb_get_float))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_signal_event(const char* name)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->signalGlobalEvent(name);
-}
+CK_GLOBAL(ck_get_string, (const char* name, int callback_id),
+          getGlobalString(name, (t_CKINT)callback_id, _cb_get_string))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_broadcast_event(const char* name)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->broadcastGlobalEvent(name);
-}
+CK_GLOBAL(ck_signal_event, (const char* name),
+          signalGlobalEvent(name))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_listen_event(const char* name, int callback_id, int listen_forever)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->listenForGlobalEvent(
-        name, (t_CKINT)callback_id, _cb_event, (t_CKBOOL)listen_forever);
-}
+CK_GLOBAL(ck_broadcast_event, (const char* name),
+          broadcastGlobalEvent(name))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_stop_listening_event(const char* name, int callback_id)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->stopListeningForGlobalEvent(
-        name, (t_CKINT)callback_id, _cb_event);
-}
+CK_GLOBAL(ck_listen_event, (const char* name, int callback_id, int listen_forever),
+          listenForGlobalEvent(name, (t_CKINT)callback_id, _cb_event, (t_CKBOOL)listen_forever))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_set_int_array(const char* name, int* values, unsigned int len)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->setGlobalIntArray(
-        name, (t_CKINT*)values, (t_CKUINT)len);
-}
+CK_GLOBAL(ck_stop_listening_event, (const char* name, int callback_id),
+          stopListeningForGlobalEvent(name, (t_CKINT)callback_id, _cb_event))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_get_int_array(const char* name, int callback_id)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->getGlobalIntArray(
-        name, (t_CKINT)callback_id, _cb_get_int_array);
-}
+CK_GLOBAL(ck_set_int_array, (const char* name, int* values, unsigned int len),
+          setGlobalIntArray(name, (t_CKINT*)values, (t_CKUINT)len))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_set_int_array_value(const char* name, unsigned int index, int value)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->setGlobalIntArrayValue(
-        name, (t_CKUINT)index, (t_CKINT)value);
-}
+CK_GLOBAL(ck_get_int_array, (const char* name, int callback_id),
+          getGlobalIntArray(name, (t_CKINT)callback_id, _cb_get_int_array))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_get_int_array_value(const char* name, unsigned int index, int callback_id)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->getGlobalIntArrayValue(
-        name, (t_CKINT)callback_id, (t_CKUINT)index, _cb_get_int);
-}
+CK_GLOBAL(ck_set_int_array_value, (const char* name, unsigned int index, int value),
+          setGlobalIntArrayValue(name, (t_CKUINT)index, (t_CKINT)value))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_set_assoc_int_array_value(const char* name, const char* key, int value)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->setGlobalAssociativeIntArrayValue(
-        name, key, (t_CKINT)value);
-}
+CK_GLOBAL(ck_get_int_array_value, (const char* name, unsigned int index, int callback_id),
+          getGlobalIntArrayValue(name, (t_CKINT)callback_id, (t_CKUINT)index, _cb_get_int))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_get_assoc_int_array_value(const char* name, const char* key, int callback_id)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->getGlobalAssociativeIntArrayValue(
-        name, (t_CKINT)callback_id, key, _cb_get_int);
-}
+CK_GLOBAL(ck_set_assoc_int_array_value, (const char* name, const char* key, int value),
+          setGlobalAssociativeIntArrayValue(name, key, (t_CKINT)value))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_set_float_array(const char* name, double* values, unsigned int len)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->setGlobalFloatArray(
-        name, (t_CKFLOAT*)values, (t_CKUINT)len);
-}
+CK_GLOBAL(ck_get_assoc_int_array_value, (const char* name, const char* key, int callback_id),
+          getGlobalAssociativeIntArrayValue(name, (t_CKINT)callback_id, key, _cb_get_int))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_get_float_array(const char* name, int callback_id)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->getGlobalFloatArray(
-        name, (t_CKINT)callback_id, _cb_get_float_array);
-}
+CK_GLOBAL(ck_set_float_array, (const char* name, double* values, unsigned int len),
+          setGlobalFloatArray(name, (t_CKFLOAT*)values, (t_CKUINT)len))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_set_float_array_value(const char* name, unsigned int index, double value)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->setGlobalFloatArrayValue(
-        name, (t_CKUINT)index, (t_CKFLOAT)value);
-}
+CK_GLOBAL(ck_get_float_array, (const char* name, int callback_id),
+          getGlobalFloatArray(name, (t_CKINT)callback_id, _cb_get_float_array))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_get_float_array_value(const char* name, unsigned int index, int callback_id)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->getGlobalFloatArrayValue(
-        name, (t_CKINT)callback_id, (t_CKUINT)index, _cb_get_float);
-}
+CK_GLOBAL(ck_set_float_array_value, (const char* name, unsigned int index, double value),
+          setGlobalFloatArrayValue(name, (t_CKUINT)index, (t_CKFLOAT)value))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_set_assoc_float_array_value(const char* name, const char* key, double value)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->setGlobalAssociativeFloatArrayValue(
-        name, key, (t_CKFLOAT)value);
-}
+CK_GLOBAL(ck_get_float_array_value, (const char* name, unsigned int index, int callback_id),
+          getGlobalFloatArrayValue(name, (t_CKINT)callback_id, (t_CKUINT)index, _cb_get_float))
 
-EMSCRIPTEN_KEEPALIVE
-int ck_get_assoc_float_array_value(const char* name, const char* key, int callback_id)
-{
-    if (!the_chuck) return 0;
-    return the_chuck->vm()->globals_manager()->getGlobalAssociativeFloatArrayValue(
-        name, (t_CKINT)callback_id, key, _cb_get_float);
-}
+CK_GLOBAL(ck_set_assoc_float_array_value, (const char* name, const char* key, double value),
+          setGlobalAssociativeFloatArrayValue(name, key, (t_CKFLOAT)value))
+
+CK_GLOBAL(ck_get_assoc_float_array_value, (const char* name, const char* key, int callback_id),
+          getGlobalAssociativeFloatArrayValue(name, (t_CKINT)callback_id, key, _cb_get_float))
 
 EMSCRIPTEN_KEEPALIVE
 int ck_run_code(const char* code)
