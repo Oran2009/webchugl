@@ -96,10 +96,9 @@ var ck = await ChuGL.init({
 <h4>Setup &amp; Build</h4>
 <pre><code class="language-bash">git clone https://github.com/Oran2009/webchugl.git
 cd webchugl
-./setup.sh          # Linux/macOS (or ./setup.ps1 on Windows)
+./scripts/setup.sh  # Linux/macOS (or ./scripts/setup.ps1 on Windows)
 
-cd src/scripts
-node build.mjs      # compiles C++/WASM</code></pre>
+node scripts/build.mjs   # compiles C++/WASM</code></pre>
 <p>Output goes to <code>src/build/</code>. The <code>webchugl/</code> subdirectory contains the runtime assets.</p>
 
 </div></div>

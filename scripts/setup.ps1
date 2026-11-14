@@ -1,10 +1,10 @@
 # WebChuGL Setup Script
 # Clones dependencies, installs Emscripten SDK, and applies patches
 #
-# Usage: ./setup.ps1
+# Usage: ./scripts/setup.ps1
 
 $ErrorActionPreference = "Stop"
-$ProjectRoot = $PSScriptRoot
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
 
 # Dependency versions
 $CHUGL_REPO = "https://github.com/Oran2009/chugl.git"
@@ -160,6 +160,5 @@ Write-Host ""
 Write-Host "=== Setup Complete ===" -ForegroundColor Green
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
-Write-Host "  cd src/scripts" -ForegroundColor Gray
-Write-Host "  ./build.ps1       # or ./build.sh on Unix" -ForegroundColor Gray
+Write-Host "  node scripts/build.mjs" -ForegroundColor Gray
 Write-Host ""

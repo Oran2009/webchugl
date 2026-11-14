@@ -1,5 +1,5 @@
 // Build WebChuGL (WASM compilation)
-// Usage: node src/scripts/build.mjs [--clean] [-j N]
+// Usage: node scripts/build.mjs [--clean] [-j N]
 //
 // CMake builds in src/.cmake-build/ (outside build/) so that build/
 // contains only web-deployable files.
@@ -9,8 +9,8 @@ import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, rmSyn
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SRC = dirname(dirname(fileURLToPath(import.meta.url)));
-const ROOT = dirname(SRC);
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const SRC = join(ROOT, 'src');
 const BUILD = join(SRC, 'build');
 const CMAKE_BUILD = join(SRC, '.cmake-build');
 const WEB_OUT = join(BUILD, 'webchugl');

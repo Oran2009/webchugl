@@ -2,11 +2,11 @@
 # WebChuGL Setup Script
 # Clones dependencies, installs Emscripten SDK, and applies patches
 #
-# Usage: ./setup.sh
+# Usage: ./scripts/setup.sh
 
 set -e
 
-PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Dependency versions
 CHUGL_REPO="https://github.com/Oran2009/chugl.git"
@@ -149,6 +149,5 @@ echo ""
 echo "=== Setup Complete ==="
 echo ""
 echo "Next steps:"
-echo "  cd src/scripts"
-echo "  ./build.sh        # or ./build.ps1 on Windows"
+echo "  node scripts/build.mjs"
 echo ""

@@ -1,6 +1,6 @@
 // Build all web-compatible ChuGins as .chug.wasm SIDE_MODULEs for WebChuGL
 //
-// Usage: node src/scripts/build_web_chugins.mjs /path/to/chugins
+// Usage: node scripts/build_web_chugins.mjs /path/to/chugins
 // Emsdk is auto-detected from the project directory, else emcc must be on PATH.
 
 import { spawnSync } from 'node:child_process';
@@ -8,8 +8,7 @@ import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SRC = dirname(dirname(fileURLToPath(import.meta.url)));
-const ROOT = dirname(SRC);
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const WIN = process.platform === 'win32';
 
 const CHUGINS = {
@@ -54,7 +53,7 @@ const CHUGINS = {
 const FLAGS = ['-O3', '-sSIDE_MODULE=1', '-pthread', '-sDISABLE_EXCEPTION_CATCHING=0', '-fPIC'];
 
 const chuginsDir = process.argv[2];
-if (!chuginsDir) fail('Usage: node build_web_chugins.mjs /path/to/chugins');
+if (!chuginsDir) fail('Usage: node scripts/build_web_chugins.mjs /path/to/chugins');
 if (!existsSync(join(chuginsDir, 'chuck/include/chugin.h'))) {
     fail('chugin.h not found under ' + chuginsDir + '. Point at the chugins repo root.');
 }

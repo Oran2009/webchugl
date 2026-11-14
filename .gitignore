@@ -56,7 +56,7 @@ Thumbs.db
 __pycache__/
 node_modules/
 
-src/scripts/deploy-website.*
+scripts/deploy-website.*
 
 # Dependencies (cloned by setup script, patches stored in patches/)
 chuck/

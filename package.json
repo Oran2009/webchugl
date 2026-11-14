@@ -24,8 +24,8 @@
         "Audio"
     ],
     "scripts": {
-        "dev": "node serve-dev.js",
-        "build": "node src/scripts/build.mjs",
+        "dev": "node scripts/serve-dev.js",
+        "build": "node scripts/build.mjs",
         "docs": "typedoc && node docs-template/generate.cjs",
         "build:ts": "tsc"
     },

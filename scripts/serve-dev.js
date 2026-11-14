@@ -12,7 +12,7 @@ import { join, extname } from 'path';
 import { fileURLToPath } from 'url';
 
 const PORT = parseInt(process.argv[2] || '8080', 10);
-const ROOT = fileURLToPath(new URL('.', import.meta.url));
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 const MIME = {
     '.html': 'text/html',
