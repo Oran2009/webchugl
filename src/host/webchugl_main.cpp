@@ -230,7 +230,6 @@ public class Gyro extends Event {
 )CK";
 
 // Audio defaults — overridden by Module._audioConfig (set from URL params / JS API).
-// These are the single source of truth, passed to JS at init time.
 static int g_sampleRate = 48000;
 static int g_numOutputChannels = 2;
 static int g_numInputChannels = 2;
