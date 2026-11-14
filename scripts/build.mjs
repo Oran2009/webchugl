@@ -72,7 +72,7 @@ console.log('=== Building WebChuGL ===');
 console.log('Compiling TypeScript...');
 npx('typescript/bin/tsc', []);
 npx('typescript/bin/tsc', ['-p', 'tsconfig.esm-declarations.json']);
-npx('esbuild/bin/esbuild', ['src/runtime/webchugl.ts', '--bundle', '--format=iife',
+npx('esbuild/bin/esbuild', ['src/runtime/webchugl.ts', '--bundle', '--format=esm',
     '--outfile=src/runtime/webchugl.js', '--sourcemap']);
 
 if (clean) {

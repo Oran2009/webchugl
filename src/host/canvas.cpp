@@ -18,7 +18,7 @@ EM_JS(void, _chugl_install_js, (), {
     };
 });
 
-EM_JS(void, _chugl_setup_parent_resize, (), {
+EM_JS(void, _chugl_setup_parent_resize_js, (), {
     var canvas = Module['canvas'];
     if (!canvas) return;
     var parent = canvas.parentElement;
@@ -75,7 +75,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE
 void chugl_setup_parent_resize()
 {
     _chugl_install_js();
-    _chugl_setup_parent_resize();
+    _chugl_setup_parent_resize_js();
 }
 
 // Called from app.cpp's SG_COMMAND_WINDOW_SIZE_LIMITS handler. Centers via an

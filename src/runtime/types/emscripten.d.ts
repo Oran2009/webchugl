@@ -191,7 +191,7 @@ interface EmscriptenModule {
 }
 
 // ---------------------------------------------------------------------------
-// createWebChuGL — the Emscripten MODULARIZE factory function
+// The Emscripten MODULARIZE factory, default-exported by index.js
 // ---------------------------------------------------------------------------
 
 /**
@@ -203,6 +203,6 @@ interface EmscriptenModule {
  * @param config - Partial module configuration (hooks, canvas, custom properties).
  * @returns A promise that resolves to the initialized Emscripten Module.
  */
-declare function createWebChuGL(
+declare type CreateWebChuGL = (
     config: Partial<EmscriptenModule>,
-): Promise<EmscriptenModule>;
+) => Promise<EmscriptenModule>;

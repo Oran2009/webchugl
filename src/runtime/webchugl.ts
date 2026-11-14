@@ -1,4 +1,4 @@
-// Bundled by esbuild into a single IIFE exposing the _initWebChuGL global.
+// Bundled by esbuild into an ES module; webchugl-esm.ts imports initWebChuGL.
 
 import type { ShredInfo, ReplaceResult, GlobalVariableInfo, WebChuGLInternalConfig, ChuginEntry } from './types/chuck.js';
 import { ensureVfsDir, isBinaryFile } from './lib/vfs';
@@ -387,7 +387,11 @@ class ChucK {
             }],
         };
 
-        return createWebChuGL(moduleConfig).then((mod) => {
+        // Imported at runtime, not statically: the glue sits next to the wasm at
+        // baseUrl, which is only known once init() is called.
+        return import(/* @vite-ignore */ baseUrl + 'index.js')
+            .then((glue: { default: CreateWebChuGL }) => glue.default(moduleConfig))
+            .then((mod) => {
             instance.module = mod;
 
             if (!navigator.gpu) {
@@ -1127,5 +1131,4 @@ class ChucK {
     }
 }
 
-// webchugl-esm.ts loads this via <script> and picks up the global.
-(globalThis as any)._initWebChuGL = ChucK._create;
+export const initWebChuGL = ChucK._create;

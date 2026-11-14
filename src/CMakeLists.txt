@@ -187,6 +187,7 @@ target_link_options(webchugl PRIVATE
     -sEXPORTED_FUNCTIONS=['_main','_malloc','_free']
     -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','addFunction','wasmTable','wasmMemory','callMain','FS']
     -sMODULARIZE=1
+    -sEXPORT_ES6=1
     -sEXPORT_NAME=createWebChuGL
     -sENVIRONMENT=web,worker
     $<IF:$<CONFIG:Debug>,-O0 -g,-O3>

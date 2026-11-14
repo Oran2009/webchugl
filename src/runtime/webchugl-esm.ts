@@ -14,24 +14,11 @@ import type {
     WebChuGLInternalConfig,
 } from './types/chuck.js';
 
-// -- Ambient declaration for _initWebChuGL (defined in webchugl.ts, loaded
-//    via <script> before this module's init() runs) -------------------------
+type RuntimeModule = {
+    initWebChuGL: (config: WebChuGLInternalConfig) => Promise<ChucK>;
+};
 
-declare function _initWebChuGL(config: WebChuGLInternalConfig): Promise<ChucK>;
-
-let _scriptsLoaded: Promise<void> | null = null;
-
-function _loadScript(url: string): Promise<void> {
-    return new Promise(function (resolve, reject) {
-        const s = document.createElement('script');
-        s.src = url;
-        s.onload = () => resolve();
-        s.onerror = function () {
-            reject(new Error('Failed to load: ' + url));
-        };
-        document.head.appendChild(s);
-    });
-}
+let _runtime: Promise<RuntimeModule> | null = null;
 
 /**
  * The ChuGL entry point. Call {@link ChuGL.init} to create a
@@ -95,25 +82,17 @@ const ChuGL = {
             );
         }
 
-        // Load scripts once (shared across all instances)
-        if (!_scriptsLoaded) {
-            _scriptsLoaded = _loadScript(baseUrl + 'index.js')
-                .then(function () {
-                    return _loadScript(baseUrl + 'webchugl.js');
-                })
+        // Loaded once and shared across instances.
+        if (!_runtime) {
+            _runtime = import(/* @vite-ignore */ baseUrl + 'webchugl.js')
                 .catch(function (e: Error) {
-                    _scriptsLoaded = null;
+                    _runtime = null;
                     throw e;
-                });
+                }) as Promise<RuntimeModule>;
         }
 
-        return _scriptsLoaded.then(function () {
-            if (typeof _initWebChuGL !== 'function') {
-                throw new Error(
-                    'webchugl.js did not define _initWebChuGL',
-                );
-            }
-            return _initWebChuGL({
+        return _runtime.then(function (runtime) {
+            return runtime.initWebChuGL({
                 ...config,
                 baseUrl,
                 chugins: config.chugins || [],
