@@ -12,7 +12,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "esModuleInterop": true,
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "typeRoots": ["src/runtime/types", "node_modules/@webgpu"]
   },
   "include": ["src/runtime/webchugl-esm.ts", "src/runtime/webchugl.ts", "src/runtime/lib/**/*.ts", "src/runtime/types/**/*.d.ts"],
