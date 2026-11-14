@@ -3,7 +3,7 @@
 // Examples stay unchanged — they import from the jsdelivr CDN URL,
 // and this server intercepts those requests and serves local files.
 //
-// Usage: node serve-dev.js [port]
+// Usage: node scripts/serve-dev.mjs [port]
 // Then open: http://localhost:8080/site/examples/drum-machine/
 
 import { createServer } from 'http';
