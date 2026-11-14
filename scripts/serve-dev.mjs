@@ -137,7 +137,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-    console.log(`WebChuGL dev server: http://localhost:${PORT}`);
+    console.log(`WebChuGL dev server: http://localhost:${PORT}/site/`);
     console.log(`Examples:            http://localhost:${PORT}/site/examples/`);
     console.log(`\nCDN imports are rewritten to local /dist/ files.`);
     console.log('Press Ctrl+C to stop.\n');
