@@ -11,7 +11,7 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const WIN = process.platform === 'win32';
 
 const CHUGL_REPO = 'https://github.com/Oran2009/chugl.git';
-const CHUGL_COMMIT = '0c6902896babdd713f083dc9937871be1c8e91d5';
+const CHUGL_COMMIT = 'be6e609dcffcdff83b356a0c8100b8b71a8f6e63';
 
 const CHUCK_REPO = 'https://github.com/ccrma/chuck.git';
 const CHUCK_TAG = 'chuck-1.5.5.8';
