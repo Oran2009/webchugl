@@ -77,6 +77,7 @@ class ChucK {
     private jszipPromise: Promise<void> | null = null;
     private _storage = new Storage();
     private _teardown = new AbortController();
+    private _initError: Error | null = null;
 
     private constructor(baseUrl: string) {
         this.baseUrl = baseUrl;
@@ -85,11 +86,13 @@ class ChucK {
     // Calls made before the VM is ready are queued here.
 
     private defer(fn: () => void): void {
+        if (this._initError) throw this._initError;
         if (this.isReady) fn();
         else this.deferQueue.push(fn);
     }
 
     private deferPromise<T>(fn: () => T | Promise<T>): Promise<T> {
+        if (this._initError) return Promise.reject(this._initError);
         if (this.isReady) {
             try { return Promise.resolve(fn()); }
             catch (e) { return Promise.reject(e); }
@@ -331,6 +334,15 @@ class ChucK {
         const canvas = config.canvas;
         canvas.addEventListener('webglcontextlost', (e) => e.preventDefault(), false);
 
+        // Init resolves even on failure (callers get onError), so mark the
+        // instance dead: later calls throw instead of queueing forever.
+        const fail = (msg: string): ChucK => {
+            instance._initError = new Error('[WebChuGL] ' + msg);
+            onError(msg);
+            instance.flushCallbacks();
+            return instance;
+        };
+
         const moduleConfig: Partial<EmscriptenModule> = {
             noInitialRun: true,
             _audioConfig: audioConfig,
@@ -379,8 +391,7 @@ class ChucK {
             instance.module = mod;
 
             if (!navigator.gpu) {
-                onError('WebGPU is not available');
-                return instance;
+                return fail('WebGPU is not available');
             }
 
             const pendingChuginBuffers: Array<{ name: string; buf: ArrayBuffer }> = [];
@@ -415,8 +426,7 @@ class ChucK {
 
             return Promise.all([chuginPromise, gpuPromise]).then(([, adapter]) => {
                 if (!adapter) {
-                    onError('Failed to get WebGPU adapter');
-                    return instance;
+                    return fail('Failed to get WebGPU adapter');
                 }
                 const limits: Record<string, number> = {};
                 for (const k in adapter.limits) {
@@ -455,9 +465,7 @@ class ChucK {
                 });
             }).catch((e) => {
                 console.error('WebGPU pre-init failed:', e);
-                onError('WebGPU init failed: ' + e.message);
-                instance.flushCallbacks();
-                return instance;
+                return fail('WebGPU init failed: ' + e.message);
             });
         });
     }
