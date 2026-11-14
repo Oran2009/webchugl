@@ -4,7 +4,7 @@
 // and this server intercepts those requests and serves local files.
 //
 // Usage: node serve-dev.js [port]
-// Then open: http://localhost:8080/web/examples/drum-machine/
+// Then open: http://localhost:8080/site/examples/drum-machine/
 
 import { createServer } from 'http';
 import { readFile, stat } from 'fs/promises';
@@ -50,8 +50,8 @@ function rewriteCdnUrls(content) {
 
 function needsRewrite(filePath, pathname) {
     const ext = extname(filePath);
-    return (ext === '.js' && (pathname.startsWith('/web/examples/') || pathname === '/dist/webchugl-esm.js'))
-        || (ext === '.html' && pathname.startsWith('/web/'));
+    return (ext === '.js' && (pathname.startsWith('/site/examples/') || pathname === '/dist/webchugl-esm.js'))
+        || (ext === '.html' && pathname.startsWith('/site/'));
 }
 
 async function serveWithRewrite(filePath, res) {
@@ -122,9 +122,9 @@ const server = createServer(async (req, res) => {
                 res.end();
                 return;
             }
-            // Try index.html — rewrite if under /web/
+            // Try index.html — rewrite if under /site/
             const indexPath = join(filePath, 'index.html');
-            if (pathname.startsWith('/web/')) {
+            if (pathname.startsWith('/site/')) {
                 return serveWithRewrite(indexPath, res);
             }
             return serveFile(indexPath, res);
@@ -138,7 +138,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, () => {
     console.log(`WebChuGL dev server: http://localhost:${PORT}`);
-    console.log(`Examples:            http://localhost:${PORT}/web/examples/`);
+    console.log(`Examples:            http://localhost:${PORT}/site/examples/`);
     console.log(`\nCDN imports are rewritten to local /dist/ files.`);
     console.log('Press Ctrl+C to stop.\n');
 });

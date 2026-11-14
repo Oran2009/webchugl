@@ -190,7 +190,7 @@ target_link_options(webchugl PRIVATE
     $<IF:$<CONFIG:Debug>,-O0 -g,-O3>
     $<$<CONFIG:Debug>:--profiling-funcs>
     -sMINIFY_HTML=0
-    --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html
+    --shell-file=${CMAKE_CURRENT_SOURCE_DIR}/runtime/shell.html
     -sMAIN_MODULE=1
     -Wno-experimental
     -Wno-pthreads-mem-growth

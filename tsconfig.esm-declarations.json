@@ -5,5 +5,5 @@
     "declarationMap": false,
     "emitDeclarationOnly": true
   },
-  "include": ["src/web/webchugl-esm.ts", "src/web/types/**/*.d.ts"]
+  "include": ["src/runtime/webchugl-esm.ts", "src/runtime/types/**/*.d.ts"]
 }

@@ -72,8 +72,8 @@ console.log('=== Building WebChuGL ===');
 console.log('Compiling TypeScript...');
 npx('typescript/bin/tsc', []);
 npx('typescript/bin/tsc', ['-p', 'tsconfig.esm-declarations.json']);
-npx('esbuild/bin/esbuild', ['src/web/webchugl.ts', '--bundle', '--format=iife',
-    '--outfile=src/web/webchugl.js', '--sourcemap']);
+npx('esbuild/bin/esbuild', ['src/runtime/webchugl.ts', '--bundle', '--format=iife',
+    '--outfile=src/runtime/webchugl.js', '--sourcemap']);
 
 if (clean) {
     for (const d of [BUILD, CMAKE_BUILD]) {
@@ -98,18 +98,19 @@ for (const f of ['index.js', 'webchugl.wasm']) {
     copy(join(CMAKE_BUILD, 'webchugl', f), join(WEB_OUT, f), true);
 }
 copy(join(CMAKE_BUILD, 'index.html'), join(BUILD, 'index.html'), true);
-copy(join(SRC, 'web/lib/sw.js'), join(BUILD, 'sw.js'));
-copy(join(SRC, 'web/manifest.json'), join(BUILD, 'manifest.json'));
+copy(join(SRC, 'runtime/assets/sw.js'), join(BUILD, 'sw.js'));
+// The site needs its own copy at the root to be cross-origin isolated.
+copy(join(SRC, 'runtime/assets/sw.js'), join(ROOT, 'site', 'sw.js'));
+copy(join(SRC, 'runtime/assets/manifest.json'), join(BUILD, 'manifest.json'));
 
 // Always from source so TS-only changes propagate without a WASM relink.
-for (const f of ['webchugl.js', 'webchugl.js.map']) {
-    copy(join(SRC, 'web', f), join(WEB_OUT, f), true);
-}
-copy(join(SRC, 'web/webchugl-esm.js'), join(WEB_OUT, 'webchugl-esm.js'));
-copy(join(SRC, 'web/lib/audio-worklet-processor.js'), join(WEB_OUT, 'audio-worklet-processor.js'));
-copy(join(SRC, 'web/lib/jszip.min.js'), join(WEB_OUT, 'jszip.min.js'));
+copy(join(SRC, 'runtime/webchugl.js'), join(WEB_OUT, 'webchugl.js'));
+copy(join(SRC, 'runtime/webchugl.js.map'), join(WEB_OUT, 'webchugl.js.map'), true);
+copy(join(SRC, 'runtime/webchugl-esm.js'), join(WEB_OUT, 'webchugl-esm.js'));
+copy(join(SRC, 'runtime/assets/audio-worklet-processor.js'), join(WEB_OUT, 'audio-worklet-processor.js'));
+copy(join(SRC, 'runtime/vendor/jszip.min.js'), join(WEB_OUT, 'jszip.min.js'));
 for (const f of ['chugl_logo_light.png', 'chugl_logo_dark.png']) {
-    copy(join(SRC, 'web/assets', f), join(WEB_OUT, f));
+    copy(join(SRC, 'runtime/assets', f), join(WEB_OUT, f));
 }
 
 for (const f of ['index.js', 'webchugl.wasm']) {
@@ -121,11 +122,11 @@ for (const f of ['index.js', 'webchugl.wasm', 'webchugl.js',
     'audio-worklet-processor.js', 'jszip.min.js']) {
     copy(join(WEB_OUT, f), join(DIST, f), true);
 }
-copy(join(SRC, 'web/webchugl-esm.js'), join(DIST, 'webchugl-esm.js'));
+copy(join(SRC, 'runtime/webchugl-esm.js'), join(DIST, 'webchugl-esm.js'));
 // sw.js on the CDN lets users write a one-line sw.js instead of downloading one
-copy(join(SRC, 'web/lib/sw.js'), join(DIST, 'sw.js'));
-copy(join(SRC, 'web/webchugl-esm.d.ts'), join(DIST, 'webchugl-esm.d.ts'), true);
-copy(join(SRC, 'web/types/chuck.d.ts'), join(DIST, 'types/chuck.d.ts'), true);
+copy(join(SRC, 'runtime/assets/sw.js'), join(DIST, 'sw.js'));
+copy(join(SRC, 'runtime/webchugl-esm.d.ts'), join(DIST, 'webchugl-esm.d.ts'), true);
+copy(join(SRC, 'runtime/types/chuck.d.ts'), join(DIST, 'types/chuck.d.ts'), true);
 
 const version = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
 const esm = join(DIST, 'webchugl-esm.js');

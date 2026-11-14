@@ -16,7 +16,7 @@ export interface AudioConfig {
 export type ChuginEntry = string | { name: string; buf: ArrayBuffer };
 
 /**
- * Configuration object passed to {@link ChuGL.init}.
+ * Configuration object passed to `ChuGL.init()`.
  */
 export interface ChuGLConfig {
     /** **Required.** Canvas element for WebGPU rendering. */

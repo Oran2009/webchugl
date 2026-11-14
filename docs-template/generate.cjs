@@ -393,7 +393,7 @@ function buildSidebarGroups(chuckMethods, chuckMembers) {
 
 function main() {
     var modelPath = process.argv[2] || 'docs-model.json';
-    var outDir = process.argv[3] || 'web/docs';
+    var outDir = process.argv[3] || 'site/docs';
 
     if (!fs.existsSync(modelPath)) {
         console.error('Error: TypeDoc model not found at ' + modelPath);
