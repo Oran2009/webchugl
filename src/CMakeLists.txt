@@ -80,6 +80,8 @@ set(CHUGL_SOURCES
 
 set(HOST_SOURCES
     ${HOST_DIR}/webchugl_main.cpp
+    ${HOST_DIR}/ck_bridge.cpp
+    ${HOST_DIR}/canvas.cpp
 )
 
 add_executable(webchugl ${HOST_SOURCES} ${CHUCK_CORE_SOURCES} ${CHUGL_SOURCES})
