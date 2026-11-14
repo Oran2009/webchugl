@@ -18,7 +18,6 @@ if [ -z "$EMSDK_DIR" ] || [ ! -d "$EMSDK_DIR" ]; then
     exit 1
 fi
 
-# Parse arguments
 CLEAN=false
 JOBS=8
 
@@ -45,7 +44,6 @@ echo "=== Building WebChuGL ==="
 EMCMAKE="$EMSDK_DIR/emcmake.py"
 EMMAKE="$EMSDK_DIR/emmake.py"
 
-# Detect build tool: prefer Ninja, fall back to Make
 USE_NINJA=false
 if command -v ninja >/dev/null 2>&1; then
     USE_NINJA=true
@@ -54,7 +52,6 @@ elif ! command -v make >/dev/null 2>&1; then
     exit 1
 fi
 
-# Compile TypeScript
 echo "Compiling TypeScript..."
 (cd "$PROJECT_ROOT" && npx tsc)
 echo "Generating ESM declarations..."
@@ -62,17 +59,14 @@ echo "Generating ESM declarations..."
 echo "Bundling webchugl.js..."
 (cd "$PROJECT_ROOT" && npx esbuild src/web/webchugl.ts --bundle --format=iife --outfile=src/web/webchugl.js --sourcemap)
 
-# Clean if requested
 if [ "$CLEAN" = true ]; then
     for d in "$BUILD_DIR" "$CMAKE_BUILD_DIR"; do
         [ -d "$d" ] && echo "Cleaning $d..." && rm -rf "$d"
     done
 fi
 
-# Create directories
 mkdir -p "$BUILD_DIR" "$CMAKE_BUILD_DIR"
 
-# Configure if needed
 if [ ! -f "$CMAKE_BUILD_DIR/CMakeCache.txt" ]; then
     echo "Configuring with CMake..."
     CMAKE_ARGS=("$SRC_DIR" -DCMAKE_POLICY_VERSION_MINIMUM="3.5" -DCMAKE_BUILD_TYPE=Release)
@@ -80,7 +74,6 @@ if [ ! -f "$CMAKE_BUILD_DIR/CMakeCache.txt" ]; then
     (cd "$CMAKE_BUILD_DIR" && "$EMCMAKE" cmake "${CMAKE_ARGS[@]}")
 fi
 
-# Build
 echo "Building WASM..."
 if [ "$USE_NINJA" = true ]; then
     (cd "$CMAKE_BUILD_DIR" && "$EMMAKE" ninja -j "$JOBS")
@@ -88,14 +81,11 @@ else
     (cd "$CMAKE_BUILD_DIR" && "$EMMAKE" make -j "$JOBS")
 fi
 
-# Copy web outputs to build/
 echo "Copying web outputs..."
 mkdir -p "$BUILD_DIR/webchugl"
-# WASM artifacts (from CMake post-build rename)
 for f in index.js webchugl.wasm; do
     [ -f "$CMAKE_BUILD_DIR/webchugl/$f" ] && cp "$CMAKE_BUILD_DIR/webchugl/$f" "$BUILD_DIR/webchugl/$f"
 done
-# Root-level files
 [ -f "$CMAKE_BUILD_DIR/index.html" ] && cp "$CMAKE_BUILD_DIR/index.html" "$BUILD_DIR/index.html"
 cp "$SRC_DIR/web/lib/sw.js" "$BUILD_DIR/sw.js"
 cp "$SRC_DIR/web/manifest.json" "$BUILD_DIR/manifest.json"
@@ -110,13 +100,11 @@ for f in chugl_logo_light.png chugl_logo_dark.png; do
     cp "$SRC_DIR/web/assets/$f" "$BUILD_DIR/webchugl/$f"
 done
 
-# Validate required build outputs exist
 if [ ! -f "$BUILD_DIR/webchugl/index.js" ] || [ ! -f "$BUILD_DIR/webchugl/webchugl.wasm" ]; then
     echo "ERROR: Build outputs missing. Expected webchugl/index.js and webchugl/webchugl.wasm in $BUILD_DIR" >&2
     exit 1
 fi
 
-# Copy runtime to dist/ (for npm publishing — includes all assets)
 echo "Preparing npm dist..."
 DIST_DIR="$PROJECT_ROOT/dist"
 mkdir -p "$DIST_DIR"
@@ -127,14 +115,12 @@ done
 cp "$SRC_DIR/web/webchugl-esm.js" "$DIST_DIR/webchugl-esm.js"
 # sw.js on the CDN lets users write a one-line sw.js instead of downloading one
 cp "$SRC_DIR/web/lib/sw.js" "$DIST_DIR/sw.js"
-# Copy TypeScript declaration files for npm consumers
 [ -f "$SRC_DIR/web/webchugl-esm.d.ts" ] && cp "$SRC_DIR/web/webchugl-esm.d.ts" "$DIST_DIR/webchugl-esm.d.ts"
 if [ -f "$SRC_DIR/web/types/chuck.d.ts" ]; then
     mkdir -p "$DIST_DIR/types"
     cp "$SRC_DIR/web/types/chuck.d.ts" "$DIST_DIR/types/chuck.d.ts"
 fi
 
-# Inject package version into ESM (replaces __WEBCHUGL_VERSION__ placeholder)
 PKG_VERSION=$(node -p "require('$PROJECT_ROOT/package.json').version")
 sed -i "s/__WEBCHUGL_VERSION__/$PKG_VERSION/g" "$DIST_DIR/webchugl-esm.js"
 echo "Injected version $PKG_VERSION into webchugl-esm.js"

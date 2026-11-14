@@ -12,12 +12,8 @@ export interface SensorTarget {
     broadcastEvent(name: string): void;
 }
 
-/**
- * Start accelerometer + gyroscope input, flushing readings to the target
- * each animation frame. Everything unwinds when `signal` aborts: listeners are
- * removed, the flush loop stops, and a permission prompt that resolves after
- * teardown can no longer attach to a torn-down target.
- */
+// Everything unwinds on `signal`, including a permission prompt that resolves
+// after teardown.
 export function initSensors(target: SensorTarget, signal: AbortSignal): void {
     let accelPending: { x: number; y: number; z: number } | null = null;
     let gyroPending: { alpha: number; beta: number; gamma: number } | null = null;
@@ -42,7 +38,6 @@ export function initSensors(target: SensorTarget, signal: AbortSignal): void {
     };
     requestAnimationFrame(flushSensors);
 
-    // Accelerometer
     if (window.DeviceMotionEvent) {
         const onMotion = (e: DeviceMotionEvent): void => {
             const a = e.accelerationIncludingGravity;
@@ -66,7 +61,6 @@ export function initSensors(target: SensorTarget, signal: AbortSignal): void {
         }
     }
 
-    // Gyroscope
     if (window.DeviceOrientationEvent) {
         const onOrientation = (e: DeviceOrientationEvent): void => {
             gyroPending = { alpha: e.alpha || 0, beta: e.beta || 0, gamma: e.gamma || 0 };

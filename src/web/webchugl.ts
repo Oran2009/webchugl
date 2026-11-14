@@ -1,5 +1,4 @@
-// WebChuGL Runtime — ChucK class
-// Bundled by esbuild into a single IIFE. Exposes _initWebChuGL global.
+// Bundled by esbuild into a single IIFE exposing the _initWebChuGL global.
 
 import type { ShredInfo, ReplaceResult, GlobalVariableInfo, WebChuGLInternalConfig, ChuginEntry } from './types/chuck.js';
 import { ensureVfsDir, isBinaryFile } from './lib/vfs';
@@ -8,9 +7,7 @@ import { initSensors } from './lib/sensors';
 import { Storage } from './lib/storage';
 import { registerServiceWorker } from './lib/service-worker';
 
-// ============================================================================
-// Non-standard API extensions (iOS Safari sensor permissions, MIDI internals)
-// ============================================================================
+// Non-standard: iOS Safari sensor permissions, MIDI internals.
 
 interface RtMidiWindow extends Window {
     _rtmidi_internals_midi_access: MIDIAccess;
@@ -19,9 +16,7 @@ interface RtMidiWindow extends Window {
     _rtmidi_internals_get_port_by_number: (portNumber: number, isInput: boolean) => MIDIPort | null;
 }
 
-// ============================================================================
-// ChuMP manifest types (from chuck.stanford.edu/release/chump/manifest/)
-// ============================================================================
+// Shape of chuck.stanford.edu/release/chump/manifest/
 
 interface ChumpFileEntry {
     url: string;
@@ -48,10 +43,7 @@ interface ChumpManifest {
     packages: ChumpPackage[];
 }
 
-// ============================================================================
-// RunResult — wraps code execution results with backward-compatible valueOf()
-// ============================================================================
-
+// valueOf() keeps callers that treat a run result as a bare shred id working.
 class RunResult {
     shredId: number;
     error: string | null;
@@ -66,12 +58,7 @@ class RunResult {
     }
 }
 
-// ============================================================================
-// ChucK Class
-// ============================================================================
-
 class ChucK {
-    // ── Private state ───────────────────────────────────────────────────
     private module: EmscriptenModule | null = null;
     private nextId = 1;
     private isReady = false;
@@ -95,7 +82,7 @@ class ChucK {
         this.baseUrl = baseUrl;
     }
 
-    // ── Defer queue (auto-queues calls until VM is ready) ───────────────
+    // Calls made before the VM is ready are queued here.
 
     private defer(fn: () => void): void {
         if (this.isReady) fn();
@@ -130,7 +117,6 @@ class ChucK {
         }
     }
 
-    // ── C++ bridge helpers ──────────────────────────────────────────────
 
     private ccallSet(func: string, types: string[], args: unknown[]): void {
         this.defer(() => {
@@ -152,7 +138,6 @@ class ChucK {
         });
     }
 
-    // ── JSZip lazy loading ──────────────────────────────────────────────
 
     private ensureJSZip(): Promise<void> {
         if (typeof JSZip !== 'undefined') return Promise.resolve();
@@ -167,7 +152,6 @@ class ChucK {
         return this.jszipPromise;
     }
 
-    // ── ChuGin VFS loading ──────────────────────────────────────────────
 
     private loadChuginFromVfs(vfsPath: string): string | null {
         const filename = vfsPath.split('/').pop()!;
@@ -181,7 +165,7 @@ class ChucK {
         return null;
     }
 
-    // ── Audio init (called from C++ via Module._initAudio) ──────────────
+    // Called from C++ via Module._initAudio.
 
     private handleInitAudio(
         sab: SharedArrayBuffer,
@@ -223,13 +207,8 @@ class ChucK {
             node.connect(ctx.destination);
             this._audioNode = node;
 
-            // Resume AudioContext on user gesture. The AudioContext can fall
-            // back into 'suspended' long after the first resume — for example
-            // when the tab is backgrounded, the OS audio device changes, or
-            // the user triggers a navigation interruption. We therefore
-            // re-attach gesture listeners whenever statechange reports a
-            // non-running state, and do not detach them on resume failure
-            // (so the user can retry with another gesture).
+            // An AudioContext can re-suspend long after the first resume (backgrounded
+            // tab, device change), so listeners re-arm on any non-running state.
             let attached = false;
             const gestureHandler = (): void => {
                 if (!this._audioCtx || this._audioCtx.state === 'running') return;
@@ -258,10 +237,8 @@ class ChucK {
                 if (state === 'running') {
                     detachGestureListeners();
                 } else if (state === 'suspended') {
-                    // Re-arm listeners so the next gesture can resume.
                     attachGestureListeners();
                 }
-                // 'closed' is terminal; the teardown signal removes this listener.
             };
             ctx.addEventListener('statechange', onStateChange, { signal });
             attachGestureListeners();
@@ -270,14 +247,9 @@ class ChucK {
         }).catch((err) => {
             console.error('[WebChuGL] Audio worklet failed: ' + err.message);
         });
-        // Store AudioContext immediately (synchronously) so getSampleRate() works
-        // even before the worklet finishes loading. _audioNode is set in the .then().
+        // Set synchronously so getSampleRate() works before the worklet loads.
         this._audioCtx = ctx;
     }
-
-    // ════════════════════════════════════════════════════════════════════
-    // Static Factory
-    // ════════════════════════════════════════════════════════════════════
 
     static _create(config: WebChuGLInternalConfig): Promise<ChucK> {
         let baseUrl = config.baseUrl || 'webchugl/';
@@ -289,14 +261,12 @@ class ChucK {
         const onError = config.onError || ((msg: string) => console.error('[WebChuGL] ' + msg));
         const onReady = config.onReady || (() => {});
 
-        // ── Service Worker ──────────────────────────────────────────
         if (config.serviceWorker !== false) {
             if (registerServiceWorker(config.serviceWorkerUrl || './sw.js')) {
                 return new Promise<ChucK>(() => {}); // page reloading
             }
         }
 
-        // ── Audio Config ────────────────────────────────────────────
         const audioConfig: WebChuGLAudioConfig = { sampleRate: 48000, outChannels: 2, inChannels: 2 };
         const params = new URLSearchParams(window.location.search);
         const sr = parseInt(params.get('srate') || '', 10);
@@ -315,7 +285,6 @@ class ChucK {
         }
         instance._sampleRate = audioConfig.sampleRate;
 
-        // ── Module Config ───────────────────────────────────────────
         const canvas = config.canvas;
         canvas.addEventListener('webglcontextlost', (e) => e.preventDefault(), false);
 
@@ -363,7 +332,6 @@ class ChucK {
             }],
         };
 
-        // ── Launch ──────────────────────────────────────────────────
         return createWebChuGL(moduleConfig).then((mod) => {
             instance.module = mod;
 
@@ -375,7 +343,6 @@ class ChucK {
             const pendingChuginBuffers: Array<{ name: string; buf: ArrayBuffer }> = [];
             const chuginEntries: ChuginEntry[] = config.chugins || [];
 
-            // Partition into pre-fetched buffers and URLs to fetch
             const urlsToFetch: string[] = [];
             for (const entry of chuginEntries) {
                 if (typeof entry === 'string') {
@@ -426,7 +393,6 @@ class ChucK {
                     onReady();
                     instance.module!.callMain([]);
 
-                    // Make canvas track its parent container size instead of the window
                     instance.module!.ccall('chugl_setup_parent_resize', null, [], []);
 
                     for (const entry of pendingChuginBuffers) {
@@ -440,7 +406,6 @@ class ChucK {
 
                     initSensors(instance, instance._teardown.signal);
 
-                    // Release the AudioContext / WebGPU device when the page goes away.
                     window.addEventListener('pagehide', () => instance.destroy(),
                                             { signal: instance._teardown.signal });
                     const audioReady = instance._audioReady || Promise.resolve();
@@ -458,11 +423,6 @@ class ChucK {
         });
     }
 
-    // ════════════════════════════════════════════════════════════════════
-    // Public API
-    // ════════════════════════════════════════════════════════════════════
-
-    // ── Audio access ────────────────────────────────────────────────────
 
     get audioContext(): AudioContext | null { return this._audioCtx; }
     get audioNode(): AudioWorkletNode | null { return this._audioNode; }
@@ -471,7 +431,6 @@ class ChucK {
         return this._audioCtx ? this._audioCtx.sampleRate : null;
     }
 
-    // ── VM Introspection ────────────────────────────────────────────────
 
     getCurrentTime(): number {
         if (!this.module) return 0;
@@ -515,7 +474,6 @@ class ChucK {
         try { return JSON.parse(json); } catch { return []; }
     }
 
-    // ── Code Execution ──────────────────────────────────────────────────
 
     runCode(code: string): Promise<RunResult> {
         return this.deferPromise(() => {
@@ -586,7 +544,6 @@ class ChucK {
             ));
     }
 
-    // ── Virtual Filesystem ──────────────────────────────────────────────
 
     createFile(pathOrDir: string, filenameOrData: string | ArrayBuffer | Uint8Array, maybeData?: string | ArrayBuffer | Uint8Array): void {
         let path: string;
@@ -722,7 +679,6 @@ class ChucK {
             .then(() => { console.log('[WebChuGL] Zip extracted: ' + url); });
     }
 
-    // ── Scalar Variables ────────────────────────────────────────────────
 
     setInt(name: string, val: number): void { this.ccallSet('ck_set_int', ['string', 'number'], [name, val]); }
     setFloat(name: string, val: number): void { this.ccallSet('ck_set_float', ['string', 'number'], [name, val]); }
@@ -731,7 +687,6 @@ class ChucK {
     getFloat(name: string): Promise<number> { return this.ccallGet('ck_get_float', ['string'], [name]); }
     getString(name: string): Promise<string> { return this.ccallGet('ck_get_string', ['string'], [name]); }
 
-    // ── Events ──────────────────────────────────────────────────────────
 
     signalEvent(name: string): void { this.ccallSet('ck_signal_event', ['string'], [name]); }
     broadcastEvent(name: string): void { this.ccallSet('ck_broadcast_event', ['string'], [name]); }
@@ -755,7 +710,6 @@ class ChucK {
         this.ccallSet('ck_stop_listening_event', ['string', 'number'], [name, listenerId]);
     }
 
-    // ── Int Array Variables ─────────────────────────────────────────────
 
     setIntArray(name: string, arr: number[]): void {
         this.defer(() => {
@@ -769,7 +723,6 @@ class ChucK {
     getIntArrayValue(name: string, index: number): Promise<number> { return this.ccallGet('ck_get_int_array_value', ['string', 'number'], [name, index]); }
     getAssocIntArrayValue(name: string, key: string): Promise<number> { return this.ccallGet('ck_get_assoc_int_array_value', ['string', 'string'], [name, key]); }
 
-    // ── Float Array Variables ───────────────────────────────────────────
 
     setFloatArray(name: string, arr: number[]): void {
         this.defer(() => {
@@ -783,14 +736,12 @@ class ChucK {
     getFloatArrayValue(name: string, index: number): Promise<number> { return this.ccallGet('ck_get_float_array_value', ['string', 'number'], [name, index]); }
     getAssocFloatArrayValue(name: string, key: string): Promise<number> { return this.ccallGet('ck_get_assoc_float_array_value', ['string', 'string'], [name, key]); }
 
-    // ── Persistent Storage (IndexedDB) ──────────────────────────────────
 
     save(key: string, value: unknown): Promise<void> { return this._storage.save(key, value); }
     load(key: string): Promise<unknown> { return this._storage.load(key); }
     delete(key: string): Promise<void> { return this._storage.delete(key); }
     listKeys(): Promise<string[]> { return this._storage.listKeys(); }
 
-    // ── MIDI ────────────────────────────────────────────────────────────
 
     initMidi(access: MIDIAccess): void {
         const w = window as unknown as RtMidiWindow;
@@ -816,23 +767,12 @@ class ChucK {
         this.initMidi(access);
     }
 
-    /**
-     * Request browser microphone permission and wire the resulting
-     * MediaStream into the ChucK audio graph so `adc` reads live input.
-     * Must be called from a user-gesture context. Resolves once the stream
-     * is acquired and connected; rejects if the browser denies the request
-     * or the AudioContext is not yet initialized.
-     *
-     * @returns Promise that resolves once the microphone is connected.
-     */
     async requestMicrophone(): Promise<void> {
         if (this._micStream) return;  // idempotent
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             throw new Error('getUserMedia not supported in this browser');
         }
-        // Audio init (AudioWorklet module load + node creation) runs async
-        // after `ChuGL.init()` resolves. Wait for it so callers who chain
-        // `await ck.requestMicrophone()` right after init don't race.
+        // Audio init finishes after init() resolves; wait so chained calls don't race.
         if (this._audioReady) await this._audioReady;
         if (!this._audioCtx || !this._audioNode) {
             throw new Error('AudioContext not ready; ChuGL audio init did not complete');
@@ -845,16 +785,6 @@ class ChucK {
         console.log('[WebChuGL] Microphone connected');
     }
 
-    /**
-     * Request browser webcam permission and acquire a MediaStream.
-     * Must be called from a user-gesture context (e.g. a button click
-     * handler) because `getUserMedia` requires one. Stashes the stream
-     * on the wasm module so the C-side sr_webcam backend can pick it
-     * up when ChucK code creates a `Webcam` UGen.
-     *
-     * @param deviceId - ChuGL webcam slot (0..7). Defaults to 0.
-     * @returns Promise that resolves once the stream is acquired.
-     */
     requestWebcam(deviceId: number = 0): Promise<void> {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             return Promise.reject(new Error('getUserMedia not supported in this browser'));
@@ -868,7 +798,6 @@ class ChucK {
         });
     }
 
-    // ── Dynamic Audio Import ────────────────────────────────────────────
 
     loadAudio(url: string, vfsPath?: string): Promise<string> {
         let resolvedPath = vfsPath;
@@ -923,7 +852,6 @@ class ChucK {
             });
     }
 
-    // ── ChuGin Loading ──────────────────────────────────────────────────
 
     loadChugin(url: string): Promise<string> {
         const name = url.split('/').pop()!;
@@ -952,7 +880,6 @@ class ChucK {
         }
     }
 
-    // ── Shred Management ────────────────────────────────────────────────
 
     replaceCode(code: string): Promise<ReplaceResult> {
         return this.deferPromise(() => {
@@ -1019,7 +946,6 @@ class ChucK {
         return this.deferPromise(() => Promise.resolve(this.getCurrentTime()));
     }
 
-    // ── Print Callback ──────────────────────────────────────────────────
 
     get chuckPrint(): ((msg: string) => void) | null {
         return this._printCallback;
@@ -1039,7 +965,6 @@ class ChucK {
         }
     }
 
-    // ── VM Engine Parameters ────────────────────────────────────────────
 
     setParamInt(name: string, val: number): void {
         this.defer(() => this.module!.ccall('ck_set_param_int', null, ['string', 'number'], [name, val]));
@@ -1063,7 +988,6 @@ class ChucK {
         return this.module.ccall('ck_get_param_string', 'string', ['string'], [name]);
     }
 
-    // ── VM Reset ────────────────────────────────────────────────────────
 
     clearChuckInstance(): void {
         this.defer(() => this.module!.ccall('ck_clear_instance', null, [], []));
@@ -1075,12 +999,8 @@ class ChucK {
         this.clearChuckInstance();
         this.clearGlobals();
         this.defer(() => this.module!.ccall('ck_reset_graphics', null, [], []));
-        // ck_reset_graphics pushes CQ pass updates that re-bind render_pass to a
-        // fresh scene. Those updates are consumed at the start of the next render
-        // frame. If a caller spawns a shred via runCode() in the same sync batch,
-        // the shred runs against stale render_pass.scene_id and nothing draws.
-        // Yield one animation frame so the renderer catches up before callers
-        // proceed. Callers who need ordering should `await ck.reset()`.
+        // ck_reset_graphics re-binds render_pass next frame; a shred spawned in the
+        // same batch would draw against a stale scene_id. Yield one frame first.
         return new Promise((resolve) => {
             if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
             else setTimeout(resolve, 16);
@@ -1108,24 +1028,20 @@ class ChucK {
         this._teardown.abort();
         if (!this.module) return;
 
-        // Stop the C++ render loop so it doesn't try to render after teardown
+        // Must precede teardown: the loop would render against freed state.
         this.module.ccall('ck_stop_render_loop', null, [], []);
 
-        // Clear ChucK VM state
         this.module.ccall('ck_clear_instance', null, [], []);
         this.module.ccall('ck_clear_globals', null, [], []);
 
-        // Clean up audio
         if (this._audioNode) { this._audioNode.disconnect(); this._audioNode = null; }
         if (this._audioCtx) { this._audioCtx.close(); this._audioCtx = null; }
         this._audioReady = null;
 
         this.releaseCanvas(this.module.canvas as HTMLCanvasElement);
 
-        // Flush pending callbacks
         this.flushCallbacks();
 
-        // Null out module and reset state
         this.module = null;
         this.isReady = false;
         this.deferQueue = [];
@@ -1142,7 +1058,6 @@ class ChucK {
         console.log('[WebChuGL] Instance destroyed');
     }
 
-    // ── Web Audio Graph ─────────────────────────────────────────────────
 
     connect(destination: AudioNode): void {
         if (this._audioNode) this._audioNode.connect(destination);
@@ -1151,7 +1066,6 @@ class ChucK {
         if (this._audioNode) this._audioNode.disconnect();
     }
 
-    // ── ChuMP Package Loading ───────────────────────────────────────────
 
     private static readonly CHUMP_MANIFEST = 'https://chuck.stanford.edu/release/chump/manifest/v1/manifest.json';
     private static _manifestCache: Promise<ChumpManifest> | null = null;
@@ -1265,7 +1179,5 @@ class ChucK {
     }
 }
 
-// ============================================================================
-// Expose to global scope (called by webchugl-esm.ts via <script> tag)
-// ============================================================================
+// webchugl-esm.ts loads this via <script> and picks up the global.
 (globalThis as any)._initWebChuGL = ChucK._create;

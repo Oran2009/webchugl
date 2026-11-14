@@ -28,9 +28,7 @@
 #include <string>
 #include <vector>
 
-// Track dlopen handles so they're properly closed on shutdown
 static std::list<void*> g_chuginHandles;
-// Track loaded ChuGin paths to prevent duplicate loading
 static std::list<std::string> g_loadedChuginPaths;
 
 // ChuGL query function (defined via CK_DLL_QUERY macro in ChuGL.cpp)
@@ -52,14 +50,10 @@ extern double CHUGL_Window_dt();
 // Frame count (defined in ChuGL ulib_helper.h)
 extern long long g_frame_count;
 
-// The ChucK instance
 static ChucK* the_chuck = nullptr;
 
-// ============================================================================
-// Built-in ChucK class definitions for device sensors (Accel, Gyro)
-// These are compiled into the VM before user code so they're always available.
-// Matches the WebChucK API: https://github.com/ccrma/webchuck
-// ============================================================================
+// Compiled into the VM before user code. Mirrors WebChucK's Accel/Gyro API:
+// https://github.com/ccrma/webchuck
 
 static const char* k_AccelMsg_ck = R"CK(
 public class AccelMsg {
@@ -102,7 +96,6 @@ public class Accel extends Event {
 
     string deviceName;
 
-    // AccelMsg Queue
     AccelMsg _accelMsgQueue[0];
 
     function string name() {
@@ -121,23 +114,17 @@ public class Accel extends Event {
         return active;
     }
 
-    // Pop the first AccelMsg from the queue
-    // Write it to msg and return 1
     function int recv(AccelMsg msg) {
-        // is empty
         if (_accelMsgQueue.size() <= 0) {
             return 0;
         }
 
-        // pop the first AccelMsg to msg, return true
         _accelMsgQueue[0] @=> AccelMsg localMsg;
         msg._copy(localMsg);
         _accelMsgQueue.popFront();
         return 1;
     }
 
-    // Accel Listener
-    // Get variables from JS and write to the AccelMsg
     function void _accelListener() {
         AccelMsg @ msg;
         while(true){
@@ -196,7 +183,6 @@ public class Gyro extends Event {
 
     string deviceName;
 
-    // GyroMsg Queue
     GyroMsg _gyroMsgQueue[0];
 
     function string name() {
@@ -215,23 +201,17 @@ public class Gyro extends Event {
         return active;
     }
 
-    // Pop the first GyroMsg from the queue
-    // Write it to msg and return 1
     function int recv(GyroMsg msg) {
-        // is empty
         if (_gyroMsgQueue.size() <= 0) {
             return 0;
         }
 
-        // pop the first GyroMsg to msg, return true
         _gyroMsgQueue[0] @=> GyroMsg localMsg;
         msg._copy(localMsg);
         _gyroMsgQueue.popFront();
         return 1;
     }
 
-    // Gyro Listener
-    // Get variables from JS and write to the GyroMsg
     function void _gyroListener() {
         GyroMsg @ msg;
         while(true){
@@ -258,7 +238,6 @@ static int g_maxSamplesPerCall = 4800;  // derived: g_sampleRate / 10 (100ms cap
 
 static std::chrono::high_resolution_clock::time_point g_lastAudioTime;
 
-// Initialize the audio system via JS AudioWorkletProcessor
 // The JS worklet reads/writes directly from WASM shared memory ring buffers
 void initAudio()
 {
@@ -289,7 +268,6 @@ void initAudio()
     g_numInputChannels);
 }
 
-// Pre-frame callback: advances the ChucK VM based on elapsed time
 static void run_vm_frame(void* data)
 {
     ChucK* ck = (ChucK*)data;
@@ -323,10 +301,8 @@ static void run_vm_frame(void* data)
         memset(inBuffer, 0, samplesToGenerate * inCh * sizeof(SAMPLE));
         inputRingRead(inBuffer, samplesToGenerate, samplesToGenerate);
 
-        // Always run ChucK VM (needed for graphics via GG.nextFrame())
         ck->run(inBuffer, outBuffer, samplesToGenerate);
 
-        // Write ChucK's planar output directly to ring buffer
         uint32_t available = ringAvailableToWrite();
         if (available >= (uint32_t)samplesToGenerate) {
             ringWrite(outBuffer, samplesToGenerate, samplesToGenerate);
@@ -336,12 +312,10 @@ static void run_vm_frame(void* data)
 
 int main(int argc, char** argv)
 {
-    // Suppress ChuGL debug/trace messages, only show warnings and errors
     log_set_level(LOG_WARN);
 
     printf("[WebChuGL] Initializing...\n");
 
-    // Read audio config from Module._audioConfig (set by JS from URL params / API)
     g_sampleRate = EM_ASM_INT({
         var c = Module._audioConfig;
         return (c && c.sampleRate) ? c.sampleRate : 48000;
@@ -354,7 +328,6 @@ int main(int argc, char** argv)
         var c = Module._audioConfig;
         return (c && c.inChannels) ? c.inChannels : 2;
     });
-    // Clamp to sane range
     if (g_sampleRate < 8000 || g_sampleRate > 192000) g_sampleRate = 48000;
     if (g_numOutputChannels < 1 || g_numOutputChannels > 32) g_numOutputChannels = 2;
     if (g_numInputChannels < 1 || g_numInputChannels > 32) g_numInputChannels = 2;
@@ -385,11 +358,9 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    // IMPORTANT: start() must be called BEFORE compileFile() so that
-    // static initialization shreds can execute properly (they check m_is_running)
+    // Before compileFile(): static init shreds check m_is_running.
     the_chuck->start();
 
-    // Compile built-in sensor classes
     if (!the_chuck->compileCode(k_AccelMsg_ck, "", 1, TRUE) ||
         !the_chuck->compileCode(k_Accel_ck, "", 1, TRUE) ||
         !the_chuck->compileCode(k_GyroMsg_ck, "", 1, TRUE) ||
@@ -409,16 +380,7 @@ int main(int argc, char** argv)
     return 0;
 }
 
-// ============================================================================
-// Host ↔ ChucK bridge (exposed to JS via Module.ccall)
-// Uses Chuck_Globals_Manager's thread-safe lock-free queue
-// ============================================================================
-
-// --- EM_JS dispatchers: called from C++ callbacks, dispatch into JS --------
-
-// Parent-container resize: overrides contrib.glfw3's computeSize to track
-// canvas.parentElement instead of the browser window, and installs a
-// ResizeObserver so container size changes trigger the GLFW3 resize pipeline.
+// Tracks canvas.parentElement instead of the browser window.
 EM_JS(void, _chugl_setup_parent_resize, (), {
     var canvas = Module['canvas'];
     if (!canvas) return;
@@ -430,42 +392,17 @@ EM_JS(void, _chugl_setup_parent_resize, (), {
     var ctx = GLFW3.fWindowContexts[glfwWindow];
     if (!ctx || !ctx.fCanvasResize) return;
 
-    // No-op contrib.glfw3's onSizeChanged notification.
-    //
-    // NOTE: this does NOT stop GLFW from writing inline CSS on the canvas.
-    // emglfw3w_set_size() always does:
-    //     canvas.width/height = <framebuffer size>          (buffer resolution)
-    //     ctx.setCSSValue('width'|'height', <css size>+'px') (inline CSS)
-    //     ctx.fCanvasResize.onSizeChanged(...)               (notification only)
-    // so the inline px CSS is written unconditionally, before onSizeChanged
-    // is ever consulted. The canvas therefore ends up explicitly sized in
-    // px by GLFW — the '100%' set below only applies until the first resize.
-    // We no-op onSizeChanged purely to suppress the extra notification.
+    // Suppresses the notification only: emglfw3w_set_size() writes inline px CSS
+    // before onSizeChanged is consulted, so GLFW still sizes the canvas.
     ctx.fCanvasResize.onSizeChanged = function() {};
 
-    // Initial fill of the parent (superseded by GLFW's px CSS on first
-    // resize). display:block prevents the inline element's default
-    // baseline gap from adding extra height.
+    // display:block avoids the inline element's baseline gap adding height.
     canvas.style.width = '100%';
     canvas.style.height = '100%';
     canvas.style.display = 'block';
 
-    // Measure an element's CONTENT box, in CSS pixels.
-    //
-    // Must not use clientWidth/clientHeight: those are the *padding* box.
-    // The canvas is laid out at the parent's content-box origin, so sizing
-    // it from the padding box makes it overflow the parent's right/bottom
-    // edges by the padding amount while still appearing inset on the
-    // left/top. getComputedStyle().width resolves to the used content-box
-    // width regardless of box-sizing, and is what contrib.glfw3 itself
-    // uses for element resize targets. floor() so a fractional layout can
-    // never round the canvas up past the content box.
-    //
-    // For an element with no layout box (display:none — e.g. a host
-    // container using Tailwind's .hidden) getComputedStyle returns the
-    // COMPUTED value, which may be 'auto' or a percentage rather than a
-    // used pixel length. Detect that and fall back to the padding box,
-    // which is 0 there — matching the previous behaviour.
+    // clientWidth/Height is the PADDING box; sizing from it overflows the parent
+    // by the padding. display:none has no used value, so fall back to 0 there.
     function contentBoxSize(el) {
         var cs = getComputedStyle(el);
         var w = parseFloat(cs.width), h = parseFloat(cs.height);
@@ -476,32 +413,24 @@ EM_JS(void, _chugl_setup_parent_resize, (), {
         return { width: Math.floor(w), height: Math.floor(h) };
     }
 
-    // Override computeSize to return parent container dimensions.
-    // Read canvas.parentElement dynamically so re-parenting is supported.
     ctx.fCanvasResize.computeSize = function() {
         var p = canvas.parentElement;
         return p ? contentBoxSize(p)
                  : { width: window.innerWidth, height: window.innerHeight };
     };
 
-    // Watch the parent for size changes and trigger GLFW3's resize handler.
-    // NOTE: The observer watches the parent at setup time. If the canvas is
-    // re-parented, call chugl_setup_parent_resize() again to observe the new
-    // parent. (computeSize reads canvas.parentElement dynamically, so sizing
-    // still works — only the observer would be stale.)
+    // Watches the parent captured at setup time; re-parenting needs another
+    // chugl_setup_parent_resize() call or the observer goes stale.
     if (canvas._chuglParentObserver) {
         canvas._chuglParentObserver.disconnect();
     }
-    // Helper: trigger GLFW3's resize pipeline directly (no global event).
     function triggerGLFWResize() {
         var size = ctx.fCanvasResize.computeSize();
         GLFW3.onWindowResize(glfwWindow, size.width, size.height);
     }
 
-    // NOTE: deliberately calls computeSize() rather than reading
-    // entry.contentBoxSize. _chugl_setup_letterbox() REPLACES computeSize to
-    // return shrink-to-fit dimensions; reading the entry directly would
-    // bypass that override and break aspect-ratio mode.
+    // computeSize(), not entry.contentBoxSize: letterbox replaces computeSize,
+    // and reading the entry would bypass that and break aspect-ratio mode.
     var lastW = 0, lastH = 0;
     canvas._chuglParentObserver = new ResizeObserver(function() {
         var size = ctx.fCanvasResize.computeSize();
@@ -512,7 +441,6 @@ EM_JS(void, _chugl_setup_parent_resize, (), {
     });
     canvas._chuglParentObserver.observe(parent);
 
-    // Trigger an initial resize so the canvas picks up the parent size now
     triggerGLFWResize();
 });
 
@@ -522,21 +450,13 @@ void chugl_setup_parent_resize()
     _chugl_setup_parent_resize();
 }
 
-// Letterbox setup for contrib.glfw3: overrides the resize observer's computeSize
-// to return shrink-to-fit dimensions, and centers the canvas in its parent.
-// Called from app.cpp's SG_COMMAND_WINDOW_SIZE_LIMITS handler.
-//
-// Instead of modifying the parent element's inline styles (which would override
-// host-application CSS like Tailwind's .hidden), we insert an owned wrapper
-// <div> between the parent and the canvas.
+// Called from app.cpp's SG_COMMAND_WINDOW_SIZE_LIMITS handler. Centers via an
+// owned wrapper <div> so host CSS on the parent (e.g. .hidden) is never touched.
 EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
     var canvas = Module['canvas'];
     if (!canvas) return;
     var hasAspect = (ar_x > 0 && ar_y > 0);
 
-    // -- Wrapper management ------------------------------------------------
-    // Create or remove a wrapper <div> owned by WebChuGL for flex centering.
-    // The host's parent element is never touched.
     if (hasAspect) {
         var wrapper = canvas._chuglWrapper;
         if (!wrapper) {
@@ -562,16 +482,11 @@ EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
         canvas._chuglWrapper = null;
     }
 
-    // -- computeSize override ----------------------------------------------
-    // Override contrib.glfw3 resize observer's computeSize so it returns
-    // letterboxed (shrink-to-fit) dimensions instead of full viewport.
     var glfwWindow = Module['glfwGetWindow'](canvas);
     if (glfwWindow != null && typeof GLFW3 !== 'undefined') {
         var ctx = GLFW3.fWindowContexts[glfwWindow];
         if (ctx && ctx.fCanvasResize) {
-            // Measure an element's CONTENT box, in CSS pixels. See the
-            // matching helper in _chugl_setup_parent_resize for why
-            // clientWidth/clientHeight (the padding box) is wrong here.
+            // Content box, not padding box — see _chugl_setup_parent_resize.
             var contentBoxSize = function(el) {
                 var cs = getComputedStyle(el);
                 var w = parseFloat(cs.width), h = parseFloat(cs.height);
@@ -584,8 +499,6 @@ EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
             if (hasAspect) {
                 var ar = ar_x / ar_y;
                 ctx.fCanvasResize.computeSize = function() {
-                    // Read the wrapper's parent (the host container) for
-                    // available space, since the wrapper fills it at 100%.
                     var w = canvas._chuglWrapper;
                     var p = w ? w.parentElement : canvas.parentElement;
                     var avail = p ? contentBoxSize(p)
@@ -606,7 +519,6 @@ EM_JS(void, _chugl_setup_letterbox, (double ar_x, double ar_y), {
                                 height: window.innerHeight};
                 };
             }
-            // Trigger immediate resize with new computeSize (no global event)
             var size = ctx.fCanvasResize.computeSize();
             GLFW3.onWindowResize(glfwWindow, size.width, size.height);
         }
@@ -656,7 +568,7 @@ EM_JS(void, _ck_dispatch_event, (int id), {
     }
 });
 
-// --- Static C++ callbacks (match ck_get_id signatures from chuck_globals.h) -
+// Signatures must match ck_get_id in chuck_globals.h.
 
 // NOTE: Under __EMSCRIPTEN__, t_CKINT is defined as int (32-bit).
 // The casts below are identity conversions for the wasm32 target.
@@ -678,8 +590,7 @@ static void _cb_get_float_array(t_CKINT id, t_CKFLOAT a[], t_CKUINT n)
 static void _cb_event(t_CKINT id)
 { _ck_dispatch_event((int)id); }
 
-// Escape JSON-special characters for safe embedding in JSON string values
-// Per RFC 8259 §7: all U+0000–U+001F must be escaped.
+// RFC 8259 §7: all of U+0000–U+001F must be escaped.
 static void appendJsonEscaped(std::string& out, const std::string& s) {
     for (size_t i = 0; i < s.size(); i++) {
         unsigned char c = (unsigned char)s[i];
@@ -697,11 +608,7 @@ static void appendJsonEscaped(std::string& out, const std::string& s) {
     }
 }
 
-// --- Exported functions ------------------------------
-
 extern "C" {
-
-// ---- Scalar setters --------------------------------------------
 
 EMSCRIPTEN_KEEPALIVE
 int ck_set_int(const char* name, int val)
@@ -723,8 +630,6 @@ int ck_set_string(const char* name, const char* val)
     if (!the_chuck) return 0;
     return the_chuck->vm()->globals_manager()->setGlobalString(name, val);
 }
-
-// ---- Scalar getters -------------------------------------------------
 
 EMSCRIPTEN_KEEPALIVE
 int ck_get_int(const char* name, int callback_id)
@@ -749,8 +654,6 @@ int ck_get_string(const char* name, int callback_id)
     return the_chuck->vm()->globals_manager()->getGlobalString(
         name, (t_CKINT)callback_id, _cb_get_string);
 }
-
-// ---- Events --------------------
 
 EMSCRIPTEN_KEEPALIVE
 int ck_signal_event(const char* name)
@@ -781,8 +684,6 @@ int ck_stop_listening_event(const char* name, int callback_id)
     return the_chuck->vm()->globals_manager()->stopListeningForGlobalEvent(
         name, (t_CKINT)callback_id, _cb_event);
 }
-
-// ---- Int array operations -------------------------------------------
 
 EMSCRIPTEN_KEEPALIVE
 int ck_set_int_array(const char* name, int* values, unsigned int len)
@@ -832,8 +733,6 @@ int ck_get_assoc_int_array_value(const char* name, const char* key, int callback
         name, (t_CKINT)callback_id, key, _cb_get_int);
 }
 
-// ---- Float array operations -----------------------------------------
-
 EMSCRIPTEN_KEEPALIVE
 int ck_set_float_array(const char* name, double* values, unsigned int len)
 {
@@ -882,10 +781,6 @@ int ck_get_assoc_float_array_value(const char* name, const char* key, int callba
         name, (t_CKINT)callback_id, key, _cb_get_float);
 }
 
-// ---- Compilation diagnostics (shared buffer + callback) -------------
-
-// ---- Code execution -------------------------------------------------
-
 EMSCRIPTEN_KEEPALIVE
 int ck_run_code(const char* code)
 {
@@ -923,13 +818,9 @@ int ck_run_file_with_args(const char* path, const char* colonSeparatedArgs)
     return shredIDs.empty() ? 0 : (int)shredIDs[0];
 }
 
-// ---- Shred management -----------------------------------------------
-
-// Find the highest active shred ID (the "last" shred)
 static t_CKUINT _find_last_shred_id()
 {
     if (!the_chuck) return 0;
-    // Iterate down from last_id to find the highest active shred
     t_CKUINT xid = the_chuck->vm()->last_id();
     while (xid > 0) {
         if (the_chuck->vm()->shreduler()->lookup(xid)) return xid;
@@ -942,7 +833,6 @@ EMSCRIPTEN_KEEPALIVE
 int ck_remove_shred(unsigned int shredID)
 {
     if (!the_chuck) return 0;
-    // Verify shred exists
     if (!the_chuck->vm()->shreduler()->lookup(shredID)) return 0;
     // Queue removal — processed on next vm run() call
     Chuck_Msg* msg = new Chuck_Msg;
@@ -966,7 +856,6 @@ int ck_remove_last_code()
     return (int)xid;
 }
 
-// Static storage for replace results (old/new shred IDs)
 static int g_replaceOldShred = 0;
 static int g_replaceNewShred = 0;
 
@@ -977,17 +866,14 @@ int ck_replace_code(const char* code)
     g_replaceOldShred = 0;
     g_replaceNewShred = 0;
 
-    // Find last active shred
     t_CKUINT oldXid = _find_last_shred_id();
     if (oldXid == 0) return 0;
 
-    // Queue removal of old shred
     Chuck_Msg* msg = new Chuck_Msg;
     msg->type = CK_MSG_REMOVE;
     msg->param = oldXid;
     the_chuck->vm()->queue_msg(msg);
 
-    // Compile new code immediately
     std::vector<t_CKUINT> newIDs;
     if (!the_chuck->compileCode(code, "", 1, TRUE, &newIDs) || newIDs.empty())
         return 0;
@@ -1059,8 +945,6 @@ int ck_is_shred_active(unsigned int shredID)
     return the_chuck->vm()->shreduler()->lookup(shredID) ? 1 : 0;
 }
 
-// ---- VM parameters --------------------------------------------------
-
 EMSCRIPTEN_KEEPALIVE
 void ck_set_param_int(const char* name, int val)
 {
@@ -1105,8 +989,6 @@ const char* ck_get_param_string(const char* name)
     return result.c_str();
 }
 
-// ---- VM reset -------------------------------------------------------
-
 EMSCRIPTEN_KEEPALIVE
 void ck_clear_instance()
 {
@@ -1140,9 +1022,6 @@ void ck_stop_render_loop()
     webchugl_stop_main_loop();
 }
 
-// ---- Print callback -------------------------------------------------
-// Redirects ChucK stdout (chout) to JS via Module._onChuckPrint
-
 EM_JS(void, _ck_dispatch_print, (const char* msg), {
     if (Module._onChuckPrint) {
         Module._onChuckPrint(UTF8ToString(msg));
@@ -1160,8 +1039,6 @@ void ck_set_print_callback(int enabled)
     the_chuck->setChoutCallback(enabled ? _chout_callback : NULL);
 }
 
-// ---- ChuGin info ----------------------------------------------------
-
 EMSCRIPTEN_KEEPALIVE
 const char* ck_get_loaded_chugins()
 {
@@ -1171,7 +1048,6 @@ const char* ck_get_loaded_chugins()
     for (const auto& path : g_loadedChuginPaths) {
         if (!first) result += ",";
         first = false;
-        // Extract short name
         size_t slashPos = path.rfind('/');
         std::string name = (slashPos == std::string::npos)
             ? path : path.substr(slashPos + 1);
@@ -1184,8 +1060,6 @@ const char* ck_get_loaded_chugins()
     result += "]";
     return result.c_str();
 }
-
-// ---- VM introspection -----------------------------------------------
 
 EMSCRIPTEN_KEEPALIVE
 double ck_get_fps()
@@ -1284,15 +1158,12 @@ const char* ck_get_last_compile_output()
     return EM_lasterror();
 }
 
-// ---- ChuGin loading (post-init) ------------------------------------
-
 EMSCRIPTEN_KEEPALIVE
 int ck_load_chugin(const char* vfsPath)
 {
     if (!the_chuck) return 0;
     if (!vfsPath || vfsPath[0] == '\0') return 0;
 
-    // Prevent loading the same ChuGin twice
     std::string pathStr(vfsPath);
     for (const auto& p : g_loadedChuginPaths) {
         if (p == pathStr) {
@@ -1314,7 +1185,6 @@ int ck_load_chugin(const char* vfsPath)
         return 0;
     }
 
-    // Extract name from path (e.g. "/chugins/Bitcrusher.chug.wasm" -> "Bitcrusher")
     size_t slashPos = pathStr.rfind('/');
     std::string name = (slashPos == std::string::npos)
         ? pathStr : pathStr.substr(slashPos + 1);

@@ -26,7 +26,6 @@ $EmsdkDir = Join-Path $EmsdkDir "install\emscripten"
 $EmCMake = Join-Path $EmsdkDir "emcmake.py"
 $EmMake = Join-Path $EmsdkDir "emmake.py"
 
-# Detect build tool: prefer Ninja, fall back to Make
 $UseNinja = $false
 if (Get-Command ninja -ErrorAction SilentlyContinue) {
     $UseNinja = $true
@@ -36,7 +35,6 @@ if (Get-Command ninja -ErrorAction SilentlyContinue) {
 
 Write-Host "=== Building WebChuGL ===" -ForegroundColor Cyan
 
-# Compile TypeScript
 Write-Host "Compiling TypeScript..." -ForegroundColor Yellow
 Push-Location $ProjectRoot
 npx tsc
@@ -47,7 +45,6 @@ npx esbuild src/web/webchugl.ts --bundle --format=iife --outfile=src/web/webchug
 if ($LASTEXITCODE -ne 0) { throw "esbuild bundling failed" }
 Pop-Location
 
-# Clean if requested
 if ($Clean) {
     foreach ($d in @($BuildDir, $CMakeBuildDir)) {
         if (Test-Path $d) {
@@ -57,7 +54,6 @@ if ($Clean) {
     }
 }
 
-# Create directories
 foreach ($d in @($BuildDir, $CMakeBuildDir)) {
     if (-not (Test-Path $d)) {
         New-Item -ItemType Directory -Path $d | Out-Null
@@ -81,7 +77,6 @@ if (-not (Test-Path $CMakeCacheFile)) {
     }
 }
 
-# Build
 Write-Host "Building WASM..." -ForegroundColor Yellow
 Push-Location $CMakeBuildDir
 try {
@@ -94,19 +89,16 @@ try {
     Pop-Location
 }
 
-# Copy web outputs to build/
 Write-Host "Copying web outputs..." -ForegroundColor Gray
 $CMakeWebchuglDir = Join-Path $CMakeBuildDir "webchugl"
 $BuildWebchuglDir = Join-Path $BuildDir "webchugl"
 if (-not (Test-Path $BuildWebchuglDir)) {
     New-Item -ItemType Directory -Path $BuildWebchuglDir | Out-Null
 }
-# WASM artifacts (from CMake post-build rename)
 foreach ($f in @("index.js", "webchugl.wasm")) {
     $src = Join-Path $CMakeWebchuglDir $f
     if (Test-Path $src) { Copy-Item $src (Join-Path $BuildWebchuglDir $f) -Force }
 }
-# Root-level files
 foreach ($f in @("index.html")) {
     $src = Join-Path $CMakeBuildDir $f
     if (Test-Path $src) { Copy-Item $src (Join-Path $BuildDir $f) -Force }
@@ -125,14 +117,12 @@ foreach ($f in @("chugl_logo_light.png", "chugl_logo_dark.png")) {
     Copy-Item (Join-Path $SrcDir "web\assets\$f") (Join-Path $BuildWebchuglDir $f) -Force
 }
 
-# Validate required build outputs exist
 $requiredJs = Join-Path $BuildWebchuglDir "index.js"
 $requiredWasm = Join-Path $BuildWebchuglDir "webchugl.wasm"
 if (-not (Test-Path $requiredJs) -or -not (Test-Path $requiredWasm)) {
     throw "Build outputs missing. Expected webchugl/index.js and webchugl/webchugl.wasm in $BuildDir"
 }
 
-# Copy runtime to dist/ (for npm publishing — includes all assets)
 Write-Host "Preparing npm dist..." -ForegroundColor Gray
 $DistDir = Join-Path $ProjectRoot "dist"
 if (-not (Test-Path $DistDir)) {
@@ -148,7 +138,6 @@ foreach ($f in @("index.js", "webchugl.wasm", "webchugl.js",
 Copy-Item (Join-Path $SrcDir "web\webchugl-esm.js") (Join-Path $DistDir "webchugl-esm.js") -Force
 # sw.js on the CDN lets users write a one-line sw.js instead of downloading one
 Copy-Item (Join-Path $SrcDir "web\lib\sw.js") (Join-Path $DistDir "sw.js") -Force
-# Copy TypeScript declaration files for npm consumers
 $DtsPath = Join-Path $SrcDir "web\webchugl-esm.d.ts"
 if (Test-Path $DtsPath) {
     Copy-Item $DtsPath (Join-Path $DistDir "webchugl-esm.d.ts") -Force
@@ -162,7 +151,6 @@ if (Test-Path $ChuckDtsPath) {
     Copy-Item $ChuckDtsPath (Join-Path $DistTypesDir "chuck.d.ts") -Force
 }
 
-# Inject package version into ESM (replaces __WEBCHUGL_VERSION__ placeholder)
 $PkgVersion = (Get-Content (Join-Path $ProjectRoot "package.json") | ConvertFrom-Json).version
 $EsmPath = Join-Path $DistDir "webchugl-esm.js"
 (Get-Content $EsmPath -Raw).Replace('__WEBCHUGL_VERSION__', $PkgVersion) | Set-Content $EsmPath -NoNewline

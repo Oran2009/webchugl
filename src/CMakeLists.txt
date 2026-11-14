@@ -4,15 +4,11 @@ project(WebChuGL LANGUAGES CXX C)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Paths
 set(CHUCK_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../chuck/src/core")
 set(CHUGL_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../chugl/src")
 set(HOST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/host")
 set(CODE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/code")
 
-# ===========================================================================
-# ChucK core sources
-# ===========================================================================
 set(CHUCK_CORE_SOURCES
     ${CHUCK_CORE_DIR}/chuck.cpp
     ${CHUCK_CORE_DIR}/chuck_absyn.cpp
@@ -59,15 +55,9 @@ set(CHUCK_CORE_SOURCES
     # MIDI support via Web MIDI API
     ${CHUCK_CORE_DIR}/midiio_rtmidi.cpp
     ${CHUCK_CORE_DIR}/rtmidi.cpp
-    # Excluded for web: chuck_otf network deps handled by __DISABLE_OTF_SERVER__
-    # Excluded: hidio_sdl.cpp (platform-specific)
-    # Excluded: util_network.c, util_opsc.cpp, ulib_opsc.cpp (network)
-    # Excluded: util_serial.cpp (serial), util_hid.cpp (HID)
+    # Excluded: network (util_network, *opsc, chuck_otf), serial, HID.
 )
 
-# ===========================================================================
-# ChuGL sources (unity build)
-# ===========================================================================
 set(CHUGL_SOURCES
     ${CHUGL_SRC_DIR}/ChuGL.cpp
     ${CHUGL_SRC_DIR}/core/log.c
@@ -88,21 +78,12 @@ set(CHUGL_SOURCES
     ${CHUGL_SRC_DIR}/vendor/cimgui/imgui/backends/imgui_impl_wgpu.cpp
 )
 
-# ===========================================================================
-# Host entry point
-# ===========================================================================
 set(HOST_SOURCES
     ${HOST_DIR}/webchugl_main.cpp
 )
 
-# ===========================================================================
-# Target
-# ===========================================================================
 add_executable(webchugl ${HOST_SOURCES} ${CHUCK_CORE_SOURCES} ${CHUGL_SOURCES})
 
-# ===========================================================================
-# Include directories
-# ===========================================================================
 target_include_directories(webchugl PRIVATE
     ${HOST_DIR}
     ${CHUCK_CORE_DIR}
@@ -113,9 +94,6 @@ target_include_directories(webchugl PRIVATE
     ${CHUGL_SRC_DIR}/vendor/cimgui/imgui
 )
 
-# ===========================================================================
-# Compile definitions
-# ===========================================================================
 target_compile_definitions(webchugl PRIVATE
     # Disable ChucK features not available on web
     __DISABLE_NETWORK__
@@ -125,9 +103,7 @@ target_compile_definitions(webchugl PRIVATE
     __DISABLE_KBHIT__
     __DISABLE_PROMPTER__
     __DISABLE_SHELL__
-    # Disables ChucK's internal thread creation (not needed on web where the
-    # VM runs on the main thread). Does NOT affect the pthreads ABI, which is
-    # required (-pthread) for SharedArrayBuffer and ChuGin ABI compatibility.
+    # Not the pthreads ABI: -pthread is still required for SharedArrayBuffer.
     __DISABLE_THREADS__
     __DISABLE_OTF_SERVER__
     __DISABLE_ASYNCH_IO__
@@ -146,14 +122,8 @@ target_compile_definitions(webchugl PRIVATE
     WEBGPU_BACKEND_DAWN
 )
 
-# ===========================================================================
-# Compile options
-# ===========================================================================
-# Normalize the project root to an absolute path with no `..` segments.
-# -ffile-prefix-map is an exact prefix match, so the prefix must match
-# byte-for-byte whatever the compiler embeds in __FILE__. On Windows the
-# compiler may see paths with either forward or backslashes depending on
-# the generator, so supply both variants.
+# -ffile-prefix-map matches __FILE__ byte-for-byte, and the generator decides
+# the slash direction on Windows, so both variants are supplied.
 get_filename_component(WEBCHUGL_PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 file(TO_CMAKE_PATH "${WEBCHUGL_PROJECT_ROOT}" WEBCHUGL_PROJECT_ROOT_FWD)
 file(TO_NATIVE_PATH "${WEBCHUGL_PROJECT_ROOT}" WEBCHUGL_PROJECT_ROOT_NATIVE)
@@ -166,8 +136,7 @@ target_compile_options(webchugl PRIVATE
     --use-port=contrib.glfw3
     --use-port=emdawnwebgpu
     $<IF:$<CONFIG:Debug>,-O0 -g,-O3>
-    # Rewrite compile-time paths so __FILE__ (used by ChuGL's log_warn etc.)
-    # is repo-relative, not the absolute path of the build machine.
+    # Keeps __FILE__ (ChuGL's log_warn) repo-relative, not build-machine paths.
     "SHELL:-ffile-prefix-map=${WEBCHUGL_PROJECT_ROOT_FWD}/="
     "SHELL:-ffile-prefix-map=${WEBCHUGL_PROJECT_ROOT_NATIVE}\\="
     -Wno-unused-parameter
@@ -181,17 +150,10 @@ target_compile_options(webchugl PRIVATE
     -Wno-psabi  # Box2D SIMD ABI warning
 )
 
-# ===========================================================================
-# Dependencies (FetchContent)
-# ===========================================================================
 include(FetchContent)
 
-# Set global flags for subdirectories (FreeType).
-# These cannot be scoped via target_compile_options because FreeType is an
-# external library added via add_subdirectory. -pthread is required for
-# SharedArrayBuffer ABI compatibility, and -fPIC is required for
-# -sMAIN_MODULE dynamic linking. Both must match between main module and
-# any SIDE_MODULE ChuGins.
+# Global, not target-scoped: FreeType comes in via add_subdirectory. -pthread and
+# -fPIC must match between the main module and any SIDE_MODULE ChuGins.
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pthread -fPIC")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread -fPIC")
 
@@ -210,9 +172,6 @@ target_link_libraries(webchugl PRIVATE freetype)
 add_subdirectory(${CHUGL_SRC_DIR}/vendor/sr_webcam sr_webcam_build)
 target_link_libraries(webchugl PRIVATE sr_webcam)
 
-# ===========================================================================
-# Emscripten link options
-# ===========================================================================
 target_link_options(webchugl PRIVATE
     --use-port=contrib.glfw3
     --use-port=emdawnwebgpu
@@ -242,9 +201,7 @@ set_target_properties(webchugl PROPERTIES
     OUTPUT_NAME "index"
 )
 
-# Move Emscripten link outputs into webchugl/ subdirectory.
-# JS/asset copies are handled by build.ps1/build.sh so that TS-only
-# changes propagate without a full WASM relink.
+# JS/asset copies live in build.ps1/build.sh so TS-only changes skip a relink.
 add_custom_command(TARGET webchugl POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/webchugl
     COMMAND ${CMAKE_COMMAND} -E rename
