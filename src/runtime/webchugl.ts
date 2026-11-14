@@ -77,7 +77,6 @@ class ChucK {
     private jszipPromise: Promise<void> | null = null;
     private _storage = new Storage();
     private _teardown = new AbortController();
-    private _initError: Error | null = null;
 
     private constructor(baseUrl: string) {
         this.baseUrl = baseUrl;
@@ -86,13 +85,11 @@ class ChucK {
     // Calls made before the VM is ready are queued here.
 
     private defer(fn: () => void): void {
-        if (this._initError) throw this._initError;
         if (this.isReady) fn();
         else this.deferQueue.push(fn);
     }
 
     private deferPromise<T>(fn: () => T | Promise<T>): Promise<T> {
-        if (this._initError) return Promise.reject(this._initError);
         if (this.isReady) {
             try { return Promise.resolve(fn()); }
             catch (e) { return Promise.reject(e); }
@@ -334,13 +331,12 @@ class ChucK {
         const canvas = config.canvas;
         canvas.addEventListener('webglcontextlost', (e) => e.preventDefault(), false);
 
-        // Init resolves even on failure (callers get onError), so mark the
-        // instance dead: later calls throw instead of queueing forever.
-        const fail = (msg: string): ChucK => {
-            instance._initError = new Error('[WebChuGL] ' + msg);
+        // onError still fires, but init() rejects: a failed factory must not
+        // hand back an instance whose calls would queue forever.
+        const fail = (msg: string): Promise<ChucK> => {
             onError(msg);
             instance.flushCallbacks();
-            return instance;
+            return Promise.reject(new Error('[WebChuGL] ' + msg));
         };
 
         const moduleConfig: Partial<EmscriptenModule> = {
