@@ -2,14 +2,14 @@
 
 [![](https://data.jsdelivr.com/v1/package/npm/webchugl/badge)](https://www.jsdelivr.com/package/npm/webchugl)
 
-[site](https://chuck.stanford.edu/webchugl/) | [docs](https://chuck.stanford.edu/webchugl/docs/) | [npm](https://www.npmjs.com/package/webchugl)
+[site](https://ccrma.stanford.edu/~hoangben/webchugl/) | [docs](https://ccrma.stanford.edu/~hoangben/webchugl/docs/) | [npm](https://www.npmjs.com/package/webchugl)
 
 WebChuGL brings [ChuGL](http://chuck.stanford.edu/chugl/), the real-time graphics framework for the [ChucK](https://chuck.stanford.edu/) programming language, to the web browser!
 ChuGL's C++ source code has been compiled with [Emscripten](https://emscripten.org) to WebAssembly (WASM) to render via the WebGPU API and run audio through an [AudioWorkletNode](https://developer.mozilla.org/en-US/docs/Web/API/AudioWorkletNode).
 
 WebChuGL builds on [WebChucK](https://chuck.cs.princeton.edu/webchuck/) by adding ChuGL’s scenegraph, materials, textures, shaders, post-processing, and the full GGen (graphics generator) ecosystem — all tightly synchronized to ChucK’s strongly-timed audio engine.
 
-To learn more about WebChuGL and what it can do, check out [https://chuck.stanford.edu/webchugl/](https://chuck.stanford.edu/webchugl/).
+To learn more about WebChuGL and what it can do, check out [https://ccrma.stanford.edu/~hoangben/webchugl/](https://ccrma.stanford.edu/~hoangben/webchugl/).
 
 ## Getting Started
 
@@ -70,8 +70,8 @@ You can also embed WebChuGL as a JavaScript module into your `index.html`.
 </html>
 ```
 
-`ck` contains the ChucK Virtual Machine for running code, loading files, syncing global variables, and more! Read the [documentation](https://chuck.stanford.edu/webchugl/docs/) for the full API reference.
+`ck` contains the ChucK Virtual Machine for running code, loading files, syncing global variables, and more! Read the [documentation](https://ccrma.stanford.edu/~hoangben/webchugl/docs/) for the full API reference.
 
 ## Documentation
 
-WebChuGL full documentation and API reference: [here](https://chuck.stanford.edu/webchugl/docs/)
+WebChuGL full documentation and API reference: [here](https://ccrma.stanford.edu/~hoangben/webchugl/docs/)

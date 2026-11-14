@@ -24,6 +24,8 @@
     transition: border-color 0.2s, transform 0.2s;
 }
 .feature-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+a.feature-card { display: block; color: inherit; text-decoration: none; }
+a.feature-card:hover, a.feature-card:visited { color: inherit; text-decoration: none; }
 .feature-card h4 { margin-top: 0; font-size: 1.1rem; }
 .feature-card .icon { font-size: 1.5rem; margin-bottom: 0.5rem; }
 
