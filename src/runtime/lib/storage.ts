@@ -1,68 +1,57 @@
-/** Lazy-initialized IndexedDB key-value store for persistent data. */
-export class Storage {
-    private dbPromise: Promise<IDBDatabase> | null = null;
+/**
+ * Persistent storage, Emscripten's IDBFS -> IndexedDB
+ */
 
-    private getDB(): Promise<IDBDatabase> {
-        if (this.dbPromise) return this.dbPromise;
-        this.dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
-            const request = indexedDB.open('WebChuGL', 1);
-            request.onupgradeneeded = () => {
-                const db = request.result;
-                if (!db.objectStoreNames.contains('kv')) {
-                    db.createObjectStore('kv');
-                }
-            };
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => {
-                console.error('[WebChuGL] IndexedDB error:', request.error);
-                this.dbPromise = null;
-                reject(request.error);
-            };
+const MOUNT = '/persist';
+const KV_DIR = MOUNT + '/kv';
+
+const toFilename = (key: string) => encodeURIComponent(key).replace(/\./g, '%2E');
+
+export class Storage {
+    constructor(private getModule: () => WebChuGLModule | null) {}
+
+    private get fs(): EmscriptenFS {
+        const module = this.getModule();
+        if (!module) throw new Error('[WebChuGL] storage is unavailable before init() resolves');
+        return module.FS;
+    }
+
+    /** Mount IDBFS and pull its contents into the VFS. */
+    mount(): Promise<void> {
+        const module = this.getModule()!;
+        module.FS.mkdir(MOUNT);
+        module.FS.mount(module.IDBFS, { autoPersist: true }, MOUNT);
+        return this.sync(true).then(() => {
+            try { module.FS.mkdir(KV_DIR); } catch { /* restored by the sync */ }
         });
-        return this.dbPromise;
+    }
+
+    private sync(populate: boolean): Promise<void> {
+        return new Promise((resolve, reject) => {
+            this.fs.syncfs(populate, (err) => (err ? reject(err) : resolve()));
+        });
     }
 
     save(key: string, value: unknown): Promise<void> {
-        return this.getDB().then((db) => {
-            return new Promise<void>((resolve, reject) => {
-                const tx = db.transaction('kv', 'readwrite');
-                const req = tx.objectStore('kv').put(value, key);
-                req.onsuccess = () => resolve();
-                req.onerror = () => reject(req.error);
-            });
-        });
+        this.fs.writeFile(KV_DIR + '/' + toFilename(key), JSON.stringify(value));
+        return this.sync(false);
     }
 
     load(key: string): Promise<unknown> {
-        return this.getDB().then((db) => {
-            return new Promise<unknown>((resolve, reject) => {
-                const tx = db.transaction('kv', 'readonly');
-                const req = tx.objectStore('kv').get(key);
-                req.onsuccess = () => resolve(req.result);
-                req.onerror = () => reject(req.error);
-            });
-        });
+        let bytes: Uint8Array;
+        try { bytes = this.fs.readFile(KV_DIR + '/' + toFilename(key)); }
+        catch { return Promise.resolve(undefined); }
+        return Promise.resolve(JSON.parse(new TextDecoder().decode(bytes)));
     }
 
     delete(key: string): Promise<void> {
-        return this.getDB().then((db) => {
-            return new Promise<void>((resolve, reject) => {
-                const tx = db.transaction('kv', 'readwrite');
-                const req = tx.objectStore('kv').delete(key);
-                req.onsuccess = () => resolve();
-                req.onerror = () => reject(req.error);
-            });
-        });
+        try { this.fs.unlink(KV_DIR + '/' + toFilename(key)); }
+        catch { return Promise.resolve(); }
+        return this.sync(false);
     }
 
     listKeys(): Promise<string[]> {
-        return this.getDB().then((db) => {
-            return new Promise<string[]>((resolve, reject) => {
-                const tx = db.transaction('kv', 'readonly');
-                const req = tx.objectStore('kv').getAllKeys();
-                req.onsuccess = () => resolve(req.result as string[]);
-                req.onerror = () => reject(req.error);
-            });
-        });
+        const names = this.fs.readdir(KV_DIR).filter((n) => n !== '.' && n !== '..');
+        return Promise.resolve(names.map(decodeURIComponent));
     }
 }

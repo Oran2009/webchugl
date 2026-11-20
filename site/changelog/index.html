@@ -72,7 +72,8 @@
             </ul>
             <h3>Breaking</h3>
             <ul>
-                <li><code>ChuGL.init()</code> now rejects when WebGPU is unavailable instead of resolving with an instance that silently ignores every call. <code>onError</code> still fires; wrap the call in <code>try</code>/<code>catch</code> if you need to handle it</li>
+                <li><code>ChuGL.init()</code> now rejects when WebGPU is unavailable instead of resolving</li>
+                <li>Persistent storage migrated to IDBFS &mdash; existing saved data is not migrated, and <code>save()</code> now expects JSON</li>
             </ul>
             <h3>Updated</h3>
             <ul>

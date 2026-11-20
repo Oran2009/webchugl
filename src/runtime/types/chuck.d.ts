@@ -369,9 +369,18 @@ export interface ChucK {
 
     // ── Persistent Storage (IndexedDB) ──────────────────────────────────
 
-    /** Save a value to persistent storage (IndexedDB). */
+    /**
+     * Save a value to persistent storage (IndexedDB).
+     *
+     * The value is stored as JSON, so it must be JSON-representable.
+     */
     save(key: string, value: unknown): Promise<void>;
-    /** Load a value from persistent storage (IndexedDB). */
+    /**
+     * Load a value from persistent storage, or `undefined` if the key is unset.
+     *
+     * The value is parsed from JSON, so a saved `Date` returns a string and a
+     * saved `Map` returns `{}`.
+     */
     load(key: string): Promise<unknown>;
     /** Delete a value from persistent storage (IndexedDB). */
     delete(key: string): Promise<void>;

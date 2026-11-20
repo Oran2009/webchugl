@@ -185,7 +185,8 @@ target_link_options(webchugl PRIVATE
     -sFORCE_FILESYSTEM
     -sDISABLE_EXCEPTION_CATCHING=0
     -sEXPORTED_FUNCTIONS=['_main','_malloc','_free']
-    -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','addFunction','wasmTable','wasmMemory','callMain','FS']
+    -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','addFunction','wasmTable','wasmMemory','callMain','FS','IDBFS']
+    -lidbfs.js  # IndexedDB-backed FS, mounted by Storage for persistence
     -sMODULARIZE=1
     -sEXPORT_ES6=1
     -sEXPORT_NAME=createWebChuGL

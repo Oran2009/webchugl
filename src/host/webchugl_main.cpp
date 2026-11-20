@@ -128,11 +128,11 @@ int main(int argc, char** argv)
     });
     g_numOutputChannels = EM_ASM_INT({
         var c = Module._audioConfig;
-        return (c && c.outChannels) ? c.outChannels : 2;
+        return (c && c.outputChannels) ? c.outputChannels : 2;
     });
     g_numInputChannels = EM_ASM_INT({
         var c = Module._audioConfig;
-        return (c && c.inChannels) ? c.inChannels : 2;
+        return (c && c.inputChannels) ? c.inputChannels : 2;
     });
     if (g_sampleRate < 8000 || g_sampleRate > 192000) g_sampleRate = 48000;
     if (g_numOutputChannels < 1 || g_numOutputChannels > 32) g_numOutputChannels = 2;

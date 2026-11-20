@@ -1,14 +1,17 @@
 /**
- * Type declarations for the Emscripten Module used by WebChuGL.
+ * The wasm Module object: Emscripten's own runtime API, plus the properties
+ * WebChuGL bolts on. `webchugl.ts` seeds the additions into the config passed
+ * to the MODULARIZE factory, and C++ reads them back through EM_ASM/EM_JS.
  *
- * These types cover every property and method accessed on the Emscripten
- * Module object (`_module`) in `webchugl.js` and from C++ via EM_ASM/EM_JS
- * blocks in `webchugl_main.cpp`.
+ * Internal. The published API lives in `chuck.d.ts`.
  */
 
 // ---------------------------------------------------------------------------
 // Emscripten Filesystem (FS) API — subset used by WebChuGL
 // ---------------------------------------------------------------------------
+
+/** An FS backend object, passed to `FS.mount()`. Opaque to callers. */
+type EmscriptenFSBackend = object;
 
 /** Stat result returned by `FS.stat()`. */
 interface EmscriptenFSStat {
@@ -23,8 +26,21 @@ interface EmscriptenFS {
     /** Write a file to the virtual filesystem. */
     writeFile(path: string, data: string | Uint8Array): void;
 
+    /** Read a file from the virtual filesystem. */
+    readFile(path: string): Uint8Array;
+
     /** List entries in a directory (includes `.` and `..`). */
     readdir(path: string): string[];
+
+    /** Mount a filesystem backend (e.g. `IDBFS`) at `mountpoint`. */
+    mount(type: EmscriptenFSBackend, opts: Record<string, unknown>, mountpoint: string): void;
+
+    /**
+     * Reconcile a mounted backend with the in-memory VFS.
+     *
+     * @param populate - `true` pulls the backend into the VFS, `false` pushes the VFS out.
+     */
+    syncfs(populate: boolean, callback: (err: Error | null) => void): void;
 
     /** Get file/directory status. */
     stat(path: string): EmscriptenFSStat;
@@ -50,15 +66,8 @@ interface EmscriptenWasmMemory {
 }
 
 // ---------------------------------------------------------------------------
-// EmscriptenModule
+// The Module object
 // ---------------------------------------------------------------------------
-
-/** Audio configuration passed to the WASM module via `_audioConfig`. */
-interface WebChuGLAudioConfig {
-    sampleRate: number;
-    outChannels: number;
-    inChannels: number;
-}
 
 /** Event listener entry stored in `_ckEventListeners`. */
 interface CkEventListenerEntry {
@@ -66,14 +75,9 @@ interface CkEventListenerEntry {
     once: boolean;
 }
 
-/**
- * The Emscripten Module object as configured and used by WebChuGL.
- *
- * Includes standard Emscripten properties (`ccall`, `callMain`, `FS`, etc.)
- * and custom WebChuGL extensions (`_audioConfig`, `_ckCallbacks`, etc.).
- */
-interface EmscriptenModule {
-    // -- Standard Emscripten properties ------------------------------------
+/** The wasm Module object as WebChuGL configures and uses it. */
+interface WebChuGLModule {
+    // -- Emscripten's own API ----------------------------------------------
 
     /**
      * Call a compiled C/C++ function by name.
@@ -96,6 +100,9 @@ interface EmscriptenModule {
 
     /** Emscripten virtual filesystem API. */
     FS: EmscriptenFS;
+
+    /** IndexedDB-backed FS backend, linked in with `-lidbfs.js`. */
+    IDBFS: EmscriptenFSBackend;
 
     /** The canvas element used for WebGPU rendering. */
     canvas: HTMLCanvasElement;
@@ -126,12 +133,14 @@ interface EmscriptenModule {
     setStatus(text: string): void;
 
     /** Array of functions to run before the main program executes. */
-    preRun: Array<(mod: EmscriptenModule) => void>;
+    preRun: Array<(mod: WebChuGLModule) => void>;
 
-    // -- Custom WebChuGL properties ----------------------------------------
-
-    /** Audio configuration (sample rate, channel counts). */
-    _audioConfig: WebChuGLAudioConfig;
+    // -- WebChuGL's additions ----------------------------------------------
+    /**
+     * Audio configuration, resolved from defaults, URL params and
+     * `ChuGLConfig.audioConfig`. Read back in C++ by property name.
+     */
+    _audioConfig: Required<import('./chuck.js').AudioConfig>;
 
     /**
      * Pending callback map for async global variable getters.
@@ -191,7 +200,7 @@ interface EmscriptenModule {
 }
 
 // ---------------------------------------------------------------------------
-// The Emscripten MODULARIZE factory, default-exported by index.js
+// The MODULARIZE factory, default-exported by index.js
 // ---------------------------------------------------------------------------
 
 /**
@@ -201,8 +210,8 @@ interface EmscriptenModule {
  * and resolves with the fully initialized `EmscriptenModule`.
  *
  * @param config - Partial module configuration (hooks, canvas, custom properties).
- * @returns A promise that resolves to the initialized Emscripten Module.
+ * @returns A promise that resolves to the initialized Module.
  */
 declare type CreateWebChuGL = (
-    config: Partial<EmscriptenModule>,
-) => Promise<EmscriptenModule>;
+    config: Partial<WebChuGLModule>,
+) => Promise<WebChuGLModule>;

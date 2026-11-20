@@ -1,6 +1,6 @@
 // Bundled by esbuild into an ES module; webchugl-esm.ts imports initWebChuGL.
 
-import type { ShredInfo, ReplaceResult, GlobalVariableInfo, WebChuGLInternalConfig, ChuginEntry } from './types/chuck.js';
+import type { AudioConfig, ShredInfo, ReplaceResult, GlobalVariableInfo, WebChuGLInternalConfig, ChuginEntry } from './types/chuck.js';
 import { ensureVfsDir, isBinaryFile } from './lib/vfs';
 import { audioBufferToWav } from './lib/audio-utils';
 import { initSensors } from './lib/sensors';
@@ -59,7 +59,7 @@ class RunResult {
 }
 
 class ChucK {
-    private module: EmscriptenModule | null = null;
+    private module: WebChuGLModule | null = null;
     private nextId = 1;
     private isReady = false;
     private deferQueue: Array<() => void> = [];
@@ -75,7 +75,7 @@ class ChucK {
     private _printCallback: ((msg: string) => void) | null = null;
     private baseUrl: string;
     private jszipPromise: Promise<void> | null = null;
-    private _storage = new Storage();
+    private _storage = new Storage(() => this.module);
     private _teardown = new AbortController();
 
     private constructor(baseUrl: string) {
@@ -310,21 +310,20 @@ class ChucK {
             }
         }
 
-        const audioConfig: WebChuGLAudioConfig = { sampleRate: 48000, outChannels: 2, inChannels: 2 };
+        const audioConfig: Required<AudioConfig> =
+            { sampleRate: 48000, outputChannels: 2, inputChannels: 2 };
         const params = new URLSearchParams(window.location.search);
-        const sr = parseInt(params.get('srate') || '', 10);
-        const out = parseInt(params.get('out') || '', 10);
-        const inp = parseInt(params.get('in') || '', 10);
-        if (sr > 0) audioConfig.sampleRate = sr;
-        if (out > 0) audioConfig.outChannels = out;
-        if (inp > 0) audioConfig.inChannels = inp;
-        if (config.audioConfig) {
-            if (config.audioConfig.sampleRate && config.audioConfig.sampleRate > 0)
-                audioConfig.sampleRate = config.audioConfig.sampleRate;
-            if (config.audioConfig.outputChannels && config.audioConfig.outputChannels > 0)
-                audioConfig.outChannels = config.audioConfig.outputChannels;
-            if (config.audioConfig.inputChannels && config.audioConfig.inputChannels > 0)
-                audioConfig.inChannels = config.audioConfig.inputChannels;
+        const fromUrl: AudioConfig = {
+            sampleRate: parseInt(params.get('srate') || '', 10),
+            outputChannels: parseInt(params.get('out') || '', 10),
+            inputChannels: parseInt(params.get('in') || '', 10),
+        };
+        // Later sources win; anything missing or non-positive leaves the default.
+        for (const source of [fromUrl, config.audioConfig]) {
+            for (const key of Object.keys(audioConfig) as Array<keyof AudioConfig>) {
+                const value = source?.[key];
+                if (value && value > 0) audioConfig[key] = value;
+            }
         }
         instance._sampleRate = audioConfig.sampleRate;
 
@@ -339,7 +338,7 @@ class ChucK {
             return Promise.reject(new Error('[WebChuGL] ' + msg));
         };
 
-        const moduleConfig: Partial<EmscriptenModule> = {
+        const moduleConfig: Partial<WebChuGLModule> = {
             noInitialRun: true,
             _audioConfig: audioConfig,
             canvas: canvas,
@@ -377,7 +376,7 @@ class ChucK {
                 );
             },
 
-            preRun: [(mod: EmscriptenModule) => {
+            preRun: [(mod: WebChuGLModule) => {
                 instance.module = mod;
                 onProgress(100);
             }],
@@ -440,27 +439,30 @@ class ChucK {
                 }).then((device) => {
                     instance.module!._preAdapter = adapter;
                     instance.module!._preDevice = device;
-                    onReady();
-                    instance.module!.callMain([]);
+                    // Mount before callMain so storage is usable the moment init resolves.
+                    return instance._storage.mount().then(() => {
+                        onReady();
+                        instance.module!.callMain([]);
 
-                    instance.module!.ccall('chugl_setup_parent_resize', null, [], []);
+                        instance.module!.ccall('chugl_setup_parent_resize', null, [], []);
 
-                    for (const entry of pendingChuginBuffers) {
-                        const vfsPath = '/chugins/' + entry.name;
-                        instance.writeVfs(vfsPath, entry.buf);
-                        if (!instance.loadChuginFromVfs(vfsPath)) {
-                            console.warn('[WebChuGL] Failed to load chugin: ' + vfsPath);
+                        for (const entry of pendingChuginBuffers) {
+                            const vfsPath = '/chugins/' + entry.name;
+                            instance.writeVfs(vfsPath, entry.buf);
+                            if (!instance.loadChuginFromVfs(vfsPath)) {
+                                console.warn('[WebChuGL] Failed to load chugin: ' + vfsPath);
+                            }
                         }
-                    }
 
-                    initSensors(instance, instance._teardown.signal);
+                        initSensors(instance, instance._teardown.signal);
 
-                    window.addEventListener('pagehide', () => instance.destroy(),
-                                            { signal: instance._teardown.signal });
-                    const audioReady = instance._audioReady || Promise.resolve();
-                    return audioReady.then(() => {
-                        instance.flush();
-                        return instance;
+                        window.addEventListener('pagehide', () => instance.destroy(),
+                                                { signal: instance._teardown.signal });
+                        const audioReady = instance._audioReady || Promise.resolve();
+                        return audioReady.then(() => {
+                            instance.flush();
+                            return instance;
+                        });
                     });
                 });
             }).catch((e) => {
