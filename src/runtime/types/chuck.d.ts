@@ -23,7 +23,7 @@ export interface ChuGLConfig {
     canvas: HTMLCanvasElement;
     /**
      * Base URL where WebChuGL runtime assets are hosted (`index.js`,
-     * `webchugl.wasm`, `audio-worklet-processor.js`, `jszip.min.js`).
+     * `webchugl.wasm`, `audio-worklet-processor.js`).
      * Must end with `/`. Defaults to the jsdelivr CDN.
      */
     whereIsChuGL?: string;
@@ -214,14 +214,12 @@ export interface ChucK {
     /** Get a value from a global associative `float` array by key. */
     getAssocFloatArrayValue(name: string, key: string): Promise<number>;
 
-    // ── ChuGin & Package Loading ────────────────────────────────────────
+    // ── ChuGin Loading ────────────────────────────────────────
 
     /** Fetch and load a ChuGin (`.chug.wasm`) from a URL. Returns the ChuGin short name. */
     loadChugin(url: string): Promise<string>;
     /** Get the list of currently loaded ChuGin names. */
     getLoadedChugins(): string[];
-    /** Load a ChuMP package by name. Resolves the latest version if none is specified. */
-    loadPackage(name: string, version?: string, url?: string): Promise<string>;
 
     // ── Audio ───────────────────────────────────────────────────────────
 

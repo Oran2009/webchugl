@@ -108,7 +108,6 @@ copy(join(SRC, 'runtime/webchugl.js'), join(WEB_OUT, 'webchugl.js'));
 copy(join(SRC, 'runtime/webchugl.js.map'), join(WEB_OUT, 'webchugl.js.map'), true);
 copy(join(SRC, 'runtime/webchugl-esm.js'), join(WEB_OUT, 'webchugl-esm.js'));
 copy(join(SRC, 'runtime/assets/audio-worklet-processor.js'), join(WEB_OUT, 'audio-worklet-processor.js'));
-copy(join(SRC, 'runtime/vendor/jszip.min.js'), join(WEB_OUT, 'jszip.min.js'));
 for (const f of ['chugl_logo_light.png', 'chugl_logo_dark.png']) {
     copy(join(SRC, 'runtime/assets', f), join(WEB_OUT, f));
 }
@@ -118,8 +117,7 @@ for (const f of ['index.js', 'webchugl.wasm']) {
 }
 
 console.log('Preparing npm dist...');
-for (const f of ['index.js', 'webchugl.wasm', 'webchugl.js',
-    'audio-worklet-processor.js', 'jszip.min.js']) {
+for (const f of ['index.js', 'webchugl.wasm', 'webchugl.js', 'audio-worklet-processor.js']) {
     copy(join(WEB_OUT, f), join(DIST, f), true);
 }
 copy(join(SRC, 'runtime/webchugl-esm.js'), join(DIST, 'webchugl-esm.js'));

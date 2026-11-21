@@ -1,3 +1,94 @@
+/**
+ * Audio: the AudioWorklet that drains ChucK's ring buffer, and WAV encoding
+ * for `loadAudio`.
+ */
+
+export interface RingBufferParams {
+    sab: SharedArrayBuffer;
+    outBufPtr: number; outWritePosPtr: number; outReadPosPtr: number;
+    inBufPtr: number; inWritePosPtr: number; inReadPosPtr: number;
+    capacity: number;
+    sampleRate: number; outChannels: number; inChannels: number;
+}
+
+/**
+ * Create the AudioContext and start the worklet reading `params`'s ring buffer.
+ * The context is returned synchronously so callers can report the sample rate
+ * before the worklet module finishes loading; `ready` resolves with the node,
+ * or null if the worklet failed.
+ */
+export function startAudio(
+    params: RingBufferParams,
+    baseUrl: string,
+    signal: AbortSignal,
+): { ctx: AudioContext; ready: Promise<AudioWorkletNode | null> } {
+    const { sampleRate, outChannels, inChannels } = params;
+    const ctx = new AudioContext({ sampleRate, latencyHint: 'interactive' });
+
+    const ready = ctx.audioWorklet.addModule(baseUrl + 'audio-worklet-processor.js').then(() => {
+        const node = new AudioWorkletNode(ctx, 'chuck-processor', {
+            numberOfInputs: 1,
+            numberOfOutputs: 1,
+            outputChannelCount: [outChannels],
+            channelCount: inChannels,
+            channelCountMode: 'explicit',
+        });
+
+        node.port.postMessage({
+            sab: params.sab,
+            outBufOffset: params.outBufPtr,
+            outWritePosOffset: params.outWritePosPtr,
+            outReadPosOffset: params.outReadPosPtr,
+            inBufOffset: params.inBufPtr,
+            inWritePosOffset: params.inWritePosPtr,
+            inReadPosOffset: params.inReadPosPtr,
+            capacity: params.capacity,
+            outChannels,
+            inChannels,
+        });
+
+        node.connect(ctx.destination);
+        armAutoResume(ctx, signal);
+        console.log('[WebChuGL] Audio initialized (JS AudioWorklet)');
+        return node;
+    }).catch((err) => {
+        console.error('[WebChuGL] Audio worklet failed: ' + err.message);
+        return null;
+    });
+
+    return { ctx, ready };
+}
+
+/**
+ * Resume the context on the next user gesture whenever it is not running. A
+ * context can re-suspend long after the first resume (backgrounded tab, device
+ * change), so the listeners re-arm on any non-running state. `signal` removes
+ * them for good on teardown.
+ */
+function armAutoResume(ctx: AudioContext, signal: AbortSignal): void {
+    let attached = false;
+    const onGesture = (): void => {
+        if (ctx.state === 'running') return;
+        ctx.resume().catch((err) => console.warn('[WebChuGL] AudioContext resume failed:', err));
+    };
+    const EVENTS = ['click', 'keydown', 'touchstart'] as const;
+    const attach = (): void => {
+        if (attached) return;
+        for (const e of EVENTS) document.addEventListener(e, onGesture, { signal });
+        attached = true;
+    };
+    const detach = (): void => {
+        if (!attached) return;
+        for (const e of EVENTS) document.removeEventListener(e, onGesture);
+        attached = false;
+    };
+    ctx.addEventListener('statechange', () => {
+        if (ctx.state === 'running') detach();
+        else if (ctx.state === 'suspended') attach();
+    }, { signal });
+    attach();
+}
+
 function writeString(view: DataView, offset: number, str: string): void {
     for (let i = 0; i < str.length; i++) {
         view.setUint8(offset + i, str.charCodeAt(i));

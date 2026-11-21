@@ -1,47 +1,13 @@
 // Bundled by esbuild into an ES module; webchugl-esm.ts imports initWebChuGL.
 
+import type { RingBufferParams } from './lib/audio';
 import type { AudioConfig, ShredInfo, ReplaceResult, GlobalVariableInfo, WebChuGLInternalConfig, ChuginEntry } from './types/chuck.js';
-import { ensureVfsDir, isBinaryFile } from './lib/vfs';
-import { audioBufferToWav } from './lib/audio-utils';
+import { VFS, isBinaryFile } from './lib/vfs';
+import { audioBufferToWav, startAudio } from './lib/audio';
+import { installMidiAccess } from './lib/midi';
+import { Zip } from './lib/zip';
 import { initSensors } from './lib/sensors';
-import { Storage } from './lib/storage';
 import { registerServiceWorker } from './lib/service-worker';
-
-// Non-standard: iOS Safari sensor permissions, MIDI internals.
-
-interface RtMidiWindow extends Window {
-    _rtmidi_internals_midi_access: MIDIAccess;
-    _rtmidi_internals_latest_message_timestamp: number;
-    _rtmidi_internals_waiting: boolean;
-    _rtmidi_internals_get_port_by_number: (portNumber: number, isInput: boolean) => MIDIPort | null;
-}
-
-// Shape of chuck.stanford.edu/release/chump/manifest/
-
-interface ChumpFileEntry {
-    url: string;
-    checksum: string;
-    file_type: string;
-    local_dir: string;
-}
-
-interface ChumpVersionEntry {
-    version: string;
-    os: string;
-    arch: string;
-    files: ChumpFileEntry[];
-}
-
-interface ChumpPackage {
-    name: string;
-    description: string;
-    authors: string[];
-    versions: ChumpVersionEntry[];
-}
-
-interface ChumpManifest {
-    packages: ChumpPackage[];
-}
 
 // valueOf() keeps callers that treat a run result as a bare shred id working.
 class RunResult {
@@ -58,14 +24,26 @@ class RunResult {
     }
 }
 
+function fetchOk(url: string): Promise<Response> {
+    return fetch(url).then((r) => {
+        if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + url);
+        return r;
+    });
+}
+
+function fetchBuf(url: string): Promise<ArrayBuffer> {
+    return fetchOk(url).then((r) => r.arrayBuffer());
+}
+
+
 class ChucK {
-    private module: WebChuGLModule | null = null;
-    private nextId = 1;
-    private isReady = false;
-    private deferQueue: Array<() => void> = [];
-    private callbacks: Record<number, (value: any) => void> = {};
-    private eventListeners: Record<number, CkEventListenerEntry> = {};
-    private loadedChuginSet: Record<string, boolean> = {};
+    private _module: WebChuGLModule | null = null;
+    private _nextId = 1;
+    private _isReady = false;
+    private _deferQueue: Array<() => void> = [];
+    private _callbacks: Record<number, (value: any) => void> = {};
+    private _eventListeners: Record<number, CkEventListenerEntry> = {};
+    private _loadedChuginSet: Record<string, boolean> = {};
     private _audioCtx: AudioContext | null = null;
     private _audioNode: AudioWorkletNode | null = null;
     private _audioReady: Promise<void> | null = null;
@@ -73,108 +51,98 @@ class ChucK {
     private _micSource: MediaStreamAudioSourceNode | null = null;
     private _sampleRate = 48000;
     private _printCallback: ((msg: string) => void) | null = null;
-    private baseUrl: string;
-    private jszipPromise: Promise<void> | null = null;
-    private _storage = new Storage(() => this.module);
+    private _baseUrl: string;
+    private _vfs = new VFS(() => this._module);
     private _teardown = new AbortController();
 
     private constructor(baseUrl: string) {
-        this.baseUrl = baseUrl;
+        this._baseUrl = baseUrl;
     }
 
     // Calls made before the VM is ready are queued here.
 
-    private defer(fn: () => void): void {
-        if (this.isReady) fn();
-        else this.deferQueue.push(fn);
+    private _defer(fn: () => void): void {
+        if (this._isReady) fn();
+        else this._deferQueue.push(fn);
     }
 
-    private deferPromise<T>(fn: () => T | Promise<T>): Promise<T> {
-        if (this.isReady) {
+    private _deferPromise<T>(fn: () => T | Promise<T>): Promise<T> {
+        if (this._isReady) {
             try { return Promise.resolve(fn()); }
             catch (e) { return Promise.reject(e); }
         }
         return new Promise<T>((resolve, reject) => {
-            this.deferQueue.push(() => {
+            this._deferQueue.push(() => {
                 try { Promise.resolve(fn()).then(resolve, reject); }
                 catch (e) { reject(e); }
             });
         });
     }
 
-    private writeVfs(path: string, data: string | ArrayBuffer | Uint8Array): void {
-        ensureVfsDir(this.module!.FS, path);
-        this.module!.FS.writeFile(path,
-            typeof data === 'string' ? data : new Uint8Array(data as ArrayBuffer));
-    }
-
     // Returns the zip's entry names, each written to / and chugins loaded.
-    private unzipToVfs(url: string): Promise<string[]> {
-        const jszipReady = this.ensureJSZip();
-        return ChucK.fetchBuf(url)
-            .then((zipData) => jszipReady.then(() => JSZip.loadAsync(zipData)))
-            .then((zip) => {
-                const entries = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
-                return Promise.all(entries.map((name) =>
-                    zip.files[name].async('arraybuffer').then((content) => {
-                        this.defer(() => {
-                            this.writeVfs('/' + name, content);
-                            if (name.endsWith('.chug.wasm')) this.loadChuginFromVfs('/' + name);
-                        });
-                    })
-                )).then(() => entries);
-            });
+    private _unzipToVfs(url: string): Promise<string[]> {
+        return fetchBuf(url).then((zipData) => {
+            const zip = Zip.read(zipData);
+            return Promise.all(zip.names.map((name) =>
+                zip.file(name).then((content) => {
+                    this._defer(() => {
+                        this._vfs.write('/' + name, content);
+                        if (name.endsWith('.chug.wasm')) this._loadChugin('/' + name);
+                    });
+                })
+            )).then(() => zip.names);
+        });
     }
 
-    private runVfsFile(path: string): Promise<RunResult> {
-        return this.deferPromise(() => {
-            const shredId = this.module!.ccall('ck_run_file', 'number', ['string'], [path]);
+    private _runFile(path: string): Promise<RunResult> {
+        return this._deferPromise(() => {
+            const shredId = this._module!.ccall('ck_run_file', 'number', ['string'], [path]);
             return new RunResult(shredId, () => this.getLastError());
         });
     }
 
-    private replaceVia(func: string, types: string[], args: unknown[]): Promise<ReplaceResult> {
-        return this.deferPromise(() => {
-            if (!this.module!.ccall(func, 'number', types, args)) {
+    private _replaceVia(func: string, types: string[], args: unknown[]): Promise<ReplaceResult> {
+        return this._deferPromise(() => {
+            if (!this._module!.ccall(func, 'number', types, args)) {
                 return Promise.reject(new Error(func + ' failed'));
             }
             return {
-                oldShred: this.module!.ccall('ck_get_replace_old_shred', 'number', [], []),
-                newShred: this.module!.ccall('ck_get_replace_new_shred', 'number', [], []),
+                oldShred: this._module!.ccall('ck_get_replace_old_shred', 'number', [], []),
+                newShred: this._module!.ccall('ck_get_replace_new_shred', 'number', [], []),
             };
         });
     }
 
-    private flush(): void {
-        const queue = this.deferQueue;
-        this.deferQueue = [];
-        this.isReady = true;
+    private _flush(): void {
+        const queue = this._deferQueue;
+        this._deferQueue = [];
+        this._isReady = true;
         for (const fn of queue) fn();
     }
 
-    private flushCallbacks(): void {
-        for (const key of Object.keys(this.callbacks)) {
+    private _flushCallbacks(): void {
+        for (const key of Object.keys(this._callbacks)) {
             const id = Number(key);
-            this.callbacks[id](undefined);
-            delete this.callbacks[id];
+            this._callbacks[id](undefined);
+            delete this._callbacks[id];
         }
     }
 
 
-    private ccallSet(func: string, types: string[], args: unknown[]): void {
-        this.defer(() => {
-            this.module!.ccall(func, 'number', types, args);
+    private _ccallSet(func: string, types: string[], args: unknown[]): void {
+        this._defer(() => {
+            this._module!.ccall(func, 'number', types, args);
         });
     }
 
-    private ccallGet(func: string, types: string[], args: unknown[]): Promise<any> {
-        return this.deferPromise(() => {
+    private _ccallGet(func: string, types: string[], args: unknown[]): Promise<any> {
+        return this._deferPromise(() => {
             return new Promise((resolve, reject) => {
-                const id = this.nextId++;
-                this.callbacks[id] = resolve;
-                const ret = this.module!.ccall(func, 'number', types.concat('number'), args.concat(id));
+                const id = this._nextId++;
+                this._callbacks[id] = resolve;
+                const ret = this._module!.ccall(func, 'number', types.concat('number'), args.concat(id));
                 if (!ret) {
-                    delete this.callbacks[id];
+                    delete this._callbacks[id];
                     reject(new Error(func + ' failed'));
                 }
             });
@@ -182,116 +150,28 @@ class ChucK {
     }
 
 
-    private ensureJSZip(): Promise<void> {
-        if (typeof JSZip !== 'undefined') return Promise.resolve();
-        if (this.jszipPromise) return this.jszipPromise;
-        this.jszipPromise = new Promise<void>((resolve, reject) => {
-            const s = document.createElement('script');
-            s.src = this.baseUrl + 'jszip.min.js';
-            s.onload = () => resolve();
-            s.onerror = () => reject(new Error('Failed to load jszip'));
-            document.head.appendChild(s);
-        });
-        return this.jszipPromise;
-    }
-
-
-    private loadChuginFromVfs(vfsPath: string): string | null {
+    private _loadChugin(vfsPath: string): string | null {
         const filename = vfsPath.split('/').pop()!;
         const shortName = filename.replace('.chug.wasm', '');
-        if (this.loadedChuginSet[shortName]) return shortName;
-        const result = this.module!.ccall('ck_load_chugin', 'number', ['string'], [vfsPath]);
+        if (this._loadedChuginSet[shortName]) return shortName;
+        const result = this._module!.ccall('ck_load_chugin', 'number', ['string'], [vfsPath]);
         if (result) {
-            this.loadedChuginSet[shortName] = true;
+            this._loadedChuginSet[shortName] = true;
             return shortName;
         }
         return null;
     }
 
-    // Called from C++ via Module._initAudio.
-
-    private handleInitAudio(
-        sab: SharedArrayBuffer,
-        outBufPtr: number, outWritePosPtr: number, outReadPosPtr: number,
-        inBufPtr: number, inWritePosPtr: number, inReadPosPtr: number,
-        capacity: number,
-        sampleRate: number, outChannels: number, inChannels: number,
-    ): void {
-        let ctx: AudioContext;
+    // Called from C++ via Module._initAudio. Must not throw back into wasm.
+    private _handleInitAudio(params: RingBufferParams): void {
         try {
-            ctx = new AudioContext({ sampleRate, latencyHint: 'interactive' });
+            const { ctx, ready } = startAudio(params, this._baseUrl, this._teardown.signal);
+            // Set synchronously so getSampleRate() works before the worklet loads.
+            this._audioCtx = ctx;
+            this._audioReady = ready.then((node) => { this._audioNode = node; });
         } catch (e) {
-            console.error('[WebChuGL] Failed to create AudioContext: ' + (e as Error).message);
-            return;
+            console.error('[WebChuGL] Failed to start audio: ' + (e as Error).message);
         }
-
-        this._audioReady = ctx.audioWorklet.addModule(this.baseUrl + 'audio-worklet-processor.js').then(() => {
-            const node = new AudioWorkletNode(ctx, 'chuck-processor', {
-                numberOfInputs: 1,
-                numberOfOutputs: 1,
-                outputChannelCount: [outChannels],
-                channelCount: inChannels,
-                channelCountMode: 'explicit',
-            });
-
-            node.port.postMessage({
-                sab,
-                outBufOffset: outBufPtr,
-                outWritePosOffset: outWritePosPtr,
-                outReadPosOffset: outReadPosPtr,
-                inBufOffset: inBufPtr,
-                inWritePosOffset: inWritePosPtr,
-                inReadPosOffset: inReadPosPtr,
-                capacity,
-                outChannels,
-                inChannels,
-            });
-
-            node.connect(ctx.destination);
-            this._audioNode = node;
-
-            // An AudioContext can re-suspend long after the first resume (backgrounded
-            // tab, device change), so listeners re-arm on any non-running state.
-            let attached = false;
-            const gestureHandler = (): void => {
-                if (!this._audioCtx || this._audioCtx.state === 'running') return;
-                this._audioCtx.resume().catch((err) => {
-                    console.warn('[WebChuGL] AudioContext resume failed:', err);
-                });
-            };
-            const signal = this._teardown.signal;
-            const attachGestureListeners = (): void => {
-                if (attached) return;
-                document.addEventListener('click', gestureHandler, { signal });
-                document.addEventListener('keydown', gestureHandler, { signal });
-                document.addEventListener('touchstart', gestureHandler, { signal });
-                attached = true;
-            };
-            const detachGestureListeners = (): void => {
-                if (!attached) return;
-                document.removeEventListener('click', gestureHandler);
-                document.removeEventListener('keydown', gestureHandler);
-                document.removeEventListener('touchstart', gestureHandler);
-                attached = false;
-            };
-            const onStateChange = (): void => {
-                if (!this._audioCtx) return;
-                const state = this._audioCtx.state;
-                if (state === 'running') {
-                    detachGestureListeners();
-                } else if (state === 'suspended') {
-                    attachGestureListeners();
-                }
-            };
-            ctx.addEventListener('statechange', onStateChange, { signal });
-            attachGestureListeners();
-
-            console.log('[WebChuGL] Audio initialized (JS AudioWorklet)');
-        }).catch((err) => {
-            console.error('[WebChuGL] Audio worklet failed: ' + err.message);
-        });
-        // Set synchronously so getSampleRate() works before the worklet loads.
-        this._audioCtx = ctx;
     }
 
     static _create(config: WebChuGLInternalConfig): Promise<ChucK> {
@@ -334,7 +214,7 @@ class ChucK {
         // hand back an instance whose calls would queue forever.
         const fail = (msg: string): Promise<ChucK> => {
             onError(msg);
-            instance.flushCallbacks();
+            instance._flushCallbacks();
             return Promise.reject(new Error('[WebChuGL] ' + msg));
         };
 
@@ -359,8 +239,8 @@ class ChucK {
             },
             setStatus: () => {},
 
-            _ckCallbacks: instance.callbacks,
-            _ckEventListeners: instance.eventListeners,
+            _ckCallbacks: instance._callbacks,
+            _ckEventListeners: instance._eventListeners,
 
             _initAudio: (
                 sab: SharedArrayBuffer,
@@ -369,15 +249,15 @@ class ChucK {
                 capacity: number,
                 sampleRate: number, outChannels: number, inChannels: number,
             ) => {
-                instance.handleInitAudio(
+                instance._handleInitAudio({
                     sab, outBufPtr, outWritePosPtr, outReadPosPtr,
                     inBufPtr, inWritePosPtr, inReadPosPtr,
                     capacity, sampleRate, outChannels, inChannels,
-                );
+                });
             },
 
             preRun: [(mod: WebChuGLModule) => {
-                instance.module = mod;
+                instance._module = mod;
                 onProgress(100);
             }],
         };
@@ -387,7 +267,7 @@ class ChucK {
         return import(/* @vite-ignore */ baseUrl + 'index.js')
             .then((glue: { default: CreateWebChuGL }) => glue.default(moduleConfig))
             .then((mod) => {
-            instance.module = mod;
+            instance._module = mod;
 
             if (!navigator.gpu) {
                 return fail('WebGPU is not available');
@@ -407,7 +287,7 @@ class ChucK {
 
             const chuginPromise: Promise<void[] | void> = urlsToFetch.length > 0
                 ? Promise.all(urlsToFetch.map((url) =>
-                    ChucK.fetchBuf(url).then((buf) => {
+                    fetchBuf(url).then((buf) => {
                         const chuginName = url.split('/').pop()!;
                         pendingChuginBuffers.push({ name: chuginName, buf });
                         console.log('[WebChuGL] Fetched chugin: ' + chuginName);
@@ -437,19 +317,19 @@ class ChucK {
                         ? ['float32-filterable' as GPUFeatureName] : [],
                     requiredLimits: limits,
                 }).then((device) => {
-                    instance.module!._preAdapter = adapter;
-                    instance.module!._preDevice = device;
+                    instance._module!._preAdapter = adapter;
+                    instance._module!._preDevice = device;
                     // Mount before callMain so storage is usable the moment init resolves.
-                    return instance._storage.mount().then(() => {
+                    return instance._vfs.mount().then(() => {
                         onReady();
-                        instance.module!.callMain([]);
+                        instance._module!.callMain([]);
 
-                        instance.module!.ccall('chugl_setup_parent_resize', null, [], []);
+                        instance._module!.ccall('chugl_setup_parent_resize', null, [], []);
 
                         for (const entry of pendingChuginBuffers) {
                             const vfsPath = '/chugins/' + entry.name;
-                            instance.writeVfs(vfsPath, entry.buf);
-                            if (!instance.loadChuginFromVfs(vfsPath)) {
+                            instance._vfs.write(vfsPath, entry.buf);
+                            if (!instance._loadChugin(vfsPath)) {
                                 console.warn('[WebChuGL] Failed to load chugin: ' + vfsPath);
                             }
                         }
@@ -460,7 +340,7 @@ class ChucK {
                                                 { signal: instance._teardown.signal });
                         const audioReady = instance._audioReady || Promise.resolve();
                         return audioReady.then(() => {
-                            instance.flush();
+                            instance._flush();
                             return instance;
                         });
                     });
@@ -472,7 +352,6 @@ class ChucK {
         });
     }
 
-
     get audioContext(): AudioContext | null { return this._audioCtx; }
     get audioNode(): AudioWorkletNode | null { return this._audioNode; }
 
@@ -480,83 +359,76 @@ class ChucK {
         return this._audioCtx ? this._audioCtx.sampleRate : null;
     }
 
-
     getCurrentTime(): number {
-        if (!this.module) return 0;
-        return this.module.ccall('ck_get_now', 'number', [], []);
+        if (!this._module) return 0;
+        return this._module.ccall('ck_get_now', 'number', [], []);
     }
 
     fps(): number {
-        if (!this.module) return 0;
-        return this.module.ccall('ck_get_fps', 'number', [], []);
+        if (!this._module) return 0;
+        return this._module.ccall('ck_get_fps', 'number', [], []);
     }
 
     dt(): number {
-        if (!this.module) return 0;
-        return this.module.ccall('ck_get_dt', 'number', [], []);
+        if (!this._module) return 0;
+        return this._module.ccall('ck_get_dt', 'number', [], []);
     }
 
     frameCount(): number {
-        if (!this.module) return 0;
-        return this.module.ccall('ck_get_frame_count', 'number', [], []);
+        if (!this._module) return 0;
+        return this._module.ccall('ck_get_frame_count', 'number', [], []);
     }
 
     isRunning(): boolean {
-        if (!this.module) return false;
-        return !!this.module.ccall('ck_is_vm_running', 'number', [], []);
+        if (!this._module) return false;
+        return !!this._module.ccall('ck_is_vm_running', 'number', [], []);
     }
 
     getActiveShreds(): ShredInfo[] {
-        if (!this.module) return [];
-        const json: string = this.module.ccall('ck_get_active_shreds', 'string', [], []);
+        if (!this._module) return [];
+        const json: string = this._module.ccall('ck_get_active_shreds', 'string', [], []);
         try { return JSON.parse(json); } catch { return []; }
     }
 
     getLastError(): string {
-        if (!this.module) return '';
-        return this.module.ccall('ck_get_last_compile_output', 'string', [], []);
+        if (!this._module) return '';
+        return this._module.ccall('ck_get_last_compile_output', 'string', [], []);
     }
 
     getGlobalVariables(): GlobalVariableInfo[] {
-        if (!this.module) return [];
-        const json: string = this.module.ccall('ck_get_all_globals', 'string', [], []);
+        if (!this._module) return [];
+        const json: string = this._module.ccall('ck_get_all_globals', 'string', [], []);
         try { return JSON.parse(json); } catch { return []; }
     }
 
-
     runCode(code: string): Promise<RunResult> {
-        return this.deferPromise(() => {
-            const shredId = this.module!.ccall('ck_run_code', 'number', ['string'], [code]);
+        return this._deferPromise(() => {
+            const shredId = this._module!.ccall('ck_run_code', 'number', ['string'], [code]);
             return new RunResult(shredId, () => this.getLastError());
         });
     }
 
     runFile(pathOrUrl: string): Promise<RunResult> {
-        if (pathOrUrl[0] === '/') return this.runVfsFile(pathOrUrl);
+        if (pathOrUrl[0] === '/') return this._runFile(pathOrUrl);
         const vfsCheck = '/' + pathOrUrl.split('/').pop()!;
-        try {
-            this.module!.FS.stat(vfsCheck);
-            return this.runVfsFile(vfsCheck);
-        } catch {
-            return this.loadFile(pathOrUrl).then((vfsPath) => this.runVfsFile(vfsPath));
-        }
+        if (this._vfs.exists(vfsCheck)) return this._runFile(vfsCheck);
+        return this.loadFile(pathOrUrl).then((vfsPath) => this._runFile(vfsPath));
     }
 
     runZip(url: string, mainFile?: string): Promise<number> {
         let main = mainFile;
         if (main && main[0] !== '/') main = '/' + main;
-        return this.unzipToVfs(url).then((entries) => {
+        return this._unzipToVfs(url).then((entries) => {
             if (!main) {
                 const rootCk = entries.filter((n) => n.endsWith('.ck') && n.indexOf('/') === -1);
                 main = entries.indexOf('main.ck') !== -1 ? '/main.ck'
                      : rootCk.length ? '/' + rootCk[0] : '/main.ck';
             }
-            return this.deferPromise(() =>
-                this.module!.ccall('ck_run_file', 'number', ['string'], [main!]) as number
+            return this._deferPromise(() =>
+                this._module!.ccall('ck_run_file', 'number', ['string'], [main!]) as number
             );
         });
     }
-
 
     createFile(pathOrDir: string, filenameOrData: string | ArrayBuffer | Uint8Array, maybeData?: string | ArrayBuffer | Uint8Array): void {
         let path: string;
@@ -572,47 +444,14 @@ class ChucK {
             path = pathOrDir;
             data = filenameOrData;
         }
-        this.defer(() => this.writeVfs(path, data));
+        this._defer(() => this._vfs.write(path, data));
     }
 
-    removeFile(path: string): boolean {
-        try {
-            const stat = this.module!.FS.stat(path);
-            if (this.module!.FS.isDir(stat.mode)) {
-                const entries = this.module!.FS.readdir(path).filter((e) => e !== '.' && e !== '..');
-                for (const entry of entries) this.removeFile(path + '/' + entry);
-                this.module!.FS.rmdir(path);
-            } else {
-                this.module!.FS.unlink(path);
-            }
-            return true;
-        } catch { return false; }
-    }
+    removeFile(path: string): boolean { return this._vfs.remove(path); }
 
-    fileExists(path: string): boolean {
-        try { this.module!.FS.stat(path); return true; } catch { return false; }
-    }
+    fileExists(path: string): boolean { return this._vfs.exists(path); }
 
-    listFiles(dir?: string): string[] {
-        const baseDir = dir || '/code';
-        const walk = (d: string): string[] => {
-            const results: string[] = [];
-            let entries: string[];
-            try { entries = this.module!.FS.readdir(d); } catch { return results; }
-            for (const entry of entries) {
-                if (entry === '.' || entry === '..') continue;
-                const full = d + '/' + entry;
-                const stat = this.module!.FS.stat(full);
-                if (this.module!.FS.isDir(stat.mode)) {
-                    results.push(...walk(full));
-                } else {
-                    results.push(full);
-                }
-            }
-            return results;
-        };
-        return walk(baseDir);
-    }
+    listFiles(dir?: string): string[] { return this._vfs.list(dir || '/code'); }
 
     loadFile(url: string, vfsPath?: string): Promise<string> {
         let resolvedPath = vfsPath;
@@ -623,12 +462,12 @@ class ChucK {
         const bin = isBinaryFile(resolvedPath);
         const isChugin = resolvedPath.endsWith('.chug.wasm');
         const finalPath = resolvedPath;
-        return ChucK.fetchOk(url)
+        return fetchOk(url)
             .then((r): Promise<string | ArrayBuffer> => bin ? r.arrayBuffer() : r.text())
             .then((data) => {
-                this.defer(() => {
-                    this.writeVfs(finalPath, data);
-                    if (isChugin) this.loadChuginFromVfs(finalPath);
+                this._defer(() => {
+                    this._vfs.write(finalPath, data);
+                    if (isChugin) this._loadChugin(finalPath);
                 });
                 return finalPath;
             });
@@ -641,12 +480,12 @@ class ChucK {
             const vfsPath = '/' + file;
             const bin = isBinaryFile(file);
             const isChugin = file.endsWith('.chug.wasm');
-            return ChucK.fetchOk(url)
+            return fetchOk(url)
                 .then((r): Promise<string | ArrayBuffer> => bin ? r.arrayBuffer() : r.text())
                 .then((data) => {
-                    this.defer(() => {
-                        this.writeVfs(vfsPath, data);
-                        if (isChugin) this.loadChuginFromVfs(vfsPath);
+                    this._defer(() => {
+                        this._vfs.write(vfsPath, data);
+                        if (isChugin) this._loadChugin(vfsPath);
                     });
                     return vfsPath;
                 });
@@ -654,89 +493,69 @@ class ChucK {
     }
 
     loadZip(url: string): Promise<void> {
-        return this.unzipToVfs(url)
+        return this._unzipToVfs(url)
             .then(() => { console.log('[WebChuGL] Zip extracted: ' + url); });
     }
 
+    setInt(name: string, val: number): void { this._ccallSet('ck_set_int', ['string', 'number'], [name, val]); }
+    setFloat(name: string, val: number): void { this._ccallSet('ck_set_float', ['string', 'number'], [name, val]); }
+    setString(name: string, val: string): void { this._ccallSet('ck_set_string', ['string', 'string'], [name, val]); }
+    getInt(name: string): Promise<number> { return this._ccallGet('ck_get_int', ['string'], [name]); }
+    getFloat(name: string): Promise<number> { return this._ccallGet('ck_get_float', ['string'], [name]); }
+    getString(name: string): Promise<string> { return this._ccallGet('ck_get_string', ['string'], [name]); }
 
-    setInt(name: string, val: number): void { this.ccallSet('ck_set_int', ['string', 'number'], [name, val]); }
-    setFloat(name: string, val: number): void { this.ccallSet('ck_set_float', ['string', 'number'], [name, val]); }
-    setString(name: string, val: string): void { this.ccallSet('ck_set_string', ['string', 'string'], [name, val]); }
-    getInt(name: string): Promise<number> { return this.ccallGet('ck_get_int', ['string'], [name]); }
-    getFloat(name: string): Promise<number> { return this.ccallGet('ck_get_float', ['string'], [name]); }
-    getString(name: string): Promise<string> { return this.ccallGet('ck_get_string', ['string'], [name]); }
-
-
-    signalEvent(name: string): void { this.ccallSet('ck_signal_event', ['string'], [name]); }
-    broadcastEvent(name: string): void { this.ccallSet('ck_broadcast_event', ['string'], [name]); }
+    signalEvent(name: string): void { this._ccallSet('ck_signal_event', ['string'], [name]); }
+    broadcastEvent(name: string): void { this._ccallSet('ck_broadcast_event', ['string'], [name]); }
 
     startListeningForEvent(name: string, callback: () => void): number {
-        const id = this.nextId++;
-        this.eventListeners[id] = { callback, once: false };
-        this.ccallSet('ck_listen_event', ['string', 'number', 'number'], [name, id, 1]);
+        const id = this._nextId++;
+        this._eventListeners[id] = { callback, once: false };
+        this._ccallSet('ck_listen_event', ['string', 'number', 'number'], [name, id, 1]);
         return id;
     }
 
     listenForEventOnce(name: string, callback: () => void): number {
-        const id = this.nextId++;
-        this.eventListeners[id] = { callback, once: true };
-        this.ccallSet('ck_listen_event', ['string', 'number', 'number'], [name, id, 0]);
+        const id = this._nextId++;
+        this._eventListeners[id] = { callback, once: true };
+        this._ccallSet('ck_listen_event', ['string', 'number', 'number'], [name, id, 0]);
         return id;
     }
 
     stopListeningForEvent(name: string, listenerId: number): void {
-        delete this.eventListeners[listenerId];
-        this.ccallSet('ck_stop_listening_event', ['string', 'number'], [name, listenerId]);
+        delete this._eventListeners[listenerId];
+        this._ccallSet('ck_stop_listening_event', ['string', 'number'], [name, listenerId]);
     }
-
 
     setIntArray(name: string, arr: number[]): void {
-        this.defer(() => {
+        this._defer(() => {
             const buf = new Uint8Array(new Int32Array(arr).buffer);
-            this.module!.ccall('ck_set_int_array', 'number', ['string', 'array', 'number'], [name, buf, arr.length]);
+            this._module!.ccall('ck_set_int_array', 'number', ['string', 'array', 'number'], [name, buf, arr.length]);
         });
     }
-    setIntArrayValue(name: string, index: number, value: number): void { this.ccallSet('ck_set_int_array_value', ['string', 'number', 'number'], [name, index, value]); }
-    setAssocIntArrayValue(name: string, key: string, value: number): void { this.ccallSet('ck_set_assoc_int_array_value', ['string', 'string', 'number'], [name, key, value]); }
-    getIntArray(name: string): Promise<number[]> { return this.ccallGet('ck_get_int_array', ['string'], [name]); }
-    getIntArrayValue(name: string, index: number): Promise<number> { return this.ccallGet('ck_get_int_array_value', ['string', 'number'], [name, index]); }
-    getAssocIntArrayValue(name: string, key: string): Promise<number> { return this.ccallGet('ck_get_assoc_int_array_value', ['string', 'string'], [name, key]); }
-
+    setIntArrayValue(name: string, index: number, value: number): void { this._ccallSet('ck_set_int_array_value', ['string', 'number', 'number'], [name, index, value]); }
+    setAssocIntArrayValue(name: string, key: string, value: number): void { this._ccallSet('ck_set_assoc_int_array_value', ['string', 'string', 'number'], [name, key, value]); }
+    getIntArray(name: string): Promise<number[]> { return this._ccallGet('ck_get_int_array', ['string'], [name]); }
+    getIntArrayValue(name: string, index: number): Promise<number> { return this._ccallGet('ck_get_int_array_value', ['string', 'number'], [name, index]); }
+    getAssocIntArrayValue(name: string, key: string): Promise<number> { return this._ccallGet('ck_get_assoc_int_array_value', ['string', 'string'], [name, key]); }
 
     setFloatArray(name: string, arr: number[]): void {
-        this.defer(() => {
+        this._defer(() => {
             const buf = new Uint8Array(new Float64Array(arr).buffer);
-            this.module!.ccall('ck_set_float_array', 'number', ['string', 'array', 'number'], [name, buf, arr.length]);
+            this._module!.ccall('ck_set_float_array', 'number', ['string', 'array', 'number'], [name, buf, arr.length]);
         });
     }
-    setFloatArrayValue(name: string, index: number, value: number): void { this.ccallSet('ck_set_float_array_value', ['string', 'number', 'number'], [name, index, value]); }
-    setAssocFloatArrayValue(name: string, key: string, value: number): void { this.ccallSet('ck_set_assoc_float_array_value', ['string', 'string', 'number'], [name, key, value]); }
-    getFloatArray(name: string): Promise<number[]> { return this.ccallGet('ck_get_float_array', ['string'], [name]); }
-    getFloatArrayValue(name: string, index: number): Promise<number> { return this.ccallGet('ck_get_float_array_value', ['string', 'number'], [name, index]); }
-    getAssocFloatArrayValue(name: string, key: string): Promise<number> { return this.ccallGet('ck_get_assoc_float_array_value', ['string', 'string'], [name, key]); }
+    setFloatArrayValue(name: string, index: number, value: number): void { this._ccallSet('ck_set_float_array_value', ['string', 'number', 'number'], [name, index, value]); }
+    setAssocFloatArrayValue(name: string, key: string, value: number): void { this._ccallSet('ck_set_assoc_float_array_value', ['string', 'string', 'number'], [name, key, value]); }
+    getFloatArray(name: string): Promise<number[]> { return this._ccallGet('ck_get_float_array', ['string'], [name]); }
+    getFloatArrayValue(name: string, index: number): Promise<number> { return this._ccallGet('ck_get_float_array_value', ['string', 'number'], [name, index]); }
+    getAssocFloatArrayValue(name: string, key: string): Promise<number> { return this._ccallGet('ck_get_assoc_float_array_value', ['string', 'string'], [name, key]); }
 
+    save(key: string, value: unknown): Promise<void> { return this._vfs.save(key, value); }
+    load(key: string): Promise<unknown> { return this._vfs.load(key); }
+    delete(key: string): Promise<void> { return this._vfs.delete(key); }
+    listKeys(): Promise<string[]> { return this._vfs.listKeys(); }
 
-    save(key: string, value: unknown): Promise<void> { return this._storage.save(key, value); }
-    load(key: string): Promise<unknown> { return this._storage.load(key); }
-    delete(key: string): Promise<void> { return this._storage.delete(key); }
-    listKeys(): Promise<string[]> { return this._storage.listKeys(); }
-
-
-    initMidi(access: MIDIAccess): void {
-        const w = window as unknown as RtMidiWindow;
-        w._rtmidi_internals_midi_access = access;
-        w._rtmidi_internals_latest_message_timestamp = 0.0;
-        w._rtmidi_internals_waiting = false;
-        w._rtmidi_internals_get_port_by_number = (portNumber, isInput) => {
-            const devices = isInput ? access.inputs : access.outputs;
-            let i = 0;
-            for (const device of devices.values()) {
-                if (i === portNumber) return device;
-                i++;
-            }
-            return null;
-        };
-    }
+    initMidi(access: MIDIAccess): void { installMidiAccess(access); }
 
     async requestMidi(): Promise<void> {
         if (!navigator.requestMIDIAccess) {
@@ -768,7 +587,7 @@ class ChucK {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             return Promise.reject(new Error('getUserMedia not supported in this browser'));
         }
-        const mod = this.module as any;
+        const mod = this._module as any;
         mod.__webcamStreams = mod.__webcamStreams || {};
         if (mod.__webcamStreams[deviceId]) return Promise.resolve();
 
@@ -776,7 +595,6 @@ class ChucK {
             mod.__webcamStreams[deviceId] = stream;
         });
     }
-
 
     loadAudio(url: string, vfsPath?: string): Promise<string> {
         let resolvedPath = vfsPath;
@@ -795,7 +613,7 @@ class ChucK {
             })
             .then((audioBuffer) => {
                 const wavData = audioBufferToWav(audioBuffer);
-                this.defer(() => this.writeVfs(finalPath, wavData));
+                this._defer(() => this._vfs.write(finalPath, wavData));
                 console.log('[WebChuGL] Audio loaded: ' + finalPath +
                     ' (' + audioBuffer.duration.toFixed(2) + 's, ' +
                     audioBuffer.numberOfChannels + 'ch)');
@@ -816,84 +634,81 @@ class ChucK {
                 return res.arrayBuffer();
             })
             .then(buf => {
-                this.defer(() => this.writeVfs(finalPath, buf));
+                this._defer(() => this._vfs.write(finalPath, buf));
                 console.log('[WebChuGL] Video loaded: ' + finalPath);
                 return finalPath;
             });
     }
 
-
     loadChugin(url: string): Promise<string> {
         const name = url.split('/').pop()!;
         const shortName = name.replace('.chug.wasm', '');
-        if (this.loadedChuginSet[shortName]) return Promise.resolve(shortName);
-        return ChucK.fetchBuf(url).then((buf) => this.deferPromise(() => {
+        if (this._loadedChuginSet[shortName]) return Promise.resolve(shortName);
+        return fetchBuf(url).then((buf) => this._deferPromise(() => {
             const vfsPath = '/chugins/' + name;
-            this.writeVfs(vfsPath, buf);
-            const loaded = this.loadChuginFromVfs(vfsPath);
+            this._vfs.write(vfsPath, buf);
+            const loaded = this._loadChugin(vfsPath);
             if (!loaded) return Promise.reject(new Error('Failed to load chugin: ' + name));
             return Promise.resolve(loaded);
         }));
     }
 
     getLoadedChugins(): string[] {
-        if (!this.module) return Object.keys(this.loadedChuginSet);
+        if (!this._module) return Object.keys(this._loadedChuginSet);
         try {
-            const json: string = this.module.ccall('ck_get_loaded_chugins', 'string', [], []);
+            const json: string = this._module.ccall('ck_get_loaded_chugins', 'string', [], []);
             return JSON.parse(json);
         } catch {
-            return Object.keys(this.loadedChuginSet);
+            return Object.keys(this._loadedChuginSet);
         }
     }
 
-
     replaceCode(code: string): Promise<ReplaceResult> {
-        return this.replaceVia('ck_replace_code', ['string'], [code]);
+        return this._replaceVia('ck_replace_code', ['string'], [code]);
     }
 
     replaceFile(filename: string): Promise<ReplaceResult> {
-        return this.replaceVia('ck_replace_file', ['string'], [filename]);
+        return this._replaceVia('ck_replace_file', ['string'], [filename]);
     }
 
     replaceFileWithArgs(filename: string, colonSeparatedArgs: string): Promise<ReplaceResult> {
-        return this.replaceVia('ck_replace_file_with_args', ['string', 'string'],
+        return this._replaceVia('ck_replace_file_with_args', ['string', 'string'],
             [filename, colonSeparatedArgs]);
     }
 
     removeLastCode(): Promise<number> {
-        return this.deferPromise(() => {
-            const shredID: number = this.module!.ccall('ck_remove_last_code', 'number', [], []);
+        return this._deferPromise(() => {
+            const shredID: number = this._module!.ccall('ck_remove_last_code', 'number', [], []);
             if (!shredID) return Promise.reject(new Error('removeLastCode failed'));
             return shredID;
         });
     }
 
     removeShred(shredID: number): Promise<number> {
-        return this.deferPromise(() => {
-            const removed: number = this.module!.ccall('ck_remove_shred', 'number', ['number'], [shredID]);
+        return this._deferPromise(() => {
+            const removed: number = this._module!.ccall('ck_remove_shred', 'number', ['number'], [shredID]);
             if (!removed) return Promise.reject(new Error('removeShred failed'));
             return removed;
         });
     }
 
     isShredActive(shredID: number): Promise<number> {
-        return this.deferPromise(() =>
-            this.module!.ccall('ck_is_shred_active', 'number', ['number'], [shredID])
+        return this._deferPromise(() =>
+            this._module!.ccall('ck_is_shred_active', 'number', ['number'], [shredID])
         );
     }
 
     runFileWithArgs(filename: string, colonSeparatedArgs: string): Promise<RunResult> {
-        return this.deferPromise(() => {
-            const shredId = this.module!.ccall('ck_run_file_with_args', 'number',
+        return this._deferPromise(() => {
+            const shredId = this._module!.ccall('ck_run_file_with_args', 'number',
                 ['string', 'string'], [filename, colonSeparatedArgs]);
             return new RunResult(shredId, () => this.getLastError());
         });
     }
 
     now(): Promise<number> {
-        return this.deferPromise(() => this.getCurrentTime());
+        return this._deferPromise(() => this.getCurrentTime());
     }
-
 
     get chuckPrint(): ((msg: string) => void) | null {
         return this._printCallback;
@@ -902,51 +717,49 @@ class ChucK {
     set chuckPrint(callback: ((msg: string) => void) | null) {
         if (typeof callback === 'function') {
             this._printCallback = callback;
-            this.defer(() => {
-                this.module!.ccall('ck_set_print_callback', null, ['number'], [1]);
+            this._defer(() => {
+                this._module!.ccall('ck_set_print_callback', null, ['number'], [1]);
             });
         } else {
             this._printCallback = null;
-            this.defer(() => {
-                this.module!.ccall('ck_set_print_callback', null, ['number'], [0]);
+            this._defer(() => {
+                this._module!.ccall('ck_set_print_callback', null, ['number'], [0]);
             });
         }
     }
 
-
     setParamInt(name: string, val: number): void {
-        this.defer(() => this.module!.ccall('ck_set_param_int', null, ['string', 'number'], [name, val]));
+        this._defer(() => this._module!.ccall('ck_set_param_int', null, ['string', 'number'], [name, val]));
     }
     getParamInt(name: string): number {
-        if (!this.module) return 0;
-        return this.module.ccall('ck_get_param_int', 'number', ['string'], [name]);
+        if (!this._module) return 0;
+        return this._module.ccall('ck_get_param_int', 'number', ['string'], [name]);
     }
     setParamFloat(name: string, val: number): void {
-        this.defer(() => this.module!.ccall('ck_set_param_float', null, ['string', 'number'], [name, val]));
+        this._defer(() => this._module!.ccall('ck_set_param_float', null, ['string', 'number'], [name, val]));
     }
     getParamFloat(name: string): number {
-        if (!this.module) return 0;
-        return this.module.ccall('ck_get_param_float', 'number', ['string'], [name]);
+        if (!this._module) return 0;
+        return this._module.ccall('ck_get_param_float', 'number', ['string'], [name]);
     }
     setParamString(name: string, val: string): void {
-        this.defer(() => this.module!.ccall('ck_set_param_string', null, ['string', 'string'], [name, val]));
+        this._defer(() => this._module!.ccall('ck_set_param_string', null, ['string', 'string'], [name, val]));
     }
     getParamString(name: string): string {
-        if (!this.module) return '';
-        return this.module.ccall('ck_get_param_string', 'string', ['string'], [name]);
+        if (!this._module) return '';
+        return this._module.ccall('ck_get_param_string', 'string', ['string'], [name]);
     }
-
 
     clearChuckInstance(): void {
-        this.defer(() => this.module!.ccall('ck_clear_instance', null, [], []));
+        this._defer(() => this._module!.ccall('ck_clear_instance', null, [], []));
     }
     clearGlobals(): void {
-        this.defer(() => this.module!.ccall('ck_clear_globals', null, [], []));
+        this._defer(() => this._module!.ccall('ck_clear_globals', null, [], []));
     }
     reset(): Promise<void> {
         this.clearChuckInstance();
         this.clearGlobals();
-        this.defer(() => this.module!.ccall('ck_reset_graphics', null, [], []));
+        this._defer(() => this._module!.ccall('ck_reset_graphics', null, [], []));
         // ck_reset_graphics re-binds render_pass next frame; a shred spawned in the
         // same batch would draw against a stale scene_id. Yield one frame first.
         return new Promise((resolve) => {
@@ -955,7 +768,7 @@ class ChucK {
         });
     }
 
-    private releaseCanvas(canvas: HTMLCanvasElement | null): void {
+    private _releaseCanvas(canvas: HTMLCanvasElement | null): void {
         if (!canvas) return;
         const owner = canvas as any;
 
@@ -974,28 +787,28 @@ class ChucK {
 
     destroy(): void {
         this._teardown.abort();
-        if (!this.module) return;
+        if (!this._module) return;
 
         // Must precede teardown: the loop would render against freed state.
-        this.module.ccall('ck_stop_render_loop', null, [], []);
+        this._module.ccall('ck_stop_render_loop', null, [], []);
 
-        this.module.ccall('ck_clear_instance', null, [], []);
-        this.module.ccall('ck_clear_globals', null, [], []);
+        this._module.ccall('ck_clear_instance', null, [], []);
+        this._module.ccall('ck_clear_globals', null, [], []);
 
         if (this._audioNode) { this._audioNode.disconnect(); this._audioNode = null; }
         if (this._audioCtx) { this._audioCtx.close(); this._audioCtx = null; }
         this._audioReady = null;
 
-        this.releaseCanvas(this.module.canvas as HTMLCanvasElement);
+        this._releaseCanvas(this._module.canvas as HTMLCanvasElement);
 
-        this.flushCallbacks();
+        this._flushCallbacks();
 
-        this.module = null;
-        this.isReady = false;
-        this.deferQueue = [];
-        this.callbacks = {};
-        this.eventListeners = {};
-        this.loadedChuginSet = {};
+        this._module = null;
+        this._isReady = false;
+        this._deferQueue = [];
+        this._callbacks = {};
+        this._eventListeners = {};
+        this._loadedChuginSet = {};
         if (this._micSource) { try { this._micSource.disconnect(); } catch { /* ignore */ } this._micSource = null; }
         if (this._micStream) {
             this._micStream.getTracks().forEach((t) => t.stop());
@@ -1006,7 +819,6 @@ class ChucK {
         console.log('[WebChuGL] Instance destroyed');
     }
 
-
     connect(destination: AudioNode): void {
         if (this._audioNode) this._audioNode.connect(destination);
     }
@@ -1014,119 +826,6 @@ class ChucK {
         if (this._audioNode) this._audioNode.disconnect();
     }
 
-
-    private static readonly CHUMP_MANIFEST = 'https://chuck.stanford.edu/release/chump/manifest/v1/manifest.json';
-    private static _manifestCache: Promise<ChumpManifest> | null = null;
-
-    private static fetchManifest(): Promise<ChumpManifest> {
-        if (ChucK._manifestCache) return ChucK._manifestCache;
-        ChucK._manifestCache = ChucK.fetchOk(ChucK.CHUMP_MANIFEST)
-            .then((r) => r.json())
-            .catch((err) => {
-                ChucK._manifestCache = null;
-                throw err;
-            });
-        return ChucK._manifestCache;
-    }
-
-    private static fetchBuf(url: string): Promise<ArrayBuffer> {
-        return ChucK.fetchOk(url).then((r) => r.arrayBuffer());
-    }
-
-    private static fetchOk(url: string): Promise<Response> {
-        return fetch(url).then((r) => {
-            if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + url);
-            return r;
-        });
-    }
-
-    private static compareSemver(a: string, b: string): number {
-        const pa = a.split('.').map(Number);
-        const pb = b.split('.').map(Number);
-        for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-            const diff = (pa[i] || 0) - (pb[i] || 0);
-            if (diff !== 0) return diff;
-        }
-        return 0;
-    }
-
-    loadPackage(name: string, version?: string, url?: string): Promise<string> {
-        if (!name || !/^[a-zA-Z0-9_@\/-]+$/.test(name)) {
-            return Promise.reject(new Error('Invalid package name: ' + name));
-        }
-        if (version && !/^[a-zA-Z0-9._-]+$/.test(version)) {
-            return Promise.reject(new Error('Invalid package version: ' + version));
-        }
-
-        const jszipReady = this.ensureJSZip();
-
-        const zipPromise: Promise<{ zipData: ArrayBuffer; resolvedVersion: string }> =
-            url
-                ? ChucK.fetchBuf(url)
-                    .then((zipData) => ({ zipData, resolvedVersion: version || 'custom' }))
-                : ChucK.fetchManifest().then((manifest) => {
-                    const pkg = manifest.packages.find(
-                        (p) => p.name.toLowerCase() === name.toLowerCase()
-                    );
-                    if (!pkg) throw new Error('Package not found: ' + name);
-
-                    // Filter to web-compatible versions (os: "any", arch: "all")
-                    const webVersions = pkg.versions.filter(
-                        (v) => v.os === 'any' && v.arch === 'all'
-                    );
-                    if (!webVersions.length) {
-                        throw new Error('No web-compatible version found for: ' + name
-                            + ' (only os:"any" arch:"all" packages are supported)');
-                    }
-
-                    let entry: ChumpVersionEntry;
-                    if (version) {
-                        const match = webVersions.find((v) => v.version === version);
-                        if (!match) throw new Error('Version ' + version + ' not found for: ' + name);
-                        entry = match;
-                    } else {
-                        webVersions.sort((a, b) => ChucK.compareSemver(a.version, b.version));
-                        entry = webVersions[webVersions.length - 1];
-                    }
-
-                    if (!entry.files.length || !entry.files[0].url) {
-                        throw new Error('No download URL for ' + name + '@' + entry.version);
-                    }
-
-                    return ChucK.fetchBuf(entry.files[0].url)
-                        .then((zipData) => ({ zipData, resolvedVersion: entry.version }));
-                });
-
-        return Promise.all([jszipReady, zipPromise]).then(([, { zipData, resolvedVersion }]) =>
-            JSZip.loadAsync(zipData).then((zip) => ({ zip, resolvedVersion }))
-        ).then(({ zip, resolvedVersion }) => {
-            const stripDirs = ['examples', '_examples', 'scripts', 'releases', '.git'];
-            const stripFiles = ['readme', 'versions', 'imgui.ini'];
-            const entries = Object.keys(zip.files).filter((n) => {
-                if (zip.files[n].dir) return false;
-                const firstDir = n.split('/')[0].toLowerCase();
-                if (stripDirs.indexOf(firstDir) >= 0) return false;
-                const basename = n.split('/').pop()!.toLowerCase();
-                if (stripFiles.indexOf(basename) >= 0) return false;
-                return true;
-            });
-            return Promise.all(entries.map((entryName) => {
-                const parts = entryName.split('/');
-                for (const part of parts) {
-                    if (part === '..' || part === '.') return Promise.resolve();
-                }
-                return zip.files[entryName].async('arraybuffer').then((content) => {
-                    this.defer(() => {
-                        const vfsPath = '/packages/' + name + '/' + entryName;
-                        this.writeVfs(vfsPath, content);
-                    });
-                });
-            })).then(() => resolvedVersion);
-        }).then((resolvedVersion) => {
-            console.log('[WebChuGL] Package loaded: ' + name + '@' + resolvedVersion);
-            return name;
-        });
-    }
 }
 
 export const initWebChuGL = ChucK._create;
