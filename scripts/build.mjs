@@ -1,8 +1,5 @@
 // Build WebChuGL (WASM compilation)
 // Usage: node scripts/build.mjs [--clean] [-j N]
-//
-// CMake builds in src/.cmake-build/ (outside build/) so that build/
-// contains only web-deployable files.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, rmSync, readdirSync } from 'node:fs';
