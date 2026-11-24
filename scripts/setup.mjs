@@ -1,4 +1,4 @@
-// WebChuGL setup: clones pinned dependencies and installs the Emscripten SDK.
+// WebChuGL setup: clones dependencies and installs the Emscripten SDK.
 //
 // Usage: node scripts/setup.mjs
 
@@ -11,10 +11,11 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const WIN = process.platform === 'win32';
 
 const CHUGL_REPO = 'https://github.com/Oran2009/chugl.git';
-const CHUGL_COMMIT = 'be6e609dcffcdff83b356a0c8100b8b71a8f6e63';
+// Our own fork, so it tracks the branch tip rather than a pinned commit.
+const CHUGL_BRANCH = 'webchugl';
 
 const CHUCK_REPO = 'https://github.com/ccrma/chuck.git';
-const CHUCK_TAG = 'chuck-1.5.5.8';
+const CHUCK_TAG = 'chuck-1.5.5.9';
 
 const EMSDK_VERSION = '5.0.3';
 // Pin emsdk orchestration scripts to a known commit for reproducibility
@@ -45,7 +46,7 @@ function cloneOrCheck(tag, dir, repo, ref, resolve) {
             return;
         }
         const head = capture('git', ['rev-parse', 'HEAD'], dir).out;
-        if (head === expected) console.log(`[${tag}] Already at pinned ${ref}`);
+        if (head === expected) console.log(`[${tag}] Already at ${ref}`);
         else {
             console.log(`[${tag}] Warning: HEAD (${head}) differs from ${ref} (${expected})`);
             console.log(`[${tag}] You may need: git fetch --tags && git checkout ${ref}`);
@@ -74,7 +75,10 @@ function assertEmsdkVersion(installDir) {
 
 console.log('=== WebChuGL Setup ===\n');
 
-cloneOrCheck('chugl', join(ROOT, 'chugl'), CHUGL_REPO, CHUGL_COMMIT);
+cloneOrCheck('chugl', join(ROOT, 'chugl'), CHUGL_REPO, CHUGL_BRANCH, (dir) => {
+    capture('git', ['fetch', 'origin', CHUGL_BRANCH], dir);
+    return capture('git', ['rev-parse', 'FETCH_HEAD'], dir).out;
+});
 
 cloneOrCheck('chuck', join(ROOT, 'chuck'), CHUCK_REPO, CHUCK_TAG, (dir) => {
     // ^{} dereferences an annotated tag to the commit it points at.

@@ -2,7 +2,7 @@
 
 import type { RingBufferParams } from './lib/audio';
 import type { AudioConfig, ShredInfo, ReplaceResult, GlobalVariableInfo, WebChuGLInternalConfig, ChuginEntry } from './types/chuck.js';
-import { VFS, isBinaryFile } from './lib/vfs';
+import { VFS, abs, isBinaryFile } from './lib/vfs';
 import { audioBufferToWav, startAudio } from './lib/audio';
 import { installMidiAccess } from './lib/midi';
 import { Zip } from './lib/zip';
@@ -86,8 +86,8 @@ class ChucK {
             return Promise.all(zip.names.map((name) =>
                 zip.file(name).then((content) => {
                     this._defer(() => {
-                        this._vfs.write('/' + name, content);
-                        if (name.endsWith('.chug.wasm')) this._loadChugin('/' + name);
+                        this._vfs.write(abs(name), content);
+                        if (name.endsWith('.chug.wasm')) this._loadChugin(abs(name));
                     });
                 })
             )).then(() => zip.names);
@@ -324,8 +324,6 @@ class ChucK {
                         onReady();
                         instance._module!.callMain([]);
 
-                        instance._module!.ccall('chugl_setup_parent_resize', null, [], []);
-
                         for (const entry of pendingChuginBuffers) {
                             const vfsPath = '/chugins/' + entry.name;
                             instance._vfs.write(vfsPath, entry.buf);
@@ -410,19 +408,19 @@ class ChucK {
 
     runFile(pathOrUrl: string): Promise<RunResult> {
         if (pathOrUrl[0] === '/') return this._runFile(pathOrUrl);
-        const vfsCheck = '/' + pathOrUrl.split('/').pop()!;
+        const vfsCheck = abs(pathOrUrl.split('/').pop()!);
         if (this._vfs.exists(vfsCheck)) return this._runFile(vfsCheck);
         return this.loadFile(pathOrUrl).then((vfsPath) => this._runFile(vfsPath));
     }
 
     runZip(url: string, mainFile?: string): Promise<number> {
         let main = mainFile;
-        if (main && main[0] !== '/') main = '/' + main;
+        if (main) main = abs(main);
         return this._unzipToVfs(url).then((entries) => {
             if (!main) {
                 const rootCk = entries.filter((n) => n.endsWith('.ck') && n.indexOf('/') === -1);
                 main = entries.indexOf('main.ck') !== -1 ? '/main.ck'
-                     : rootCk.length ? '/' + rootCk[0] : '/main.ck';
+                     : rootCk.length ? abs(rootCk[0]) : '/main.ck';
             }
             return this._deferPromise(() =>
                 this._module!.ccall('ck_run_file', 'number', ['string'], [main!]) as number
@@ -454,14 +452,9 @@ class ChucK {
     listFiles(dir?: string): string[] { return this._vfs.list(dir || '/code'); }
 
     loadFile(url: string, vfsPath?: string): Promise<string> {
-        let resolvedPath = vfsPath;
-        if (!resolvedPath) {
-            resolvedPath = '/' + url.split('/').pop()!;
-        }
-        if (resolvedPath[0] !== '/') resolvedPath = '/' + resolvedPath;
-        const bin = isBinaryFile(resolvedPath);
-        const isChugin = resolvedPath.endsWith('.chug.wasm');
-        const finalPath = resolvedPath;
+        const finalPath = abs(vfsPath || url.split('/').pop()!);
+        const bin = isBinaryFile(finalPath);
+        const isChugin = finalPath.endsWith('.chug.wasm');
         return fetchOk(url)
             .then((r): Promise<string | ArrayBuffer> => bin ? r.arrayBuffer() : r.text())
             .then((data) => {
@@ -477,7 +470,7 @@ class ChucK {
         if (basePath[basePath.length - 1] !== '/') basePath += '/';
         return Promise.all(files.map((file) => {
             const url = basePath + file;
-            const vfsPath = '/' + file;
+            const vfsPath = abs(file);
             const bin = isBinaryFile(file);
             const isChugin = file.endsWith('.chug.wasm');
             return fetchOk(url)
@@ -597,13 +590,8 @@ class ChucK {
     }
 
     loadAudio(url: string, vfsPath?: string): Promise<string> {
-        let resolvedPath = vfsPath;
-        if (!resolvedPath) {
-            const name = url.split('/').pop()!.split('?')[0];
-            resolvedPath = '/audio/' + (name || 'audio.wav');
-        }
-        if (resolvedPath[0] !== '/') resolvedPath = '/' + resolvedPath;
-        const finalPath = resolvedPath;
+        const name = url.split('/').pop()!.split('?')[0];
+        const finalPath = abs(vfsPath || 'audio/' + (name || 'audio.wav'));
         return fetch(url, { mode: 'cors' })
             .catch(() => { throw new Error('Failed to fetch (CORS blocked or network error): ' + url); })
             .then((r) => r.arrayBuffer())
@@ -622,12 +610,7 @@ class ChucK {
     }
 
     loadVideo(url: string, vfsPath?: string): Promise<string> {
-        let resolvedPath = vfsPath;
-        if (!resolvedPath) {
-            const parts = url.split('/');
-            resolvedPath = '/' + parts[parts.length - 1];
-        }
-        const finalPath = resolvedPath;
+        const finalPath = abs(vfsPath || url.split('/').pop()!);
         return fetch(url)
             .then(res => {
                 if (!res.ok) throw new Error('Failed to fetch video: ' + res.status);

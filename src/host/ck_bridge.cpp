@@ -386,7 +386,7 @@ void ck_clear_instance()
     if (!the_chuck) return;
     the_chuck->removeAllShreds();
     // Reset letterbox state so the next program starts with default sizing.
-    _chugl_setup_letterbox(0, 0);
+    chugl_fit_canvas(0, 0);
 }
 
 EMSCRIPTEN_KEEPALIVE

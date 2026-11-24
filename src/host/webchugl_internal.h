@@ -30,5 +30,5 @@ extern double CHUGL_Window_dt();
 // Frame count (defined in ChuGL ulib_helper.h)
 extern long long g_frame_count;
 
-// Canvas letterboxing (canvas.cpp)
-extern "C" void _chugl_setup_letterbox(double ar_x, double ar_y);
+// Canvas sizing (canvas.cpp)
+extern "C" void chugl_fit_canvas(double aspect_x, double aspect_y);
