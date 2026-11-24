@@ -1,0 +1,145 @@
+/* ── Shared base ──────────────────────────────────────────────────────── */
+@import url('./base.css');
+
+/* ── Homepage + Changelog specific styles ────────────────────────────── */
+
+.hero .logo { width: 56px; height: 56px; vertical-align: middle; margin-left: 8px; }
+.hero .description { max-width: 640px; margin: 1.5rem auto; text-shadow: 0 1px 6px rgba(0,0,0,0.6); }
+
+.hero-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin: 1.2rem 0; }
+
+/* ── Feature Cards ───────────────────────────────────────────────────── */
+.features {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+
+@media (max-width: 760px) {
+    .features { grid-template-columns: 1fr; }
+}
+
+.feature-card {
+    background: var(--bg-card);
+    border: 2px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    transition: border-color 0.2s, transform 0.2s;
+}
+.feature-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+a.feature-card { display: block; color: inherit; text-decoration: none; }
+a.feature-card:hover, a.feature-card:visited { color: inherit; text-decoration: none; }
+.feature-card h4 { margin-top: 0; font-size: 1.1rem; }
+.feature-card .icon { font-size: 1.5rem; margin-bottom: 0.5rem; }
+
+/* ── API Reference Table ─────────────────────────────────────────────── */
+.api-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+.api-table th, .api-table td {
+    padding: 0.6rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+.api-table th { color: var(--fg-dim); font-weight: 600; font-size: 0.85rem; text-transform: uppercase; }
+.api-table td code { font-size: 0.85rem; }
+.api-table tr:hover { background: rgba(34, 197, 94, 0.05); }
+
+/* ── Back to Top button ───────────────────────────────────────────────── */
+.back-to-top {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius);
+    background: var(--bg-card);
+    border: 2px solid var(--accent);
+    color: var(--accent2);
+    font-size: 1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s, border-color 0.2s, color 0.2s, transform 0.1s;
+    text-decoration: none;
+    z-index: 100;
+}
+
+.back-to-top.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.back-to-top:hover {
+    border-color: var(--accent2);
+    color: var(--accent);
+    transform: translateY(-2px);
+    text-decoration: none;
+}
+
+/* ── Release entries (changelog) ─────────────────────────────────────── */
+.release {
+    margin: 2rem 0;
+    padding: 1.5rem;
+    background: var(--bg-card);
+    border: 2px solid var(--border);
+    border-radius: var(--radius);
+    transition: border-color 0.2s;
+}
+.release:hover { border-color: var(--accent); }
+
+.release-header {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+.release-version {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--accent);
+    margin: 0;
+}
+
+.release-date {
+    font-size: 0.9rem;
+    color: var(--fg-dim);
+}
+
+.release-body h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--accent2);
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.release-body ul {
+    margin: 0.5em 0;
+    padding-left: 1.5em;
+}
+
+.release-body li {
+    margin: 0.3em 0;
+    color: var(--fg);
+}
+
+/* ── Empty state ────────────────────────────────────────────────────── */
+.empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--fg-dim);
+}
+
+.empty-state .icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+}
